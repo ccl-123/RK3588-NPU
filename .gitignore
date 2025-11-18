@@ -1,0 +1,148 @@
+# C++ 项目通用忽略文件
+
+# 构建目录
+build/
+install/
+cmake-build-*/
+
+# CMake 生成的文件
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps
+
+# 编译产物
+*.o
+*.so
+*.so.*
+*.a
+*.la
+*.lo
+*.dll
+*.exe
+*.out
+*.app
+
+# 调试文件
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# 临时文件
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# 日志文件
+*.log
+*.txt.bak
+
+# 操作系统文件
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE 文件
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Qt Creator
+*.pro.user
+*.pro.user.*
+
+# Visual Studio Code
+.vscode/settings.json
+.vscode/launch.json
+
+# CLion
+.idea/
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# Vim
+*.swp
+*.swo
+Session.vim
+.netrwhist
+
+# 模型和数据文件（根据需要取消注释）
+# *.rknn
+# data/models/
+# data/face_feature_lib/
+
+# 结果文件
+result.jpg
+result_*.jpg
+output/
+results/
+
+# 运行时生成的特征库
+**/data/face_feature_lib/*.dat
+
+# Python 文件
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# 备份文件
+*.bak
+*.backup
+*.orig
