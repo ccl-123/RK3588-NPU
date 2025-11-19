@@ -197,9 +197,9 @@ int main(int argc, char** argv)
   					std::ifstream infile(face_lib + ptr->d_name);
   					std::cout << "\n" << ptr->d_name << std::endl;
   					std::string tmp;
-  					float lib_feature[128];
+  					float lib_feature[FACENET_FEATURE_DIM];
   					float cos_similar;
-  					
+
   					int i = 0;
   					while (getline(infile, tmp))
   					{
@@ -311,14 +311,14 @@ int main(int argc, char** argv)
 				cv::cvtColor(warp, warp, cv::COLOR_BGR2RGB);
 				
 				facenet_inference(&facenet_ctx, warp, facenet_io_num, facenet_inputs, facenet_outputs, &facenet_result);
-				
+
 				std::ofstream outfile(save_path + ((std::string)ptr->d_name).substr(0, ((std::string)ptr->d_name).find_last_of(".")) + ".dat", std::ofstream::out);
-  				for (int i = 0; i < 128; ++i)
+  				for (int i = 0; i < FACENET_FEATURE_DIM; ++i)
   				{
   					outfile << facenet_result[i] << "\n";
   				}
   				outfile.close();
-  				facenet_output_release(&facenet_ctx, facenet_io_num, facenet_outputs);	
+  				facenet_output_release(&facenet_ctx, facenet_io_num, facenet_outputs);
   			}
   		}
   	}

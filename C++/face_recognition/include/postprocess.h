@@ -13,6 +13,9 @@
 #define FACENET_THRESH    0.5
 #define PROP_BOX_SIZE     (OBJ_CLASS_NUM+64)
 
+// 人脸特征向量维度 (新模型 w600k_mbf.rknn: 512维, 旧模型 facenet.rknn: 128维)
+#define FACENET_FEATURE_DIM 512
+
 typedef struct _BOX_RECT
 {
     int left;

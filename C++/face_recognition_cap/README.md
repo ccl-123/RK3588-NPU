@@ -6,14 +6,24 @@ $ bash build.sh
 
 ## Inference demo
 
-This demo integrates retinaface and facenet.
+This demo integrates retinaface and facenet (MobileFaceNet + ArcFace) for real-time face recognition.
+
+**Model Info:**
+- Face Detection: retinaface.rknn
+- Face Recognition: w600k_mbf.rknn (512-dim feature, trained on WebFace600K)
 
 Before inference, please run face_recognition to generate face_feature_lib and copy the library here.
 
 ```sh
-# Identification
-$ cd install/face_recognition
-$ ./face_recognition data/model/retinaface.rknn data/model/facenet.rknn 33
+# Real-time face recognition with camera
+$ cd install/face_recognition_cap
+$ ./face_recognition_cap data/model/retinaface.rknn data/model/w600k_mbf.rknn usb 0
 ```
 
-33 is the index of camera device.
+**Parameters:**
+- Camera type: `usb` or `mipi`
+- Device number: camera device index (e.g., 0, 1, 2...)
+
+**Important Notes:**
+- The new model (w600k_mbf.rknn) outputs 512-dim features (old facenet.rknn was 128-dim).
+- You must regenerate the feature library when switching models.

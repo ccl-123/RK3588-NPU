@@ -191,9 +191,9 @@ int main(int argc, char** argv)
 		{
 			std::ifstream infile(face_lib + ptr->d_name);
 			std::string tmp;
-			
-			float* tmp_lib_feature = new float[128];
-			
+
+			float* tmp_lib_feature = new float[FACENET_FEATURE_DIM];
+
 			int i = 0;
 			while (getline(infile, tmp))
 			{

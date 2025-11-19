@@ -348,12 +348,12 @@ cv::Mat similarTransform(cv::Mat src,cv::Mat dst) {
 void l2_normalize(float* input)
 {
 	float sum = 0;
-	for (int i = 0; i < 128; ++i)
+	for (int i = 0; i < FACENET_FEATURE_DIM; ++i)
 	{
 		sum = sum + input[i] * input[i];
 	}
 	sum = sqrt(sum);
-	for (int i = 0; i < 128; ++i)
+	for (int i = 0; i < FACENET_FEATURE_DIM; ++i)
 	{
 		input[i] = input[i] / sum;
 	}
@@ -362,7 +362,7 @@ void l2_normalize(float* input)
 float eu_distance(float* input)
 {
 	float sum = 0;
-	for (int i = 0; i < 128; ++i)
+	for (int i = 0; i < FACENET_FEATURE_DIM; ++i)
 	{
 		sum = sum + input[i] * input[i];
 	}
@@ -373,7 +373,7 @@ float eu_distance(float* input)
 float compare_eu_distance(float* input1, float* input2)
 {
 	float sum = 0;
-	for (int i = 0; i < 128; ++i)
+	for (int i = 0; i < FACENET_FEATURE_DIM; ++i)
 	{
 		sum = sum + (input1[i] - input2[i]) * (input1[i] - input2[i]);
 	}
@@ -384,7 +384,7 @@ float compare_eu_distance(float* input1, float* input2)
 float cos_similarity(float* input1, float* input2)
 {
 	float sum = 0;
-	for (int i = 0; i < 128; ++i)
+	for (int i = 0; i < FACENET_FEATURE_DIM; ++i)
 	{
 		sum = sum + input1[i] * input2[i];
 	}
