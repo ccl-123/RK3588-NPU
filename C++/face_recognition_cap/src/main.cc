@@ -223,7 +223,7 @@ int main(int argc, char** argv)
 
 	// 性能分析变量
 	struct timeval t1, t2, t3, t4, t5, t6, t7, t8;
-	float time_camera = 0, time_flip = 0, time_resize = 0, time_retinaface = 0;
+	float time_camera = 0, time_preprocess = 0, time_retinaface = 0;
 	float time_align = 0, time_facenet = 0, time_match = 0, time_display = 0;
 
   	while(1){
@@ -243,19 +243,31 @@ int main(int argc, char** argv)
 		}
 		gettimeofday(&t2, NULL);
 
-		// 2. 图像翻转 (先翻转原图,确保坐标系一致)
-		cv::flip(orig_img, orig_img, 1);
+		// 2. & 3. 图像翻转 + 缩放 (使用RGA硬件加速,两次调用但避免OpenCV)
+		// 优化: 使用RGA翻转原图 + RGA缩放,完全避免CPU操作
 		gettimeofday(&t3, NULL);
 
-		// 3. 图像缩放 (使用RGA硬件加速)
-		// 优化: 使用RGA替换OpenCV的resize
-
-		// 分配目标图像内存
+		// 分配临时缓冲区和目标图像内存
+		static cv::Mat orig_img_flipped(HEIGHT, WIDTH, CV_8UC3);
 		if (img.empty() || img.cols != resize_w || img.rows != resize_h) {
 			img = cv::Mat(resize_h, resize_w, CV_8UC3);
 		}
 
-		// 使用RGA硬件加速进行缩放
+		// 第一步: 使用RGA翻转原图
+		rga_buffer_t flip_src = wrapbuffer_virtualaddr(orig_img.data, WIDTH, HEIGHT, RK_FORMAT_BGR_888);
+		rga_buffer_t flip_dst = wrapbuffer_virtualaddr(orig_img_flipped.data, WIDTH, HEIGHT, RK_FORMAT_BGR_888);
+
+		IM_STATUS flip_status = imflip(flip_src, flip_dst, IM_HAL_TRANSFORM_FLIP_H);
+		if (flip_status != IM_STATUS_SUCCESS) {
+			printf("RGA imflip failed: %s, fallback to OpenCV\n", imStrError(flip_status));
+			// 降级到OpenCV实现
+			cv::flip(orig_img, orig_img_flipped, 1);
+		}
+
+		// 替换原图为翻转后的图像
+		orig_img = orig_img_flipped;
+
+		// 第二步: 使用RGA缩放翻转后的图像
 		rga_buffer_t src_buf = wrapbuffer_virtualaddr(orig_img.data, WIDTH, HEIGHT, RK_FORMAT_BGR_888);
 		rga_buffer_t dst_buf = wrapbuffer_virtualaddr(img.data, resize_w, resize_h, RK_FORMAT_BGR_888);
 
@@ -263,11 +275,10 @@ int main(int argc, char** argv)
 		im_rect dst_rect = {0, 0, resize_w, resize_h};
 		im_rect pat_rect = {0, 0, 0, 0};
 
-		// 使用improcess进行缩放(不翻转)
 		rga_buffer_t pat_buf = {};
-		IM_STATUS status = improcess(src_buf, dst_buf, pat_buf, src_rect, dst_rect, pat_rect, 0);
-		if (status != IM_STATUS_SUCCESS) {
-			printf("RGA improcess failed: %s\n", imStrError(status));
+		IM_STATUS resize_status = improcess(src_buf, dst_buf, pat_buf, src_rect, dst_rect, pat_rect, 0);
+		if (resize_status != IM_STATUS_SUCCESS) {
+			printf("RGA improcess (resize) failed: %s\n", imStrError(resize_status));
 			// 降级到OpenCV实现
 			cv::resize(orig_img, img, cv::Size(resize_w, resize_h), 0, 0, cv::INTER_LINEAR);
 		}
@@ -366,8 +377,7 @@ int main(int argc, char** argv)
 
 		// 累计各阶段时间
 		time_camera += (__get_us(t2) - __get_us(t1)) / 1000;
-		time_flip += (__get_us(t3) - __get_us(t2)) / 1000;  // 图像翻转(OpenCV)
-		time_resize += (__get_us(t4) - __get_us(t3)) / 1000;  // 图像缩放(RGA硬件加速)
+		time_preprocess += (__get_us(t4) - __get_us(t3)) / 1000;  // RGA预处理(翻转+缩放)
 		time_retinaface += (__get_us(t5) - __get_us(t4)) / 1000;
 		time_display += (__get_us(t_display_end) - __get_us(t_display_start)) / 1000;
 
@@ -378,13 +388,12 @@ int main(int argc, char** argv)
 		{
 			printf("\n========== 性能分析 (平均 10 帧) ==========\n");
 			printf("1. 摄像头读取:    %6.2f ms (异步)\n", time_camera / 10);
-			printf("2. 图像翻转:      %6.2f ms (OpenCV)\n", time_flip / 10);
-			printf("3. 图像缩放:      %6.2f ms (RGA硬件加速)\n", time_resize / 10);
-			printf("4. RetinaFace:    %6.2f ms (人脸检测)\n", time_retinaface / 10);
-			printf("5. 人脸对齐:      %6.2f ms\n", time_align / 10);
-			printf("6. FaceNet:       %6.2f ms (512维特征提取)\n", time_facenet / 10);
-			printf("7. 特征匹配:      %6.2f ms\n", time_match / 10);
-			printf("8. 显示渲染:      %6.2f ms\n", time_display / 10);
+			printf("2. RGA预处理:     %6.2f ms (翻转+缩放,硬件加速)\n", time_preprocess / 10);
+			printf("3. RetinaFace:    %6.2f ms (人脸检测)\n", time_retinaface / 10);
+			printf("4. 人脸对齐:      %6.2f ms\n", time_align / 10);
+			printf("5. FaceNet:       %6.2f ms (512维特征提取)\n", time_facenet / 10);
+			printf("6. 特征匹配:      %6.2f ms\n", time_match / 10);
+			printf("7. 显示渲染:      %6.2f ms\n", time_display / 10);
 			printf("-------------------------------------------\n");
 			printf("总耗时:           %6.2f ms (%.1f FPS)\n", total_time / 10, 10000.0 / total_time);
 			printf("===========================================\n\n");
@@ -392,8 +401,7 @@ int main(int argc, char** argv)
 			// 重置计数器
 			total_time = 0;
 			time_camera = 0;
-			time_flip = 0;
-			time_resize = 0;
+			time_preprocess = 0;
 			time_retinaface = 0;
 			time_align = 0;
 			time_facenet = 0;
