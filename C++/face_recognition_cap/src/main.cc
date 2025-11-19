@@ -28,6 +28,11 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <linux/videodev2.h>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <queue>
+#include <atomic>
 
 #define _BASETSD_H
 
@@ -48,6 +53,153 @@
 #define HEIGHT 720
 
 double __get_us(struct timeval t) { return (t.tv_sec * 1000000 + t.tv_usec); }
+
+/*-------------------------------------------
+        Preprocessing Thread (RGA)
+-------------------------------------------*/
+struct PreprocessTask {
+    cv::Mat orig_img;
+    cv::Mat processed_img;
+    struct timeval timestamp;
+};
+
+static std::thread preprocess_thread;
+static std::atomic<bool> preprocess_running(false);
+static std::mutex preprocess_mutex;
+static std::condition_variable preprocess_cv;
+static std::queue<PreprocessTask> preprocess_input_queue;
+static std::queue<PreprocessTask> preprocess_output_queue;
+static const int MAX_PREPROCESS_QUEUE_SIZE = 2;
+
+// RGA预处理线程函数
+void preprocess_thread_func(int resize_w, int resize_h) {
+    static cv::Mat orig_img_flipped(HEIGHT, WIDTH, CV_8UC3);
+
+    while (preprocess_running) {
+        PreprocessTask task;
+
+        // 从输入队列获取任务
+        {
+            std::unique_lock<std::mutex> lock(preprocess_mutex);
+            preprocess_cv.wait(lock, []{ return !preprocess_input_queue.empty() || !preprocess_running; });
+
+            if (!preprocess_running && preprocess_input_queue.empty()) break;
+            if (preprocess_input_queue.empty()) continue;
+
+            task = preprocess_input_queue.front();
+            preprocess_input_queue.pop();
+        }
+
+        // RGA翻转+缩放
+        task.processed_img = cv::Mat(resize_h, resize_w, CV_8UC3);
+
+        // 第一步: RGA翻转
+        rga_buffer_t flip_src = wrapbuffer_virtualaddr(task.orig_img.data, WIDTH, HEIGHT, RK_FORMAT_BGR_888);
+        rga_buffer_t flip_dst = wrapbuffer_virtualaddr(orig_img_flipped.data, WIDTH, HEIGHT, RK_FORMAT_BGR_888);
+
+        IM_STATUS flip_status = imflip(flip_src, flip_dst, IM_HAL_TRANSFORM_FLIP_H);
+        if (flip_status != IM_STATUS_SUCCESS) {
+            cv::flip(task.orig_img, orig_img_flipped, 1);
+        }
+
+        // 第二步: RGA缩放
+        rga_buffer_t src_buf = wrapbuffer_virtualaddr(orig_img_flipped.data, WIDTH, HEIGHT, RK_FORMAT_BGR_888);
+        rga_buffer_t dst_buf = wrapbuffer_virtualaddr(task.processed_img.data, resize_w, resize_h, RK_FORMAT_BGR_888);
+
+        im_rect src_rect = {0, 0, WIDTH, HEIGHT};
+        im_rect dst_rect = {0, 0, resize_w, resize_h};
+        im_rect pat_rect = {0, 0, 0, 0};
+        rga_buffer_t pat_buf = {};
+
+        IM_STATUS resize_status = improcess(src_buf, dst_buf, pat_buf, src_rect, dst_rect, pat_rect, 0);
+        if (resize_status != IM_STATUS_SUCCESS) {
+            cv::resize(orig_img_flipped, task.processed_img, cv::Size(resize_w, resize_h), 0, 0, cv::INTER_LINEAR);
+        }
+
+        // 更新原图为翻转后的图像
+        task.orig_img = orig_img_flipped.clone();
+
+        // 放入输出队列
+        {
+            std::lock_guard<std::mutex> lock(preprocess_mutex);
+            if (preprocess_output_queue.size() < MAX_PREPROCESS_QUEUE_SIZE) {
+                preprocess_output_queue.push(task);
+            }
+        }
+    }
+}
+
+void start_preprocess_thread(int resize_w, int resize_h) {
+    if (!preprocess_running) {
+        preprocess_running = true;
+        preprocess_thread = std::thread(preprocess_thread_func, resize_w, resize_h);
+    }
+}
+
+void stop_preprocess_thread() {
+    if (preprocess_running) {
+        preprocess_running = false;
+        preprocess_cv.notify_all();
+        if (preprocess_thread.joinable()) {
+            preprocess_thread.join();
+        }
+    }
+}
+
+/*-------------------------------------------
+        Rendering Thread
+-------------------------------------------*/
+struct RenderTask {
+    cv::Mat img;
+    std::string fps_text;
+};
+
+static std::thread render_thread;
+static std::atomic<bool> render_running(false);
+static std::mutex render_mutex;
+static std::condition_variable render_cv;
+static std::queue<RenderTask> render_queue;
+static const int MAX_RENDER_QUEUE_SIZE = 2;
+
+// 渲染线程函数
+void render_thread_func() {
+    while (render_running) {
+        RenderTask task;
+
+        // 从队列获取渲染任务
+        {
+            std::unique_lock<std::mutex> lock(render_mutex);
+            render_cv.wait(lock, []{ return !render_queue.empty() || !render_running; });
+
+            if (!render_running && render_queue.empty()) break;
+            if (render_queue.empty()) continue;
+
+            task = render_queue.front();
+            render_queue.pop();
+        }
+
+        // 执行渲染
+        cv::imshow("Image Window", task.img);
+        cv::waitKey(1);
+    }
+}
+
+void start_render_thread() {
+    if (!render_running) {
+        render_running = true;
+        render_thread = std::thread(render_thread_func);
+    }
+}
+
+void stop_render_thread() {
+    if (render_running) {
+        render_running = false;
+        render_cv.notify_all();
+        if (render_thread.joinable()) {
+            render_thread.join();
+        }
+    }
+}
 
 /*-------------------------------------------
                   Main Functions
@@ -226,6 +378,11 @@ int main(int argc, char** argv)
 	float time_camera = 0, time_preprocess = 0, time_retinaface = 0;
 	float time_align = 0, time_facenet = 0, time_match = 0, time_display = 0;
 
+	// 启动预处理线程和渲染线程
+	start_preprocess_thread(resize_w, resize_h);
+	start_render_thread();
+	printf("Preprocessing and rendering threads started\n");
+
   	while(1){
 		gettimeofday(&start_time, NULL);
 
@@ -243,46 +400,38 @@ int main(int argc, char** argv)
 		}
 		gettimeofday(&t2, NULL);
 
-		// 2. & 3. 图像翻转 + 缩放 (使用RGA硬件加速,两次调用但避免OpenCV)
-		// 优化: 使用RGA翻转原图 + RGA缩放,完全避免CPU操作
+		// 2. 提交预处理任务到预处理线程
 		gettimeofday(&t3, NULL);
-
-		// 分配临时缓冲区和目标图像内存
-		static cv::Mat orig_img_flipped(HEIGHT, WIDTH, CV_8UC3);
-		if (img.empty() || img.cols != resize_w || img.rows != resize_h) {
-			img = cv::Mat(resize_h, resize_w, CV_8UC3);
+		{
+			std::lock_guard<std::mutex> lock(preprocess_mutex);
+			if (preprocess_input_queue.size() < MAX_PREPROCESS_QUEUE_SIZE) {
+				PreprocessTask task;
+				task.orig_img = orig_img.clone();
+				task.timestamp = t3;
+				preprocess_input_queue.push(task);
+				preprocess_cv.notify_one();
+			}
 		}
 
-		// 第一步: 使用RGA翻转原图
-		rga_buffer_t flip_src = wrapbuffer_virtualaddr(orig_img.data, WIDTH, HEIGHT, RK_FORMAT_BGR_888);
-		rga_buffer_t flip_dst = wrapbuffer_virtualaddr(orig_img_flipped.data, WIDTH, HEIGHT, RK_FORMAT_BGR_888);
-
-		IM_STATUS flip_status = imflip(flip_src, flip_dst, IM_HAL_TRANSFORM_FLIP_H);
-		if (flip_status != IM_STATUS_SUCCESS) {
-			printf("RGA imflip failed: %s, fallback to OpenCV\n", imStrError(flip_status));
-			// 降级到OpenCV实现
-			cv::flip(orig_img, orig_img_flipped, 1);
+		// 3. 从预处理线程获取处理好的图像
+		PreprocessTask processed_task;
+		bool has_processed = false;
+		{
+			std::lock_guard<std::mutex> lock(preprocess_mutex);
+			if (!preprocess_output_queue.empty()) {
+				processed_task = preprocess_output_queue.front();
+				preprocess_output_queue.pop();
+				has_processed = true;
+			}
 		}
 
-		// 替换原图为翻转后的图像
-		orig_img = orig_img_flipped;
-
-		// 第二步: 使用RGA缩放翻转后的图像
-		rga_buffer_t src_buf = wrapbuffer_virtualaddr(orig_img.data, WIDTH, HEIGHT, RK_FORMAT_BGR_888);
-		rga_buffer_t dst_buf = wrapbuffer_virtualaddr(img.data, resize_w, resize_h, RK_FORMAT_BGR_888);
-
-		im_rect src_rect = {0, 0, WIDTH, HEIGHT};
-		im_rect dst_rect = {0, 0, resize_w, resize_h};
-		im_rect pat_rect = {0, 0, 0, 0};
-
-		rga_buffer_t pat_buf = {};
-		IM_STATUS resize_status = improcess(src_buf, dst_buf, pat_buf, src_rect, dst_rect, pat_rect, 0);
-		if (resize_status != IM_STATUS_SUCCESS) {
-			printf("RGA improcess (resize) failed: %s\n", imStrError(resize_status));
-			// 降级到OpenCV实现
-			cv::resize(orig_img, img, cv::Size(resize_w, resize_h), 0, 0, cv::INTER_LINEAR);
+		// 如果没有预处理好的图像,跳过本帧
+		if (!has_processed) {
+			continue;
 		}
 
+		img = processed_task.processed_img;
+		orig_img = processed_task.orig_img;  // 使用翻转后的原图
 		gettimeofday(&t4, NULL);
 		// 4. RetinaFace 人脸检测
 		detect_result_group_t retinaface_detect_result_group;
@@ -352,7 +501,7 @@ int main(int argc, char** argv)
 			time_facenet += (__get_us(t8) - __get_us(t7)) / 1000;
   		}
 
-		// 8. 显示渲染
+		// 8. 准备渲染数据并提交到渲染线程
 		struct timeval t_display_start, t_display_end;
 		gettimeofday(&t_display_start, NULL);
 
@@ -361,18 +510,30 @@ int main(int argc, char** argv)
 		float current_frame_time = (__get_us(stop_time) - __get_us(start_time)) / 1000.0;
 		float current_fps = 1000.0 / current_frame_time;
 
+		// 准备渲染图像
+		cv::Mat render_img = orig_img.clone();
+
 		// 在画面上显示FPS (左上角)
 		char fps_text[64];
 		snprintf(fps_text, sizeof(fps_text), "FPS: %.1f (%.1f ms)", current_fps, current_frame_time);
-		cv::putText(orig_img, fps_text, cv::Point(10, 30),
+		cv::putText(render_img, fps_text, cv::Point(10, 30),
 		            cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
 
 		// 显示优化状态
-		cv::putText(orig_img, "RGA+Async Optimized", cv::Point(10, 60),
+		cv::putText(render_img, "3-Thread Optimized", cv::Point(10, 60),
 		            cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 255), 2);
 
-  		cv::imshow("Image Window",orig_img);
-		cv::waitKey(1);
+		// 提交到渲染线程
+		{
+			std::lock_guard<std::mutex> lock(render_mutex);
+			if (render_queue.size() < MAX_RENDER_QUEUE_SIZE) {
+				RenderTask task;
+				task.img = render_img;
+				render_queue.push(task);
+				render_cv.notify_one();
+			}
+		}
+
 		gettimeofday(&t_display_end, NULL);
 
 		// 累计各阶段时间
@@ -387,15 +548,16 @@ int main(int argc, char** argv)
 		if (n == 10)
 		{
 			printf("\n========== 性能分析 (平均 10 帧) ==========\n");
-			printf("1. 摄像头读取:    %6.2f ms (异步)\n", time_camera / 10);
-			printf("2. RGA预处理:     %6.2f ms (翻转+缩放,硬件加速)\n", time_preprocess / 10);
-			printf("3. RetinaFace:    %6.2f ms (人脸检测)\n", time_retinaface / 10);
+			printf("1. 摄像头读取:    %6.2f ms (线程1-异步)\n", time_camera / 10);
+			printf("2. RGA预处理:     %6.2f ms (线程2-异步)\n", time_preprocess / 10);
+			printf("3. RetinaFace:    %6.2f ms (主线程-人脸检测)\n", time_retinaface / 10);
 			printf("4. 人脸对齐:      %6.2f ms\n", time_align / 10);
 			printf("5. FaceNet:       %6.2f ms (512维特征提取)\n", time_facenet / 10);
 			printf("6. 特征匹配:      %6.2f ms\n", time_match / 10);
-			printf("7. 显示渲染:      %6.2f ms\n", time_display / 10);
+			printf("7. 显示渲染:      %6.2f ms (线程3-异步)\n", time_display / 10);
 			printf("-------------------------------------------\n");
-			printf("总耗时:           %6.2f ms (%.1f FPS)\n", total_time / 10, 10000.0 / total_time);
+			printf("主线程耗时:       %6.2f ms (%.1f FPS)\n", total_time / 10, 10000.0 / total_time);
+			printf("理论最大FPS:      %.1f (瓶颈: RetinaFace)\n", 10000.0 / time_retinaface);
 			printf("===========================================\n\n");
 
 			// 重置计数器
@@ -410,6 +572,11 @@ int main(int argc, char** argv)
 			n = 0;
 		}
   	}
+
+  	// 停止所有线程
+  	printf("Stopping threads...\n");
+  	stop_preprocess_thread();
+  	stop_render_thread();
   	if (camera_type == "usb") {
 		if (use_async_usb) {
 			close_usb_camera_async();
