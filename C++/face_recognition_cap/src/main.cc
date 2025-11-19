@@ -378,6 +378,10 @@ int main(int argc, char** argv)
 	float time_camera = 0, time_preprocess = 0, time_retinaface = 0;
 	float time_align = 0, time_facenet = 0, time_match = 0, time_display = 0;
 
+	// FPS平滑显示 (指数移动平均 EMA)
+	float smoothed_fps = 0.0f;
+	const float fps_alpha = 0.1f;  // 平滑系数: 0.1=很平滑但响应慢, 0.3=较敏感
+
 	// 启动预处理线程和渲染线程
 	start_preprocess_thread(resize_w, resize_h);
 	start_render_thread();
@@ -510,12 +514,19 @@ int main(int argc, char** argv)
 		float current_frame_time = (__get_us(stop_time) - __get_us(start_time)) / 1000.0;
 		float current_fps = 1000.0 / current_frame_time;
 
+		// FPS平滑显示 (指数移动平均 EMA)
+		if (smoothed_fps == 0.0f) {
+			smoothed_fps = current_fps;  // 首帧直接赋值
+		} else {
+			smoothed_fps = fps_alpha * current_fps + (1.0f - fps_alpha) * smoothed_fps;
+		}
+
 		// 准备渲染图像
 		cv::Mat render_img = orig_img.clone();
 
-		// 在画面上显示FPS (左上角)
+		// 在画面上显示平滑后FPS (左上角)
 		char fps_text[64];
-		snprintf(fps_text, sizeof(fps_text), "FPS: %.1f (%.1f ms)", current_fps, current_frame_time);
+		snprintf(fps_text, sizeof(fps_text), "FPS: %.1f (%.1f ms)", smoothed_fps, current_frame_time);
 		cv::putText(render_img, fps_text, cv::Point(10, 30),
 		            cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
 
