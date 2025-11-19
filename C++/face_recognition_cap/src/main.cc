@@ -209,20 +209,33 @@ int main(int argc, char** argv)
 	
 	float total_time = 0;
 	int n = 0;
-	
+
+	// 性能分析变量
+	struct timeval t1, t2, t3, t4, t5, t6, t7, t8;
+	float time_camera = 0, time_flip = 0, time_resize = 0, time_retinaface = 0;
+	float time_align = 0, time_facenet = 0, time_match = 0, time_display = 0;
+
   	while(1){
 		gettimeofday(&start_time, NULL);
+
+		// 1. 摄像头读取
+		gettimeofday(&t1, NULL);
 		if (camera_type == "usb") {
 			read_usb_frame(&orig_img);
 		}
 		else if (camera_type == "mipi") {
 			read_mipi_frame(&orig_img);
 		}
+		gettimeofday(&t2, NULL);
 
-		// 前置摄像头水平翻转
+		// 2. 图像翻转
 		cv::flip(orig_img, orig_img, 1);
+		gettimeofday(&t3, NULL);
 
+		// 3. 图像缩放
 		cv::resize(orig_img, img, cv::Size(resize_w, resize_h), 0, 0, cv::INTER_LINEAR);
+		gettimeofday(&t4, NULL);
+		// 4. RetinaFace 人脸检测
 		detect_result_group_t retinaface_detect_result_group;
 		if (WIDTH > HEIGHT) {
 			cv::copyMakeBorder(img, img, 0, padding, 0, 0, cv::BorderTypes::BORDER_CONSTANT, cv::Scalar(0, 0, 0));
@@ -232,30 +245,39 @@ int main(int argc, char** argv)
 			cv::copyMakeBorder(img, img, 0, 0, 0, padding, cv::BorderTypes::BORDER_CONSTANT, cv::Scalar(0, 0, 0));
 			retinaface_inference(&retinaface_ctx, img, retinaface_width, retinaface_height, retinaface_channel, box_conf_threshold, nms_threshold, HEIGHT, HEIGHT, retinaface_io_num, retinaface_inputs, retinaface_outputs, retinaface_out_scales, retinaface_out_zps, &retinaface_detect_result_group);
 		}
-  		
+		gettimeofday(&t5, NULL);
+
   		for (int i = 0; i < retinaface_detect_result_group.count; i++) {
+			// 5. 人脸对齐
+			gettimeofday(&t6, NULL);
 			float landmark[5][2] = {{(float)retinaface_detect_result_group.results[i].point.point_1_x, (float)retinaface_detect_result_group.results[i].point.point_1_y},
 						{(float)retinaface_detect_result_group.results[i].point.point_2_x, (float)retinaface_detect_result_group.results[i].point.point_2_y},
 						{(float)retinaface_detect_result_group.results[i].point.point_3_x, (float)retinaface_detect_result_group.results[i].point.point_3_y},
 						{(float)retinaface_detect_result_group.results[i].point.point_4_x, (float)retinaface_detect_result_group.results[i].point.point_4_y},
 						{(float)retinaface_detect_result_group.results[i].point.point_5_x, (float)retinaface_detect_result_group.results[i].point.point_5_y}};
-			
+
 			cv::Mat src(5, 2, CV_32FC1, landmark);
 			memcpy(src.data, landmark, 2 * 5 * sizeof(float));
-				
+
 			cv::Mat M = similarTransform(src, dst);
 			cv::Mat warp;
 			cv::warpPerspective(orig_img, warp, M, cv::Size(facenet_width, facenet_height));
 			cv::cvtColor(warp, warp, cv::COLOR_BGR2RGB);
-			
+			gettimeofday(&t7, NULL);
+
+			// 6. FaceNet 特征提取
 			facenet_inference(&facenet_ctx, warp, facenet_io_num, facenet_inputs, facenet_outputs, &facenet_result);
-			
+			gettimeofday(&t8, NULL);
+
+			// 7. 特征匹配
+			struct timeval t_match_start, t_match_end;
+			gettimeofday(&t_match_start, NULL);
 			float max_score = 0;
 			std::string name = "stranger";
 			for (int i = 0; i < lib_feature.size(); i++)
   			{
 				float cos_similar;
-				
+
 				cos_similar = cos_similarity(facenet_result, lib_feature[i]);
 				if (cos_similar >= facenet_threshold && cos_similar > max_score)
 				{
@@ -263,27 +285,67 @@ int main(int argc, char** argv)
 					name = lib_face_name[i];
 				}
   			}
+			gettimeofday(&t_match_end, NULL);
+			time_match += (__get_us(t_match_end) - __get_us(t_match_start)) / 1000;
+
   			facenet_output_release(&facenet_ctx, facenet_io_num, facenet_outputs);
-  			
+
   			int x1 = retinaface_detect_result_group.results[i].box.left;
 			int y1 = retinaface_detect_result_group.results[i].box.top;
 			int x2 = retinaface_detect_result_group.results[i].box.right;
 			int y2 = retinaface_detect_result_group.results[i].box.bottom;
-			
+
 			rectangle(orig_img, cv::Point(x1, y1), cv::Point(x2, y2), cv::Scalar(255, 0, 0, 255), 1);
 			putText(orig_img, name, cv::Point(x1, y1 + 12), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 0, 0));
+
+			// 累计人脸对齐和特征提取时间
+			time_align += (__get_us(t7) - __get_us(t6)) / 1000;
+			time_facenet += (__get_us(t8) - __get_us(t7)) / 1000;
   		}
+
+		// 8. 显示渲染
+		struct timeval t_display_start, t_display_end;
+		gettimeofday(&t_display_start, NULL);
   		cv::imshow("Image Window",orig_img);
 		cv::waitKey(1);
-		
+		gettimeofday(&t_display_end, NULL);
+
+		// 累计各阶段时间
+		time_camera += (__get_us(t2) - __get_us(t1)) / 1000;
+		time_flip += (__get_us(t3) - __get_us(t2)) / 1000;
+		time_resize += (__get_us(t4) - __get_us(t3)) / 1000;
+		time_retinaface += (__get_us(t5) - __get_us(t4)) / 1000;
+		time_display += (__get_us(t_display_end) - __get_us(t_display_start)) / 1000;
+
 		gettimeofday(&stop_time, NULL);
-		//printf("total run use %f ms\n", (__get_us(stop_time) - __get_us(start_time)) / 1000);
 		total_time += (__get_us(stop_time) - __get_us(start_time)) / 1000;
 		n++;
+
 		if (n == 10)
 		{
-			printf("average time : %f ms\n", (total_time / 10));
+			printf("\n========== 性能分析 (平均 10 帧) ==========\n");
+			printf("1. 摄像头读取:    %6.2f ms\n", time_camera / 10);
+			printf("2. 图像翻转:      %6.2f ms\n", time_flip / 10);
+			printf("3. 图像缩放:      %6.2f ms\n", time_resize / 10);
+			printf("4. RetinaFace:    %6.2f ms (人脸检测)\n", time_retinaface / 10);
+			printf("5. 人脸对齐:      %6.2f ms\n", time_align / 10);
+			printf("6. FaceNet:       %6.2f ms (512维特征提取)\n", time_facenet / 10);
+			printf("7. 特征匹配:      %6.2f ms\n", time_match / 10);
+			printf("8. 显示渲染:      %6.2f ms\n", time_display / 10);
+			printf("-------------------------------------------\n");
+			printf("总耗时:           %6.2f ms (%.1f FPS)\n", total_time / 10, 10000.0 / total_time);
+			printf("===========================================\n\n");
+
+			// 重置计数器
 			total_time = 0;
+			time_camera = 0;
+			time_flip = 0;
+			time_resize = 0;
+			time_retinaface = 0;
+			time_align = 0;
+			time_facenet = 0;
+			time_match = 0;
+			time_display = 0;
 			n = 0;
 		}
   	}
