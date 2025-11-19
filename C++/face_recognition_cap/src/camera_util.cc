@@ -6,6 +6,9 @@
 #include <sys/mman.h>
 #include <linux/videodev2.h>
 #include <opencv2/opencv.hpp>
+#include <thread>
+#include <mutex>
+#include <atomic>
 #include "camera_util.h"
 
 #define CHECK_IOCTL(fd, request, arg) \
@@ -20,6 +23,14 @@ v4l2_buffer buf;
 Buffer *buffers = new Buffer[REQ_COUNT];
 v4l2_format fmt = {};
 int width, height;
+
+// 异步读取相关变量
+static std::thread capture_thread;
+static std::atomic<bool> capture_running(false);
+static std::mutex frame_mutex;
+static cv::Mat double_buffer[2];  // 双缓冲
+static int write_idx = 0;
+static int read_idx = 1;
 
 int load_usb_camera(std::string device, int camera_width, int camera_height)
 {
@@ -179,4 +190,96 @@ void close_mipi_camera()
     }
     delete[] buffers;
     close(fd);
+}
+
+// ==================== USB摄像头异步读取实现 ====================
+// 优化: 使用独立线程异步读取摄像头数据,避免主线程阻塞
+
+// 摄像头捕获线程函数
+static void usb_capture_thread_func()
+{
+    v4l2_buffer thread_buf;
+    thread_buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    thread_buf.memory = V4L2_MEMORY_MMAP;
+
+    while (capture_running) {
+        // 从摄像头读取帧
+        if (ioctl(fd, VIDIOC_DQBUF, &thread_buf) == -1) {
+            if (errno == EAGAIN) {
+                continue;
+            }
+            std::cerr << "VIDIOC_DQBUF failed in capture thread" << std::endl;
+            break;
+        }
+
+        // 解码MJPEG
+        cv::Mat raw_data(1, thread_buf.bytesused, CV_8UC1, buffers[thread_buf.index].start);
+        cv::Mat decoded_frame = cv::imdecode(raw_data, cv::IMREAD_COLOR);
+
+        // 写入双缓冲
+        {
+            std::lock_guard<std::mutex> lock(frame_mutex);
+            decoded_frame.copyTo(double_buffer[write_idx]);
+            // 交换读写索引
+            std::swap(write_idx, read_idx);
+        }
+
+        // 归还缓冲区
+        if (ioctl(fd, VIDIOC_QBUF, &thread_buf) == -1) {
+            std::cerr << "VIDIOC_QBUF failed in capture thread" << std::endl;
+            break;
+        }
+    }
+}
+
+// 加载USB摄像头(异步版本)
+int load_usb_camera_async(std::string device, int camera_width, int camera_height)
+{
+    // 调用原始的load_usb_camera
+    int ret = load_usb_camera(device, camera_width, camera_height);
+    if (ret != EXIT_SUCCESS) {
+        return ret;
+    }
+
+    // 初始化双缓冲
+    double_buffer[0] = cv::Mat(camera_height, camera_width, CV_8UC3);
+    double_buffer[1] = cv::Mat(camera_height, camera_width, CV_8UC3);
+
+    return EXIT_SUCCESS;
+}
+
+// 启动捕获线程
+void start_usb_capture_thread()
+{
+    if (!capture_running) {
+        capture_running = true;
+        capture_thread = std::thread(usb_capture_thread_func);
+    }
+}
+
+// 停止捕获线程
+void stop_usb_capture_thread()
+{
+    if (capture_running) {
+        capture_running = false;
+        if (capture_thread.joinable()) {
+            capture_thread.join();
+        }
+    }
+}
+
+// 读取帧(异步版本) - 从双缓冲读取
+void read_usb_frame_async(cv::Mat *orig_img)
+{
+    std::lock_guard<std::mutex> lock(frame_mutex);
+    if (!double_buffer[read_idx].empty()) {
+        double_buffer[read_idx].copyTo(*orig_img);
+    }
+}
+
+// 关闭USB摄像头(异步版本)
+void close_usb_camera_async()
+{
+    stop_usb_capture_thread();
+    close_usb_camera();
 }

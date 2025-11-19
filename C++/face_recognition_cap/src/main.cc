@@ -140,9 +140,20 @@ int main(int argc, char** argv)
   	cv::namedWindow("Image Window");
   	cv::Mat orig_img;
 	cv::Mat img;
-	
+
+	// 优化: USB摄像头使用异步读取模式
+	bool use_async_usb = true;  // 设置为false可降级到串行模式
+
 	if (camera_type == "usb") {
-		ret = load_usb_camera(device_number, WIDTH, HEIGHT);
+		if (use_async_usb) {
+			ret = load_usb_camera_async(device_number, WIDTH, HEIGHT);
+			if (ret == EXIT_SUCCESS) {
+				start_usb_capture_thread();
+				printf("USB camera async mode enabled\n");
+			}
+		} else {
+			ret = load_usb_camera(device_number, WIDTH, HEIGHT);
+		}
 	}
 	else if (camera_type == "mipi") {
 		ret = load_mipi_camera(device_number, WIDTH, HEIGHT);
@@ -221,19 +232,46 @@ int main(int argc, char** argv)
 		// 1. 摄像头读取
 		gettimeofday(&t1, NULL);
 		if (camera_type == "usb") {
-			read_usb_frame(&orig_img);
+			if (use_async_usb) {
+				read_usb_frame_async(&orig_img);  // 异步读取,无阻塞
+			} else {
+				read_usb_frame(&orig_img);  // 同步读取
+			}
 		}
 		else if (camera_type == "mipi") {
 			read_mipi_frame(&orig_img);
 		}
 		gettimeofday(&t2, NULL);
 
-		// 2. 图像翻转
+		// 2. 图像翻转 (先翻转原图,确保坐标系一致)
 		cv::flip(orig_img, orig_img, 1);
 		gettimeofday(&t3, NULL);
 
-		// 3. 图像缩放
-		cv::resize(orig_img, img, cv::Size(resize_w, resize_h), 0, 0, cv::INTER_LINEAR);
+		// 3. 图像缩放 (使用RGA硬件加速)
+		// 优化: 使用RGA替换OpenCV的resize
+
+		// 分配目标图像内存
+		if (img.empty() || img.cols != resize_w || img.rows != resize_h) {
+			img = cv::Mat(resize_h, resize_w, CV_8UC3);
+		}
+
+		// 使用RGA硬件加速进行缩放
+		rga_buffer_t src_buf = wrapbuffer_virtualaddr(orig_img.data, WIDTH, HEIGHT, RK_FORMAT_BGR_888);
+		rga_buffer_t dst_buf = wrapbuffer_virtualaddr(img.data, resize_w, resize_h, RK_FORMAT_BGR_888);
+
+		im_rect src_rect = {0, 0, WIDTH, HEIGHT};
+		im_rect dst_rect = {0, 0, resize_w, resize_h};
+		im_rect pat_rect = {0, 0, 0, 0};
+
+		// 使用improcess进行缩放(不翻转)
+		rga_buffer_t pat_buf = {};
+		IM_STATUS status = improcess(src_buf, dst_buf, pat_buf, src_rect, dst_rect, pat_rect, 0);
+		if (status != IM_STATUS_SUCCESS) {
+			printf("RGA improcess failed: %s\n", imStrError(status));
+			// 降级到OpenCV实现
+			cv::resize(orig_img, img, cv::Size(resize_w, resize_h), 0, 0, cv::INTER_LINEAR);
+		}
+
 		gettimeofday(&t4, NULL);
 		// 4. RetinaFace 人脸检测
 		detect_result_group_t retinaface_detect_result_group;
@@ -306,27 +344,42 @@ int main(int argc, char** argv)
 		// 8. 显示渲染
 		struct timeval t_display_start, t_display_end;
 		gettimeofday(&t_display_start, NULL);
+
+		// 计算当前帧FPS
+		gettimeofday(&stop_time, NULL);
+		float current_frame_time = (__get_us(stop_time) - __get_us(start_time)) / 1000.0;
+		float current_fps = 1000.0 / current_frame_time;
+
+		// 在画面上显示FPS (左上角)
+		char fps_text[64];
+		snprintf(fps_text, sizeof(fps_text), "FPS: %.1f (%.1f ms)", current_fps, current_frame_time);
+		cv::putText(orig_img, fps_text, cv::Point(10, 30),
+		            cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
+
+		// 显示优化状态
+		cv::putText(orig_img, "RGA+Async Optimized", cv::Point(10, 60),
+		            cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 255), 2);
+
   		cv::imshow("Image Window",orig_img);
 		cv::waitKey(1);
 		gettimeofday(&t_display_end, NULL);
 
 		// 累计各阶段时间
 		time_camera += (__get_us(t2) - __get_us(t1)) / 1000;
-		time_flip += (__get_us(t3) - __get_us(t2)) / 1000;
-		time_resize += (__get_us(t4) - __get_us(t3)) / 1000;
+		time_flip += (__get_us(t3) - __get_us(t2)) / 1000;  // 图像翻转(OpenCV)
+		time_resize += (__get_us(t4) - __get_us(t3)) / 1000;  // 图像缩放(RGA硬件加速)
 		time_retinaface += (__get_us(t5) - __get_us(t4)) / 1000;
 		time_display += (__get_us(t_display_end) - __get_us(t_display_start)) / 1000;
 
-		gettimeofday(&stop_time, NULL);
 		total_time += (__get_us(stop_time) - __get_us(start_time)) / 1000;
 		n++;
 
 		if (n == 10)
 		{
 			printf("\n========== 性能分析 (平均 10 帧) ==========\n");
-			printf("1. 摄像头读取:    %6.2f ms\n", time_camera / 10);
-			printf("2. 图像翻转:      %6.2f ms\n", time_flip / 10);
-			printf("3. 图像缩放:      %6.2f ms\n", time_resize / 10);
+			printf("1. 摄像头读取:    %6.2f ms (异步)\n", time_camera / 10);
+			printf("2. 图像翻转:      %6.2f ms (OpenCV)\n", time_flip / 10);
+			printf("3. 图像缩放:      %6.2f ms (RGA硬件加速)\n", time_resize / 10);
 			printf("4. RetinaFace:    %6.2f ms (人脸检测)\n", time_retinaface / 10);
 			printf("5. 人脸对齐:      %6.2f ms\n", time_align / 10);
 			printf("6. FaceNet:       %6.2f ms (512维特征提取)\n", time_facenet / 10);
@@ -350,7 +403,11 @@ int main(int argc, char** argv)
 		}
   	}
   	if (camera_type == "usb") {
-		close_usb_camera();
+		if (use_async_usb) {
+			close_usb_camera_async();
+		} else {
+			close_usb_camera();
+		}
 	}
 	else if (camera_type == "mipi") {
 		close_mipi_camera();

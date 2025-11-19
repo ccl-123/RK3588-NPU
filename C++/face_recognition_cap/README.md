@@ -17,7 +17,7 @@ Before inference, please run face_recognition to generate face_feature_lib and c
 ```sh
 # Real-time face recognition with camera
 $ lsusb # Check camera device number
-$ cd install/face_recognition_cap
+$ cd /home/firefly/open_project/edge2-npu/C++/face_recognition_cap/install/face_recognition_cap
 $ ./face_recognition_cap data/model/retinaface.rknn data/model/w600k_mbf.rknn usb 21
 ```
 
