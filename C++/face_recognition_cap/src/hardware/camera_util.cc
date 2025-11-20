@@ -1,3 +1,12 @@
+/**
+ * @file camera_util.cc
+ * @brief 摄像头控制工具实现
+ * @details 基于 V4L2 的 USB/MIPI 摄像头控制实现，
+ *          支持同步和异步采集模式
+ * @author CL
+ * @date 2025-11-20
+ */
+
 #include <string.h>
 #include <iostream>
 #include <fcntl.h>

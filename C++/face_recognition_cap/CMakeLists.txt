@@ -40,15 +40,42 @@ include_directories( ${RGA_PATH}/include)
 
 set(CMAKE_INSTALL_RPATH "lib")
 
-# demo
+# demo - 分层架构
 include_directories( ${CMAKE_SOURCE_DIR}/include)
+include_directories( ${CMAKE_SOURCE_DIR}/include/core)
+include_directories( ${CMAKE_SOURCE_DIR}/include/hardware)
+include_directories( ${CMAKE_SOURCE_DIR}/include/utils)
+include_directories( ${CMAKE_SOURCE_DIR}/include/app)
+
+# 源文件分组
+set(CORE_SOURCES
+    src/core/retinaface.cc
+    src/core/facenet.cc
+    src/core/postprocess.cc
+)
+
+set(HARDWARE_SOURCES
+    src/hardware/camera_util.cc
+)
+
+set(APP_SOURCES
+    src/app/preprocessing_thread.cc
+    src/app/rendering_thread.cc
+    src/app/performance_monitor.cc
+    src/app/model_manager.cc
+    src/app/feature_library.cc
+    src/app/face_recognition_app.cc
+)
+
+set(MAIN_SOURCES
+    src/main.cc
+)
 
 add_executable(${TARGET_NAME}
-        src/main.cc
-        src/retinaface.cc
-        src/facenet.cc
-        src/postprocess.cc
-        src/camera_util.cc
+    ${MAIN_SOURCES}
+    ${CORE_SOURCES}
+    ${HARDWARE_SOURCES}
+    ${APP_SOURCES}
 )
 
 target_link_libraries(${TARGET_NAME}
