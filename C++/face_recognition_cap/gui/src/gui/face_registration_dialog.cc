@@ -141,9 +141,38 @@ void FaceRegistrationDialog::update_preview() {
 
     current_frame_ = frame.clone();
 
+    // 检测人脸并绘制检测框
+    std::vector<cv::Rect> face_boxes;
+    std::vector<std::vector<cv::Point2f>> landmarks;
+
+    int face_count = recognition_app_->detect_faces(frame, face_boxes, landmarks);
+
+    // 在帧上绘制检测框和关键点
+    cv::Mat display_frame = frame.clone();
+
+    for (int i = 0; i < face_count; i++) {
+        // 绘制人脸框
+        cv::Rect& box = face_boxes[i];
+        cv::rectangle(display_frame, box, cv::Scalar(0, 255, 0), 2);
+
+        // 绘制关键点
+        if (i < static_cast<int>(landmarks.size())) {
+            for (const auto& point : landmarks[i]) {
+                cv::circle(display_frame, point, 3, cv::Scalar(255, 0, 0), -1);
+            }
+        }
+
+        // 显示人脸数量提示
+        std::string text = "Face " + std::to_string(i + 1);
+        cv::putText(display_frame, text,
+                   cv::Point(box.x, box.y - 10),
+                   cv::FONT_HERSHEY_SIMPLEX, 0.6,
+                   cv::Scalar(0, 255, 0), 2);
+    }
+
     // 转换为 QImage 并显示
     cv::Mat rgb_frame;
-    cv::cvtColor(frame, rgb_frame, cv::COLOR_BGR2RGB);
+    cv::cvtColor(display_frame, rgb_frame, cv::COLOR_BGR2RGB);
 
     QImage qimg(rgb_frame.data, rgb_frame.cols, rgb_frame.rows,
                 rgb_frame.step, QImage::Format_RGB888);

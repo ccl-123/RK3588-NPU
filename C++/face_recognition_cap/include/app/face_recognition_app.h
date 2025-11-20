@@ -172,6 +172,9 @@ public:
      * @return true 成功（检测到一个人脸）, false 失败
      *
      * @note 此函数是一站式接口，自动完成检测、对齐、特征提取
+     * @note ⚠️ 使用与实时识别相同的对齐方法（similarTransform + warpPerspective）
+     * @note ⚠️ 使用与实时识别相同的目标关键点（dst_landmark_）
+     * @note ⚠️ 确保注册特征与实时识别特征一致，避免注册后无法识别的问题
      * @note 如果检测到多个人脸，只处理第一个
      * @note 用于 GUI 人脸注册的便捷接口，不用于实时识别
      */

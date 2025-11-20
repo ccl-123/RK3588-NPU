@@ -646,7 +646,8 @@ bool FaceRecognitionApp::extract_feature_from_frame(const cv::Mat& frame,
     // 输入：原始帧（如 1280x720）
     // 输出：特征向量（512 维）+ 可选的人脸框
     // 用途：GUI 人脸注册的一站式接口（检测 + 对齐 + 提取）
-    // 注意：使用 estimateAffinePartial2D + warpAffine 对齐（与实时识别不同）
+    // 注意：使用与实时识别相同的对齐方法（similarTransform + warpPerspective）
+    //       确保注册特征与实时识别特征一致
 
     if (!initialized_) {
         return false;
@@ -672,29 +673,29 @@ bool FaceRecognitionApp::extract_feature_from_frame(const cv::Mat& frame,
         *face_box = face_boxes[0];
     }
 
-    // 人脸对齐
+    // 人脸对齐（使用与实时识别相同的方法）
     std::vector<cv::Point2f>& src_landmark = landmarks[0];
 
-    // 目标关键点位置（112x112 图像）
-    std::vector<cv::Point2f> dst_landmark = {
-        cv::Point2f(38.2946f, 51.6963f),
-        cv::Point2f(73.5318f, 51.5014f),
-        cv::Point2f(56.0252f, 71.7366f),
-        cv::Point2f(41.5493f, 92.3655f),
-        cv::Point2f(70.7299f, 92.2041f)
-    };
-
-    // 计算仿射变换矩阵
-    cv::Mat transform_matrix = cv::estimateAffinePartial2D(src_landmark, dst_landmark);
-
-    if (transform_matrix.empty()) {
-        spdlog::error("Failed to compute affine transform");
-        return false;
+    // 将 vector<Point2f> 转换为 Mat（5x2）
+    float landmark_data[5][2];
+    for (int i = 0; i < 5; i++) {
+        landmark_data[i][0] = src_landmark[i].x;
+        landmark_data[i][1] = src_landmark[i].y;
     }
+    cv::Mat src(5, 2, CV_32FC1, landmark_data);
+    memcpy(src.data, landmark_data, 2 * 5 * sizeof(float));
 
-    // 对齐人脸（使用 estimateAffinePartial2D + warpAffine）
+    // 使用与实时识别相同的 similarTransform + warpPerspective
+    cv::Mat M = similarTransform(src, dst_landmark_);
     cv::Mat aligned_face;
-    cv::warpAffine(frame, aligned_face, transform_matrix, cv::Size(112, 112));
+
+    int facenet_width, facenet_height, facenet_channel;
+    model_manager_.get_facenet_size(facenet_width, facenet_height, facenet_channel);
+
+    cv::warpPerspective(frame, aligned_face, M, cv::Size(facenet_width, facenet_height));
+
+    // 转换为 RGB（FaceNet 模型需要 RGB 输入）
+    cv::cvtColor(aligned_face, aligned_face, cv::COLOR_BGR2RGB);
 
     // 提取特征
     return extract_face_feature(aligned_face, feature);
