@@ -44,6 +44,11 @@ public:
                                    QWidget* parent = nullptr);
     ~FaceRegistrationDialog();
 
+protected:
+    // 重写事件处理函数，控制定时器生命周期
+    void showEvent(QShowEvent* event) override;
+    void hideEvent(QHideEvent* event) override;
+
 private slots:
     // 按钮操作
     void on_capture_clicked();

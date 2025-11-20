@@ -28,15 +28,37 @@ FaceRegistrationDialog::FaceRegistrationDialog(FaceRecognitionApp* app,
     , user_service_(user_service)
 {
     setup_ui();
-    
-    // 初始化定时器
+
+    // 初始化定时器（但不立即启动，等待 showEvent）
     preview_timer_ = new QTimer(this);
     connect(preview_timer_, &QTimer::timeout, this, &FaceRegistrationDialog::update_preview);
-    preview_timer_->start(33);  // 约30 FPS
+    // 注意：不在构造函数中启动定时器，避免资源竞争
 }
 
 FaceRegistrationDialog::~FaceRegistrationDialog() {
-    preview_timer_->stop();
+    if (preview_timer_) {
+        preview_timer_->stop();
+    }
+}
+
+void FaceRegistrationDialog::showEvent(QShowEvent* event) {
+    QDialog::showEvent(event);
+
+    // 窗口显示时启动定时器
+    if (preview_timer_) {
+        spdlog::info("FaceRegistrationDialog: Starting preview timer");
+        preview_timer_->start(33);  // 约30 FPS
+    }
+}
+
+void FaceRegistrationDialog::hideEvent(QHideEvent* event) {
+    // 窗口隐藏时停止定时器（关键修复：避免后台继续抢占摄像头）
+    if (preview_timer_) {
+        spdlog::info("FaceRegistrationDialog: Stopping preview timer");
+        preview_timer_->stop();
+    }
+
+    QDialog::hideEvent(event);
 }
 
 void FaceRegistrationDialog::setup_ui() {

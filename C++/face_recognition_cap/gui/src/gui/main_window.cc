@@ -26,6 +26,7 @@
 #include <QAction>
 #include <QIcon>
 #include <QTimer>
+#include <QThread>
 #include <spdlog/spdlog.h>
 
 // 注册 Qt 元类型（用于跨线程信号槽）
@@ -450,11 +451,40 @@ void MainWindow::on_action_exit() {
 }
 
 void MainWindow::on_action_register_face() {
+    // 记录识别线程是否正在运行
+    bool was_running = is_running_;
+
+    // 如果识别线程正在运行，先暂停（避免摄像头资源冲突）
+    if (was_running) {
+        spdlog::info("Pausing recognition for face registration");
+        stop_recognition();
+
+        // 等待线程完全停止（确保摄像头资源释放）
+        QThread::msleep(200);
+    }
+
+    // 创建并显示注册对话框
     if (!registration_dialog_) {
         registration_dialog_ = new FaceRegistrationDialog(
             recognition_app_.get(), user_service_.get(), this);
     }
-    registration_dialog_->exec();
+
+    int result = registration_dialog_->exec();
+
+    // 如果之前识别线程在运行，恢复运行
+    if (was_running) {
+        spdlog::info("Resuming recognition after face registration");
+
+        // 短暂延迟，确保对话框资源完全释放
+        QThread::msleep(200);
+
+        start_recognition();
+    }
+
+    // 如果注册成功，刷新用户列表
+    if (result == QDialog::Accepted) {
+        load_users();
+    }
 }
 
 void MainWindow::on_action_query_attendance() {
