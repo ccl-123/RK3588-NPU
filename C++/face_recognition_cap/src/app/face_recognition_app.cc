@@ -340,9 +340,13 @@ void FaceRecognitionApp::recognize_and_match(const cv::Mat& orig_img,
         int y2 = result_group.results[i].box.bottom;
 
         cv::rectangle(render_img, cv::Point(x1, y1), cv::Point(x2, y2),
-                     cv::Scalar(255, 0, 0, 255), 1);
-        cv::putText(render_img, name, cv::Point(x1, y1 + 12),
-                   cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 0, 0));
+                     cv::Scalar(255, 0, 0, 255), 2);
+
+        // 显示姓名和置信度
+        char label[128];
+        snprintf(label, sizeof(label), "%s (%.2f)", name.c_str(), max_score);
+        cv::putText(render_img, label, cv::Point(x1, y1 - 10),
+                   cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 255, 0), 2);
 
         // 累计时间
         total_align_time += (get_us(t_align_end) - get_us(t_align_start)) / 1000;
