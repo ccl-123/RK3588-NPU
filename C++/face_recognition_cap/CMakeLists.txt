@@ -112,6 +112,7 @@ if(Qt5_FOUND)
         gui/src/gui/user_management_widget.cc
         gui/src/gui/settings_dialog.cc
         gui/src/gui/about_dialog.cc
+        gui/src/gui/toast.cc
     )
 
     set(MAIN_GUI_SOURCES
@@ -147,6 +148,7 @@ if(Qt5_FOUND)
         gui/include/gui/user_management_widget.h
         gui/include/gui/settings_dialog.h
         gui/include/gui/about_dialog.h
+        gui/include/gui/toast.h
     )
 
     add_executable(${TARGET_NAME}_gui

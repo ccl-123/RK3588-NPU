@@ -179,10 +179,31 @@ void VideoDisplayWidget::draw_face_results(QPainter& painter) {
 }
 
 void VideoDisplayWidget::draw_fps(QPainter& painter) {
-    QString fps_text = QString("FPS: %1").arg(fps_, 0, 'f', 1);
+    // 绘制 FPS 和 REC 指示器
+    painter.setRenderHint(QPainter::Antialiasing);
+    
+    // 背景
+    QRect bg_rect(10, 10, 140, 36);
+    painter.setBrush(QColor(0, 0, 0, 150));
+    painter.setPen(Qt::NoPen);
+    painter.drawRoundedRect(bg_rect, 18, 18);
+    
+    // REC 红点
+    painter.setBrush(QColor(255, 59, 48)); // iOS Red
+    painter.drawEllipse(25, 23, 10, 10);
+    
+    // REC 文本
     painter.setPen(Qt::white);
-    painter.setFont(QFont("Arial", 14, QFont::Bold));
-    painter.fillRect(10, 10, 100, 30, QColor(0, 0, 0, 180));
-    painter.drawText(15, 30, fps_text);
+    painter.setFont(QFont("Segoe UI", 10, QFont::Bold));
+    painter.drawText(45, 32, "REC");
+    
+    // 分隔线
+    painter.setPen(QColor(255, 255, 255, 100));
+    painter.drawLine(80, 18, 80, 38);
+    
+    // FPS 文本
+    QString fps_text = QString("%1 FPS").arg(fps_, 0, 'f', 1);
+    painter.setPen(Qt::white);
+    painter.drawText(90, 32, fps_text);
 }
 
