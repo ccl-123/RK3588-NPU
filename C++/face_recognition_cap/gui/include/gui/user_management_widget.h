@@ -37,6 +37,7 @@ public:
 
 signals:
     void user_updated();
+    void data_changed();  // 数据变更信号（用于通知主窗口刷新）
 
 private slots:
     void on_refresh_clicked();

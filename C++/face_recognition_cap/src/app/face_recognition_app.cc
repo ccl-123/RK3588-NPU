@@ -219,7 +219,9 @@ int FaceRecognitionApp::run() {
 
         // 5. 人脸识别和匹配
         cv::Mat render_img = orig_img.clone();
-        recognize_and_match(orig_img, detect_result_group, render_img);
+        std::vector<RecognitionResult> recognition_results;
+        recognize_and_match(orig_img, detect_result_group, render_img,
+                           frame_callback_ ? &recognition_results : nullptr);
 
         // 6. 性能统计
         gettimeofday(&stop_time, NULL);
@@ -243,7 +245,15 @@ int FaceRecognitionApp::run() {
 
         struct timeval t_render_start, t_render_end;
         gettimeofday(&t_render_start, NULL);
-        render_thread_->submit_task(render_img, fps_text);
+
+        // 如果设置了帧回调（GUI模式），调用回调而不是渲染线程
+        if (frame_callback_) {
+            frame_callback_(render_img, recognition_results);
+        } else {
+            // 命令行模式：使用渲染线程显示
+            render_thread_->submit_task(render_img, fps_text);
+        }
+
         gettimeofday(&t_render_end, NULL);
         perf_monitor_.record_render_time((get_us(t_render_end) - get_us(t_render_start)) / 1000);
 
@@ -305,10 +315,16 @@ void FaceRecognitionApp::detect_faces(const cv::Mat& img, detect_result_group_t&
 
 void FaceRecognitionApp::recognize_and_match(const cv::Mat& orig_img,
                                              const detect_result_group_t& result_group,
-                                             cv::Mat& render_img) {
+                                             cv::Mat& render_img,
+                                             std::vector<RecognitionResult>* results) {
     // 输入：原始图像（未缩放）+ 检测结果
-    // 输出：绘制了人脸框和识别结果的图像
+    // 输出：绘制了人脸框和识别结果的图像 + 可选的识别结果列表
     // 功能：人脸对齐（similarTransform + warpPerspective）、特征提取、匹配、绘制
+
+    // 清空结果列表
+    if (results) {
+        results->clear();
+    }
     struct timeval t_align_start, t_align_end;
     struct timeval t_facenet_start, t_facenet_end;
     struct timeval t_match_start, t_match_end;
@@ -363,31 +379,37 @@ void FaceRecognitionApp::recognize_and_match(const cv::Mat& orig_img,
                                                user_id, name, max_score);
         gettimeofday(&t_match_end, NULL);
 
-        // 触发回调(新增)
+        // 创建识别结果
+        RecognitionResult result;
+        result.user_id = user_id;
+        result.user_name = name;
+        result.similarity = max_score;
+        result.timestamp = std::chrono::system_clock::now();
+
+        // 提取人脸图像和框
+        int x1 = result_group.results[i].box.left;
+        int y1 = result_group.results[i].box.top;
+        int x2 = result_group.results[i].box.right;
+        int y2 = result_group.results[i].box.bottom;
+
+        // 确保坐标在图像范围内
+        x1 = std::max(0, x1);
+        y1 = std::max(0, y1);
+        x2 = std::min(orig_img.cols, x2);
+        y2 = std::min(orig_img.rows, y2);
+
+        if (x2 > x1 && y2 > y1) {
+            result.face_image = orig_img(cv::Rect(x1, y1, x2 - x1, y2 - y1)).clone();
+            result.face_box = cv::Rect(x1, y1, x2 - x1, y2 - y1);
+        }
+
+        // 添加到结果列表（用于GUI回调）
+        if (results) {
+            results->push_back(result);
+        }
+
+        // 触发识别回调（用于考勤等业务逻辑）
         if (recognition_callback_ && name != "stranger") {
-            RecognitionResult result;
-            result.user_id = user_id;
-            result.user_name = name;
-            result.similarity = max_score;
-            result.timestamp = std::chrono::system_clock::now();
-
-            // 提取人脸图像
-            int x1 = result_group.results[i].box.left;
-            int y1 = result_group.results[i].box.top;
-            int x2 = result_group.results[i].box.right;
-            int y2 = result_group.results[i].box.bottom;
-
-            // 确保坐标在图像范围内
-            x1 = std::max(0, x1);
-            y1 = std::max(0, y1);
-            x2 = std::min(orig_img.cols, x2);
-            y2 = std::min(orig_img.rows, y2);
-
-            if (x2 > x1 && y2 > y1) {
-                result.face_image = orig_img(cv::Rect(x1, y1, x2 - x1, y2 - y1)).clone();
-                result.face_box = cv::Rect(x1, y1, x2 - x1, y2 - y1);
-            }
-
             recognition_callback_(result);
         }
 
@@ -398,12 +420,7 @@ void FaceRecognitionApp::recognize_and_match(const cv::Mat& orig_img,
             model_manager_.get_facenet_outputs()
         );
 
-        // 绘制结果
-        int x1 = result_group.results[i].box.left;
-        int y1 = result_group.results[i].box.top;
-        int x2 = result_group.results[i].box.right;
-        int y2 = result_group.results[i].box.bottom;
-
+        // 绘制结果（使用之前已声明的 x1, y1, x2, y2）
         cv::rectangle(render_img, cv::Point(x1, y1), cv::Point(x2, y2),
                      cv::Scalar(255, 0, 0, 255), 2);
 
@@ -474,6 +491,10 @@ void FaceRecognitionApp::cleanup() {
 
 void FaceRecognitionApp::set_recognition_callback(RecognitionCallback callback) {
     recognition_callback_ = callback;
+}
+
+void FaceRecognitionApp::set_frame_callback(FrameCallback callback) {
+    frame_callback_ = callback;
 }
 
 bool FaceRecognitionApp::get_current_frame(cv::Mat& frame) {

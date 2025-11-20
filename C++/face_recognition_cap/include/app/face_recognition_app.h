@@ -72,6 +72,13 @@ struct AppConfig {
 using RecognitionCallback = std::function<void(const RecognitionResult&)>;
 
 /**
+ * @brief 帧回调函数类型(新增 - 用于GUI)
+ * @param frame 渲染好的帧（包含人脸框、识别结果等）
+ * @param results 识别结果列表
+ */
+using FrameCallback = std::function<void(const cv::Mat& frame, const std::vector<RecognitionResult>& results)>;
+
+/**
  * @brief 人脸识别应用主类
  *
  * 职责:
@@ -109,6 +116,12 @@ public:
      * @param callback 回调函数
      */
     void set_recognition_callback(RecognitionCallback callback);
+
+    /**
+     * @brief 设置帧回调函数(新增 - 用于GUI)
+     * @param callback 帧回调函数
+     */
+    void set_frame_callback(FrameCallback callback);
 
     /**
      * @brief 设置考勤服务(新增)
@@ -220,6 +233,7 @@ private:
      * @param orig_img 原始图像（未缩放）
      * @param result_group 检测结果
      * @param render_img 输出渲染图像（绘制人脸框和识别结果）
+     * @param results 输出识别结果列表（可选，用于GUI回调）
      *
      * @note 此函数用于实时识别线程，包含人脸对齐、特征提取、匹配、绘制
      * @note 使用 similarTransform + warpPerspective 进行人脸对齐
@@ -227,7 +241,8 @@ private:
      */
     void recognize_and_match(const cv::Mat& orig_img,
                             const detect_result_group_t& result_group,
-                            cv::Mat& render_img);
+                            cv::Mat& render_img,
+                            std::vector<RecognitionResult>* results = nullptr);
 
     /**
      * @brief 清理资源
@@ -254,6 +269,7 @@ private:
 
     // 回调函数(新增)
     RecognitionCallback recognition_callback_;
+    FrameCallback frame_callback_;  // 帧回调函数(新增 - 用于GUI)
 
     // 考勤服务指针(新增)
     void* attendance_service_;

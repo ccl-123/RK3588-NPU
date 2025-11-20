@@ -167,6 +167,7 @@ void UserManagementWidget::on_delete_clicked() {
             QMessageBox::information(this, "成功", "用户已删除");
             load_users();
             emit user_updated();
+            emit data_changed();  // 通知主窗口刷新
         } else {
             QMessageBox::critical(this, "错误", "删除用户失败");
         }
@@ -185,6 +186,7 @@ void UserManagementWidget::on_enable_clicked() {
         QMessageBox::information(this, "成功", "用户已启用");
         load_users();
         emit user_updated();
+        emit data_changed();  // 通知主窗口刷新
     } else {
         QMessageBox::critical(this, "错误", "启用用户失败");
     }
@@ -202,6 +204,7 @@ void UserManagementWidget::on_disable_clicked() {
         QMessageBox::information(this, "成功", "用户已禁用");
         load_users();
         emit user_updated();
+        emit data_changed();  // 通知主窗口刷新
     } else {
         QMessageBox::critical(this, "错误", "禁用用户失败");
     }

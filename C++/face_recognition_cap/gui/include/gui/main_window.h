@@ -21,6 +21,7 @@
 #include <QTableWidget>
 #include <QPushButton>
 #include <memory>
+#include <thread>
 
 #include "app/face_recognition_app.h"
 #include "database/database_manager.h"
@@ -66,6 +67,10 @@ signals:
 protected:
     void closeEvent(QCloseEvent* event) override;
 
+public slots:
+    // 数据刷新槽（公开，供子窗口调用）
+    void load_users();
+
 private slots:
     // 菜单栏操作
     void on_action_open_camera();
@@ -82,8 +87,10 @@ private slots:
     void on_action_about();
     
     // 定时器更新
-    void update_frame();
     void update_status();
+
+    // 帧回调槽（从后台线程接收渲染好的帧）
+    void on_frame_ready(const cv::Mat& frame, const std::vector<RecognitionResult>& results);
     
     // 识别回调
     void on_recognition_result(int user_id, const QString& name, float similarity, bool is_new_attendance);
@@ -116,8 +123,10 @@ private:
     QLabel* attendance_status_label_;  // 签到状态提示标签
     
     // 定时器
-    QTimer* frame_timer_;
     QTimer* status_timer_;
+
+    // 后台识别线程
+    std::thread recognition_thread_;
     
     // 对话框
     FaceRegistrationDialog* registration_dialog_;

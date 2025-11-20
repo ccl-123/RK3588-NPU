@@ -28,6 +28,10 @@
 #include <QTimer>
 #include <spdlog/spdlog.h>
 
+// 注册 Qt 元类型（用于跨线程信号槽）
+Q_DECLARE_METATYPE(cv::Mat)
+Q_DECLARE_METATYPE(std::vector<RecognitionResult>)
+
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
     , db_manager_(nullptr)
@@ -40,7 +44,6 @@ MainWindow::MainWindow(QWidget* parent)
     , fps_label_(nullptr)
     , recognition_label_(nullptr)
     , attendance_status_label_(nullptr)
-    , frame_timer_(nullptr)
     , status_timer_(nullptr)
     , registration_dialog_(nullptr)
     , is_running_(false)
@@ -48,18 +51,19 @@ MainWindow::MainWindow(QWidget* parent)
     , fps_(0.0)
     , camera_id_(0)
 {
+    // 注册 Qt 元类型（必须在使用前注册）
+    qRegisterMetaType<cv::Mat>("cv::Mat");
+    qRegisterMetaType<std::vector<RecognitionResult>>("std::vector<RecognitionResult>");
+
     setup_ui();
-    
-    // 初始化定时器
-    frame_timer_ = new QTimer(this);
-    connect(frame_timer_, &QTimer::timeout, this, &MainWindow::update_frame);
-    
+
+    // 初始化定时器（只保留状态更新定时器）
     status_timer_ = new QTimer(this);
     connect(status_timer_, &QTimer::timeout, this, &MainWindow::update_status);
     status_timer_->start(1000);  // 每秒更新一次状态
-    
+
     last_fps_time_ = std::chrono::steady_clock::now();
-    
+
     spdlog::info("MainWindow initialized");
 }
 
@@ -85,12 +89,8 @@ bool MainWindow::initialize(const std::string& retinaface_model,
         QMessageBox::critical(this, "错误", "数据库初始化失败");
         return false;
     }
-    
-    // 初始化服务
-    user_service_ = std::make_unique<service::UserService>(db_manager_, nullptr);
-    attendance_service_ = std::make_unique<service::AttendanceService>(db_manager_);
 
-    // 初始化识别应用
+    // 1. 先初始化识别应用（包含特征库）
     recognition_app_ = std::make_unique<FaceRecognitionApp>();
 
     AppConfig config;
@@ -106,7 +106,15 @@ bool MainWindow::initialize(const std::string& retinaface_model,
         return false;
     }
 
-    // 设置考勤服务（用于检查是否已签到）
+    // 2. 初始化服务（传递识别应用的特征库指针）
+    // 关键修复：确保 UserService 使用与 FaceRecognitionApp 相同的 FeatureLibrary 实例
+    user_service_ = std::make_unique<service::UserService>(
+        db_manager_,
+        &recognition_app_->get_feature_library()  // 传递特征库指针
+    );
+    attendance_service_ = std::make_unique<service::AttendanceService>(db_manager_);
+
+    // 3. 设置考勤服务（用于检查是否已签到）
     recognition_app_->set_attendance_service(attendance_service_.get());
 
     // 设置识别回调
@@ -141,7 +149,42 @@ bool MainWindow::initialize(const std::string& retinaface_model,
     });
     
     spdlog::info("System initialized successfully");
+
+    // 4. 初始加载用户列表
+    load_users();
+
     return true;
+}
+
+void MainWindow::load_users() {
+    if (!user_service_) {
+        return;
+    }
+
+    // 从数据库重新加载用户列表
+    auto users = user_service_->get_all_users(-1);  // -1 表示加载所有状态的用户
+
+    // 更新用户表格
+    if (user_table_) {
+        user_table_->setRowCount(0);  // 清空现有行
+
+        for (const auto& user : users) {
+            int row = user_table_->rowCount();
+            user_table_->insertRow(row);
+
+            user_table_->setItem(row, 0, new QTableWidgetItem(QString::number(user.user_id)));
+            user_table_->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(user.user_name)));
+            user_table_->setItem(row, 2, new QTableWidgetItem(QString::fromStdString(user.employee_id)));
+            user_table_->setItem(row, 3, new QTableWidgetItem(QString::fromStdString(user.department)));
+            user_table_->setItem(row, 4, new QTableWidgetItem(user.status == 1 ? "启用" : "禁用"));
+
+            // 获取特征数量
+            int feature_count = user_service_->get_feature_count(user.user_id);
+            user_table_->setItem(row, 5, new QTableWidgetItem(QString::number(feature_count)));
+        }
+
+        spdlog::info("User list refreshed: {} users loaded", users.size());
+    }
 }
 
 void MainWindow::setup_ui() {
@@ -270,15 +313,29 @@ void MainWindow::create_dock_widgets() {
 }
 
 void MainWindow::start_recognition() {
-    if (is_running_) {
+    if (is_running_ || !recognition_app_) {
         return;
     }
 
     is_running_ = true;
-    frame_timer_->start(33);  // 约30 FPS
     status_label_->setText("运行中");
 
-    spdlog::info("Recognition started");
+    // 设置帧回调（使用 Qt 信号槽机制确保线程安全）
+    recognition_app_->set_frame_callback([this](const cv::Mat& frame, const std::vector<RecognitionResult>& results) {
+        // 使用 QMetaObject::invokeMethod 确保在主线程中调用槽函数
+        QMetaObject::invokeMethod(this, "on_frame_ready", Qt::QueuedConnection,
+                                 Q_ARG(cv::Mat, frame),
+                                 Q_ARG(std::vector<RecognitionResult>, results));
+    });
+
+    // 启动后台识别线程
+    recognition_thread_ = std::thread([this]() {
+        spdlog::info("Recognition thread started");
+        recognition_app_->run();
+        spdlog::info("Recognition thread stopped");
+    });
+
+    spdlog::info("Recognition started in background thread");
 }
 
 void MainWindow::stop_recognition() {
@@ -287,55 +344,58 @@ void MainWindow::stop_recognition() {
     }
 
     is_running_ = false;
-    frame_timer_->stop();
     status_label_->setText("已停止");
+
+    // 停止识别应用
+    if (recognition_app_) {
+        recognition_app_->stop();
+    }
+
+    // 等待后台线程结束
+    if (recognition_thread_.joinable()) {
+        recognition_thread_.join();
+    }
 
     spdlog::info("Recognition stopped");
 }
 
-void MainWindow::update_frame() {
-    if (!recognition_app_ || !is_running_) {
+void MainWindow::on_frame_ready(const cv::Mat& frame, const std::vector<RecognitionResult>& results) {
+    if (!is_running_) {
         return;
     }
 
-    // 处理单帧
-    cv::Mat frame;
-    std::vector<RecognitionResult> results;
+    // 更新视频显示
+    video_widget_->update_frame(frame);
 
-    if (recognition_app_->process_single_frame(frame, results)) {
-        // 更新视频显示
-        video_widget_->update_frame(frame);
+    // 转换识别结果为 FaceResult
+    std::vector<FaceResult> face_results;
+    for (const auto& result : results) {
+        FaceResult fr;
+        fr.box = result.face_box;
+        fr.name = result.user_name;
+        fr.similarity = result.similarity;
+        fr.is_recognized = (result.user_id > 0);
 
-        // 转换识别结果为 FaceResult
-        std::vector<FaceResult> face_results;
-        for (const auto& result : results) {
-            FaceResult fr;
-            fr.box = result.face_box;
-            fr.name = result.user_name;
-            fr.similarity = result.similarity;
-            fr.is_recognized = (result.user_id > 0);
-
-            // 检查是否已签到（5分钟内）
-            fr.is_duplicate = false;
-            if (attendance_service_ && result.user_id > 0) {
-                fr.is_duplicate = attendance_service_->is_duplicate_check(result.user_id, 300);
-            }
-
-            face_results.push_back(fr);
+        // 检查是否已签到（5分钟内）
+        fr.is_duplicate = false;
+        if (attendance_service_ && result.user_id > 0) {
+            fr.is_duplicate = attendance_service_->is_duplicate_check(result.user_id, 300);
         }
-        video_widget_->set_face_results(face_results);
 
-        frame_count_++;
+        face_results.push_back(fr);
+    }
+    video_widget_->set_face_results(face_results);
 
-        // 计算 FPS
-        auto now = std::chrono::steady_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_fps_time_);
-        if (duration.count() >= 1000) {
-            fps_ = frame_count_ * 1000.0 / duration.count();
-            frame_count_ = 0;
-            last_fps_time_ = now;
-            video_widget_->set_fps(fps_);
-        }
+    frame_count_++;
+
+    // 计算 FPS
+    auto now = std::chrono::steady_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_fps_time_);
+    if (duration.count() >= 1000) {
+        fps_ = frame_count_ * 1000.0 / duration.count();
+        frame_count_ = 0;
+        last_fps_time_ = now;
+        video_widget_->set_fps(fps_);
     }
 }
 
@@ -419,6 +479,10 @@ void MainWindow::on_action_user_management() {
     user_mgmt->setWindowFlags(Qt::Window);  // 设置为独立窗口
     user_mgmt->setWindowTitle("用户管理");
     user_mgmt->resize(800, 600);
+
+    // 连接信号槽：当用户管理窗口数据变更时，刷新主窗口的用户列表
+    connect(user_mgmt, &UserManagementWidget::data_changed, this, &MainWindow::load_users);
+
     user_mgmt->show();
 }
 
