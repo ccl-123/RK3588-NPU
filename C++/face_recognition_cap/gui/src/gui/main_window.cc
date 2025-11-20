@@ -13,6 +13,7 @@
 #include "gui/settings_dialog.h"
 #include "gui/about_dialog.h"
 
+#include <QApplication>
 #include <QMenuBar>
 #include <QToolBar>
 #include <QStatusBar>
@@ -51,13 +52,13 @@ MainWindow::MainWindow(QWidget* parent)
     , frame_count_(0)
     , fps_(0.0)
     , camera_id_(0)
+    , is_dark_theme_(false)  // 默认使用浅色主题
 {
     // 注册 Qt 元类型（必须在使用前注册）
     qRegisterMetaType<cv::Mat>("cv::Mat");
     qRegisterMetaType<std::vector<RecognitionResult>>("std::vector<RecognitionResult>");
 
     setup_ui();
-    load_stylesheet();
 
     // 初始化定时器（只保留状态更新定时器）
     status_timer_ = new QTimer(this);
@@ -448,6 +449,11 @@ void MainWindow::create_menus() {
     QAction* settings_action = settings_menu->addAction("系统设置(&S)");
     connect(settings_action, &QAction::triggered, this, &MainWindow::on_action_settings);
 
+    settings_menu->addSeparator();
+
+    QAction* theme_action = settings_menu->addAction("切换主题(&T)");
+    connect(theme_action, &QAction::triggered, this, &MainWindow::on_action_toggle_theme);
+
     // 帮助菜单
     QMenu* help_menu = menuBar()->addMenu("帮助(&H)");
 
@@ -476,6 +482,12 @@ void MainWindow::create_toolbars() {
     // 考勤查询
     QAction* query_action = toolbar->addAction("考勤查询");
     connect(query_action, &QAction::triggered, this, &MainWindow::on_action_query_attendance);
+
+    toolbar->addSeparator();
+
+    // 主题切换
+    QAction* theme_action = toolbar->addAction("🌓 切换主题");
+    connect(theme_action, &QAction::triggered, this, &MainWindow::on_action_toggle_theme);
 }
 
 void MainWindow::create_status_bar() {
@@ -721,6 +733,22 @@ void MainWindow::on_action_user_management() {
 void MainWindow::on_action_about() {
     AboutDialog dialog(this);
     dialog.exec();
+}
+
+void MainWindow::on_action_toggle_theme() {
+    is_dark_theme_ = !is_dark_theme_;
+
+    if (is_dark_theme_) {
+        // 切换到深色主题
+        load_stylesheet();
+        spdlog::info("Switched to dark theme");
+    } else {
+        // 切换到浅色主题（清除样式表）
+        if (qApp) {
+            qApp->setStyleSheet("");
+        }
+        spdlog::info("Switched to light theme");
+    }
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {

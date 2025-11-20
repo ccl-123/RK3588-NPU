@@ -85,7 +85,10 @@ private slots:
     
     // 帮助菜单
     void on_action_about();
-    
+
+    // 主题切换
+    void on_action_toggle_theme();
+
     // 定时器更新
     void update_status();
 
@@ -102,6 +105,7 @@ private:
     void create_toolbars();
     void create_status_bar();
     void create_dock_widgets();
+    void load_stylesheet();  // 加载全局样式表
     
     // 系统组件
     std::unique_ptr<FaceRecognitionApp> recognition_app_;
@@ -137,7 +141,10 @@ private:
     int frame_count_;
     double fps_;
     std::chrono::steady_clock::time_point last_fps_time_;
-    
+
+    // 主题状态
+    bool is_dark_theme_;
+
     // 配置
     std::string retinaface_model_;
     std::string facenet_model_;

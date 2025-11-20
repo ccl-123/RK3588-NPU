@@ -106,29 +106,22 @@ void FaceRegistrationDialog::setup_ui() {
     
     captured_faces_list_ = new QListWidget();
     captured_faces_list_->setMaximumWidth(200);
-    connect(captured_faces_list_, &QListWidget::currentRowChanged, 
+    connect(captured_faces_list_, &QListWidget::currentRowChanged,
             this, &FaceRegistrationDialog::on_face_selected);
-    
-    capture_btn_ = new QPushButton("采集人脸");
-    connect(capture_btn_, &QPushButton::clicked, this, &FaceRegistrationDialog::on_capture_clicked);
-    
-    delete_btn_ = new QPushButton("删除");
-    delete_btn_->setEnabled(false);
-    connect(delete_btn_, &QPushButton::clicked, this, &FaceRegistrationDialog::on_delete_clicked);
-    
+
     progress_bar_ = new QProgressBar();
     progress_bar_->setRange(0, MAX_FACES);
     progress_bar_->setValue(0);
-    
+
     list_layout->addWidget(new QLabel("已采集:"));
     list_layout->addWidget(captured_faces_list_);
     list_layout->addWidget(progress_bar_);
-    
+
     capture_btn_ = new QPushButton("采集人脸");
     capture_btn_->setProperty("class", "primary");  // 蓝色强调按钮
     connect(capture_btn_, &QPushButton::clicked, this, &FaceRegistrationDialog::on_capture_clicked);
     list_layout->addWidget(capture_btn_);
-    
+
     delete_btn_ = new QPushButton("删除");
     delete_btn_->setEnabled(false);
     delete_btn_->setProperty("class", "danger");    // 红色危险按钮
