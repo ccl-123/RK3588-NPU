@@ -65,6 +65,9 @@ int load_usb_camera(std::string device, int camera_width, int camera_height)
     fmt.fmt.pix.field = V4L2_FIELD_NONE;
     CHECK_IOCTL(fd, VIDIOC_S_FMT, &fmt);
 
+    // 打印实际设置的分辨率
+    std::cout << "USB camera initialized: " << fmt.fmt.pix.width << "x" << fmt.fmt.pix.height << std::endl;
+
     v4l2_requestbuffers req = {};
     req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     req.memory = V4L2_MEMORY_MMAP;

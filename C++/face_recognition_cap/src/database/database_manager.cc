@@ -139,10 +139,16 @@ DatabaseManager* DatabaseManager::instance() {
 
 bool DatabaseManager::initialize(const std::string& db_path) {
     std::lock_guard<std::recursive_mutex> lock(db_mutex_);
-    
+
     if (db_ != nullptr) {
-        std::cerr << "Database already initialized" << std::endl;
-        return false;
+        // 如果已经初始化且路径相同，返回成功
+        if (db_path_ == db_path) {
+            std::cout << "Database already initialized with same path" << std::endl;
+            return true;
+        }
+        // 如果路径不同，先关闭旧连接
+        std::cout << "Database already initialized with different path, closing old connection" << std::endl;
+        close();
     }
     
     db_path_ = db_path;

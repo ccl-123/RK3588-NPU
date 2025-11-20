@@ -11,6 +11,7 @@
 #include "core/postprocess.h"
 #include "hardware/camera_util.h"
 #include "database/database_manager.h"
+#include <spdlog/spdlog.h>
 #include <sys/time.h>
 #include <iostream>
 #include <cstring>
@@ -72,9 +73,15 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
         feature_count = feature_library_.load_from_directory(config_.feature_lib_path, FACENET_FEATURE_DIM);
     }
 
-    if (feature_count <= 0) {
+    if (feature_count < 0) {
         std::cerr << "Failed to load feature library" << std::endl;
         return -1;
+    }
+
+    if (feature_count == 0) {
+        std::cout << "Warning: No features loaded, system will work but cannot recognize anyone" << std::endl;
+    } else {
+        std::cout << "Loaded " << feature_count << " features" << std::endl;
     }
 
     // 3. 初始化摄像头
@@ -247,7 +254,13 @@ int FaceRecognitionApp::run() {
     return 0;
 }
 
+// ==================== 实时识别核心函数（Private） ====================
+// 以下函数用于实时识别线程，使用 similarTransform + warpPerspective 对齐
+// 经过充分测试，稳定可靠，不要轻易修改
+
 void FaceRecognitionApp::detect_faces(const cv::Mat& img, detect_result_group_t& result_group) {
+    // 输入：已缩放到 resize_w_ x resize_h_ 的图像
+    // 输出：RKNN 原始格式的检测结果
     cv::Mat padded_img = img.clone();
     int img_width, img_height;
 
@@ -291,6 +304,9 @@ void FaceRecognitionApp::detect_faces(const cv::Mat& img, detect_result_group_t&
 void FaceRecognitionApp::recognize_and_match(const cv::Mat& orig_img,
                                              const detect_result_group_t& result_group,
                                              cv::Mat& render_img) {
+    // 输入：原始图像（未缩放）+ 检测结果
+    // 输出：绘制了人脸框和识别结果的图像
+    // 功能：人脸对齐（similarTransform + warpPerspective）、特征提取、匹配、绘制
     struct timeval t_align_start, t_align_end;
     struct timeval t_facenet_start, t_facenet_end;
     struct timeval t_match_start, t_match_end;
@@ -454,4 +470,369 @@ void FaceRecognitionApp::cleanup() {
 
 void FaceRecognitionApp::set_recognition_callback(RecognitionCallback callback) {
     recognition_callback_ = callback;
+}
+
+bool FaceRecognitionApp::get_current_frame(cv::Mat& frame) {
+    if (!initialized_) {
+        return false;
+    }
+
+    // 从摄像头读取一帧（使用全局函数）
+    cv::Mat orig_img;
+    if (config_.camera_type == "usb") {
+        if (config_.use_async_usb) {
+            read_usb_frame_async(&orig_img);
+        } else {
+            read_usb_frame(&orig_img);
+        }
+    } else {
+        read_mipi_frame(&orig_img);
+    }
+
+    if (orig_img.empty()) {
+        return false;
+    }
+
+    // 翻转图像
+    cv::flip(orig_img, frame, 1);
+
+    return true;
+}
+
+// ==================== GUI 人脸注册接口（Public） ====================
+// 以下函数专为 GUI 人脸注册功能设计，返回友好的数据结构
+// 不用于实时识别线程
+
+int FaceRecognitionApp::detect_faces(const cv::Mat& frame,
+                                     std::vector<cv::Rect>& face_boxes,
+                                     std::vector<std::vector<cv::Point2f>>& landmarks) {
+    // 输入：原始帧（如 1280x720）
+    // 输出：人脸框和关键点（坐标已转换回原始帧坐标系）
+    // 用途：GUI 人脸注册时的人脸检测
+
+    if (!initialized_) {
+        return 0;
+    }
+
+    face_boxes.clear();
+    landmarks.clear();
+
+    // 调整图像大小用于检测
+    cv::Mat resized_img;
+    cv::resize(frame, resized_img, cv::Size(resize_w_, resize_h_));
+
+    // 添加 padding 使其成为正方形（与旧版本 detect_faces 一致）
+    cv::Mat padded_img = resized_img.clone();
+    int img_width, img_height;
+
+    if (config_.camera_width > config_.camera_height) {
+        // 1280x720 -> 640x360，需要在底部添加 padding 到 640x640
+        cv::copyMakeBorder(padded_img, padded_img, 0, padding_, 0, 0,
+                          cv::BorderTypes::BORDER_CONSTANT, cv::Scalar(0, 0, 0));
+        img_width = resize_w_;
+        img_height = resize_w_;  // 640x640
+    } else {
+        // 竖屏模式，在右侧添加 padding
+        cv::copyMakeBorder(padded_img, padded_img, 0, 0, 0, padding_,
+                          cv::BorderTypes::BORDER_CONSTANT, cv::Scalar(0, 0, 0));
+        img_width = resize_h_;
+        img_height = resize_h_;
+    }
+
+    // RetinaFace 检测
+    detect_result_group_t detect_result_group;
+    memset(&detect_result_group, 0, sizeof(detect_result_group_t));
+
+    int retinaface_width, retinaface_height, retinaface_channel;
+    model_manager_.get_retinaface_size(retinaface_width, retinaface_height, retinaface_channel);
+
+    retinaface_inference(
+        model_manager_.get_retinaface_ctx(),
+        padded_img,
+        retinaface_width,
+        retinaface_height,
+        retinaface_channel,
+        config_.box_conf_threshold,
+        config_.nms_threshold,
+        img_width,
+        img_height,
+        model_manager_.get_retinaface_io_num(),
+        model_manager_.get_retinaface_inputs(),
+        model_manager_.get_retinaface_outputs(),
+        model_manager_.get_retinaface_out_scales(),
+        model_manager_.get_retinaface_out_zps(),
+        &detect_result_group
+    );
+
+    // 转换结果（从 padded 图像坐标转换回原始帧坐标）
+    float scale_w = static_cast<float>(frame.cols) / resize_w_;
+    float scale_h = static_cast<float>(frame.rows) / resize_h_;
+
+    for (int i = 0; i < detect_result_group.count; i++) {
+        detect_result_t* det_result = &(detect_result_group.results[i]);
+
+        // 人脸框
+        int x1 = static_cast<int>(det_result->box.left * scale_w);
+        int y1 = static_cast<int>(det_result->box.top * scale_h);
+        int x2 = static_cast<int>(det_result->box.right * scale_w);
+        int y2 = static_cast<int>(det_result->box.bottom * scale_h);
+
+        face_boxes.push_back(cv::Rect(x1, y1, x2 - x1, y2 - y1));
+
+        // 关键点
+        std::vector<cv::Point2f> face_landmarks;
+        KEY_POINT* kp = &(det_result->point);
+        face_landmarks.push_back(cv::Point2f(kp->point_1_x * scale_w, kp->point_1_y * scale_h));
+        face_landmarks.push_back(cv::Point2f(kp->point_2_x * scale_w, kp->point_2_y * scale_h));
+        face_landmarks.push_back(cv::Point2f(kp->point_3_x * scale_w, kp->point_3_y * scale_h));
+        face_landmarks.push_back(cv::Point2f(kp->point_4_x * scale_w, kp->point_4_y * scale_h));
+        face_landmarks.push_back(cv::Point2f(kp->point_5_x * scale_w, kp->point_5_y * scale_h));
+
+        landmarks.push_back(face_landmarks);
+    }
+
+    return detect_result_group.count;
+}
+
+bool FaceRecognitionApp::extract_face_feature(const cv::Mat& aligned_face,
+                                              std::vector<float>& feature) {
+    // 输入：对齐后的人脸图像（112x112，RGB 格式）
+    // 输出：特征向量（512 维）
+    // 用途：GUI 人脸注册时的特征提取
+
+    if (!initialized_) {
+        return false;
+    }
+
+    // 检查输入图像大小
+    if (aligned_face.cols != 112 || aligned_face.rows != 112) {
+        spdlog::error("Aligned face must be 112x112, got {}x{}",
+                     aligned_face.cols, aligned_face.rows);
+        return false;
+    }
+
+    // FaceNet 推理
+    float* feature_ptr = nullptr;
+    int ret = facenet_inference(
+        model_manager_.get_facenet_ctx(),
+        aligned_face,
+        model_manager_.get_facenet_io_num(),
+        model_manager_.get_facenet_inputs(),
+        model_manager_.get_facenet_outputs(),
+        &feature_ptr
+    );
+
+    if (ret != 0 || feature_ptr == nullptr) {
+        spdlog::error("FaceNet inference failed");
+        return false;
+    }
+
+    // 复制特征
+    feature.assign(feature_ptr, feature_ptr + 512);
+
+    // 释放资源
+    facenet_output_release(
+        model_manager_.get_facenet_ctx(),
+        model_manager_.get_facenet_io_num(),
+        model_manager_.get_facenet_outputs()
+    );
+
+    return true;
+}
+
+bool FaceRecognitionApp::extract_feature_from_frame(const cv::Mat& frame,
+                                                   std::vector<float>& feature,
+                                                   cv::Rect* face_box) {
+    // 输入：原始帧（如 1280x720）
+    // 输出：特征向量（512 维）+ 可选的人脸框
+    // 用途：GUI 人脸注册的一站式接口（检测 + 对齐 + 提取）
+    // 注意：使用 estimateAffinePartial2D + warpAffine 对齐（与实时识别不同）
+
+    if (!initialized_) {
+        return false;
+    }
+
+    // 检测人脸
+    std::vector<cv::Rect> face_boxes;
+    std::vector<std::vector<cv::Point2f>> landmarks;
+
+    int face_count = detect_faces(frame, face_boxes, landmarks);
+
+    if (face_count == 0) {
+        spdlog::warn("No face detected in frame");
+        return false;
+    }
+
+    if (face_count > 1) {
+        spdlog::warn("Multiple faces detected ({}), using the first one", face_count);
+    }
+
+    // 使用第一个人脸
+    if (face_box != nullptr) {
+        *face_box = face_boxes[0];
+    }
+
+    // 人脸对齐
+    std::vector<cv::Point2f>& src_landmark = landmarks[0];
+
+    // 目标关键点位置（112x112 图像）
+    std::vector<cv::Point2f> dst_landmark = {
+        cv::Point2f(38.2946f, 51.6963f),
+        cv::Point2f(73.5318f, 51.5014f),
+        cv::Point2f(56.0252f, 71.7366f),
+        cv::Point2f(41.5493f, 92.3655f),
+        cv::Point2f(70.7299f, 92.2041f)
+    };
+
+    // 计算仿射变换矩阵
+    cv::Mat transform_matrix = cv::estimateAffinePartial2D(src_landmark, dst_landmark);
+
+    if (transform_matrix.empty()) {
+        spdlog::error("Failed to compute affine transform");
+        return false;
+    }
+
+    // 对齐人脸（使用 estimateAffinePartial2D + warpAffine）
+    cv::Mat aligned_face;
+    cv::warpAffine(frame, aligned_face, transform_matrix, cv::Size(112, 112));
+
+    // 提取特征
+    return extract_face_feature(aligned_face, feature);
+}
+
+bool FaceRecognitionApp::process_single_frame(cv::Mat& frame, std::vector<RecognitionResult>& results) {
+    // 用途：GUI 单帧处理接口（用于人脸注册预览等）
+    // 注意：使用实时识别的核心函数（private 版本），确保与实时识别一致
+    // 原因：实时识别使用 similarTransform + warpPerspective 对齐，经过充分测试
+    //       GUI 注册接口使用 estimateAffinePartial2D + warpAffine 对齐
+    //       为了保证识别准确性，这里使用与实时识别相同的对齐方法
+
+    if (!initialized_) {
+        return false;
+    }
+
+    results.clear();
+
+    // 1. 获取当前帧
+    cv::Mat orig_img;
+    if (!get_current_frame(orig_img)) {
+        return false;
+    }
+
+    // 2. 预处理
+    cv::Mat resized_img;
+    cv::resize(orig_img, resized_img, cv::Size(resize_w_, resize_h_));
+
+    // 3. 人脸检测（使用实时识别的 private 版本）
+    //    注意：不使用 public 版本的 detect_faces，因为对齐方法不同
+    detect_result_group_t detect_result_group;
+    detect_faces(resized_img, detect_result_group);
+
+    // 4. 人脸识别和绘制
+    frame = orig_img.clone();
+
+    int facenet_width, facenet_height, facenet_channel;
+    model_manager_.get_facenet_size(facenet_width, facenet_height, facenet_channel);
+
+    for (int i = 0; i < detect_result_group.count; i++) {
+        detect_result_t* det_result = &(detect_result_group.results[i]);
+
+        // 人脸对齐（使用旧版本的方法）
+        float landmark[5][2] = {
+            {(float)det_result->point.point_1_x, (float)det_result->point.point_1_y},
+            {(float)det_result->point.point_2_x, (float)det_result->point.point_2_y},
+            {(float)det_result->point.point_3_x, (float)det_result->point.point_3_y},
+            {(float)det_result->point.point_4_x, (float)det_result->point.point_4_y},
+            {(float)det_result->point.point_5_x, (float)det_result->point.point_5_y}
+        };
+
+        cv::Mat src(5, 2, CV_32FC1, landmark);
+        memcpy(src.data, landmark, 2 * 5 * sizeof(float));
+
+        cv::Mat M = similarTransform(src, dst_landmark_);
+        cv::Mat aligned_face;
+        cv::warpPerspective(orig_img, aligned_face, M, cv::Size(facenet_width, facenet_height));
+
+        // 转换为 RGB（FaceNet 模型需要 RGB 输入）
+        cv::cvtColor(aligned_face, aligned_face, cv::COLOR_BGR2RGB);
+
+        // 特征提取
+        float* feature_ptr = nullptr;
+        int ret = facenet_inference(
+            model_manager_.get_facenet_ctx(),
+            aligned_face,
+            model_manager_.get_facenet_io_num(),
+            model_manager_.get_facenet_inputs(),
+            model_manager_.get_facenet_outputs(),
+            &feature_ptr
+        );
+
+        if (ret != 0 || feature_ptr == nullptr) {
+            spdlog::error("FaceNet inference failed for face {}", i);
+            continue;
+        }
+
+        // 复制特征到 vector
+        std::vector<float> feature(feature_ptr, feature_ptr + 512);
+
+        // 特征匹配
+        int matched_user_id = -1;
+        std::string matched_name = "Unknown";
+        float max_similarity = 0.0f;
+
+        feature_library_.match_feature_with_id(feature.data(), config_.facenet_threshold,
+                                              matched_user_id, matched_name, max_similarity);
+
+        // 调试日志：显示匹配结果（包括低于阈值的）
+        if (max_similarity > 0.0f) {
+            spdlog::debug("Face detected - Best match: {} (ID: {}, similarity: {:.3f}, threshold: {:.2f})",
+                         matched_name, matched_user_id, max_similarity, config_.facenet_threshold);
+        }
+
+        // 获取人脸框坐标
+        int x1 = det_result->box.left;
+        int y1 = det_result->box.top;
+        int x2 = det_result->box.right;
+        int y2 = det_result->box.bottom;
+
+        // 创建识别结果
+        RecognitionResult result;
+        result.user_id = matched_user_id;
+        result.user_name = matched_name;
+        result.similarity = max_similarity;
+        result.face_box = cv::Rect(x1, y1, x2 - x1, y2 - y1);
+        result.face_image = aligned_face.clone();
+        result.timestamp = std::chrono::system_clock::now();
+        results.push_back(result);
+
+        // 绘制人脸框和识别结果
+        cv::Scalar color = (max_similarity >= config_.facenet_threshold) ?
+                          cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255);
+
+        cv::rectangle(frame, cv::Point(x1, y1), cv::Point(x2, y2), color, 2);
+
+        char text[128];
+        if (max_similarity >= config_.facenet_threshold) {
+            snprintf(text, sizeof(text), "%s (%.2f)", matched_name.c_str(), max_similarity);
+        } else {
+            snprintf(text, sizeof(text), "Unknown (%.2f)", max_similarity);
+        }
+
+        cv::putText(frame, text, cv::Point(x1, y1 - 10),
+                   cv::FONT_HERSHEY_SIMPLEX, 0.6, color, 2);
+
+        // 释放 FaceNet 输出资源
+        facenet_output_release(
+            model_manager_.get_facenet_ctx(),
+            model_manager_.get_facenet_io_num(),
+            model_manager_.get_facenet_outputs()
+        );
+
+        // 触发回调
+        if (recognition_callback_ && max_similarity >= config_.facenet_threshold) {
+            recognition_callback_(result);
+        }
+    }
+
+    return true;
 }

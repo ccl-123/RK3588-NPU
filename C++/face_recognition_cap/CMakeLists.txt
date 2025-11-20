@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.4.1)
 project(${TARGET_NAME})
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wl,--allow-shlib-undefined")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wl,--allow-shlib-undefined")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -Wl,--allow-shlib-undefined")
 
 # install target and libraries
 set(CMAKE_INSTALL_PREFIX ${CMAKE_SOURCE_DIR}/install/${TARGET_NAME})
@@ -44,6 +44,18 @@ set(CMAKE_INSTALL_RPATH "lib")
 find_package(SQLite3 REQUIRED)
 include_directories(${SQLite3_INCLUDE_DIRS})
 
+# Qt5 (可选，用于 GUI 版本)
+find_package(Qt5 COMPONENTS Core Gui Widgets)
+if(Qt5_FOUND)
+    message(STATUS "Qt5 found, GUI version will be built")
+    message(STATUS "Qt5 version: ${Qt5_VERSION}")
+else()
+    message(STATUS "Qt5 not found, GUI version will be skipped")
+endif()
+
+# spdlog (header-only)
+include_directories(/usr/local/include)
+
 # demo - 分层架构
 include_directories( ${CMAKE_SOURCE_DIR}/include)
 include_directories( ${CMAKE_SOURCE_DIR}/include/core)
@@ -52,6 +64,7 @@ include_directories( ${CMAKE_SOURCE_DIR}/include/utils)
 include_directories( ${CMAKE_SOURCE_DIR}/include/app)
 include_directories( ${CMAKE_SOURCE_DIR}/include/database)
 include_directories( ${CMAKE_SOURCE_DIR}/include/service)
+include_directories( ${CMAKE_SOURCE_DIR}/gui/include)
 
 # 源文件分组
 set(CORE_SOURCES
@@ -89,6 +102,24 @@ set(MAIN_SOURCES
     src/main.cc
 )
 
+# GUI 源文件 (仅当 Qt5 可用时)
+if(Qt5_FOUND)
+    set(GUI_SOURCES
+        gui/src/gui/main_window.cc
+        gui/src/gui/video_display_widget.cc
+        gui/src/gui/face_registration_dialog.cc
+        gui/src/gui/attendance_query_widget.cc
+        gui/src/gui/user_management_widget.cc
+        gui/src/gui/settings_dialog.cc
+        gui/src/gui/about_dialog.cc
+    )
+
+    set(MAIN_GUI_SOURCES
+        src/main_gui.cc
+    )
+endif()
+
+# 命令行版本
 add_executable(${TARGET_NAME}
     ${MAIN_SOURCES}
     ${CORE_SOURCES}
@@ -104,6 +135,51 @@ target_link_libraries(${TARGET_NAME}
   ${OpenCV_LIBS}
   ${SQLite3_LIBRARIES}
 )
+
+# GUI 版本 (仅当 Qt5 可用时)
+if(Qt5_FOUND)
+    # GUI 头文件
+    set(GUI_HEADERS
+        gui/include/gui/main_window.h
+        gui/include/gui/video_display_widget.h
+        gui/include/gui/face_registration_dialog.h
+        gui/include/gui/attendance_query_widget.h
+        gui/include/gui/user_management_widget.h
+        gui/include/gui/settings_dialog.h
+        gui/include/gui/about_dialog.h
+    )
+
+    add_executable(${TARGET_NAME}_gui
+        ${MAIN_GUI_SOURCES}
+        ${CORE_SOURCES}
+        ${HARDWARE_SOURCES}
+        ${DATABASE_SOURCES}
+        ${SERVICE_SOURCES}
+        ${APP_SOURCES}
+        ${GUI_SOURCES}
+        ${GUI_HEADERS}
+    )
+
+    # 为 GUI 目标启用 AUTOMOC
+    set_target_properties(${TARGET_NAME}_gui PROPERTIES
+        AUTOMOC ON
+        AUTOUIC ON
+        AUTORCC ON
+    )
+
+    target_link_libraries(${TARGET_NAME}_gui
+        ${RKNN_RT_LIB}
+        ${RGA_LIB}
+        ${OpenCV_LIBS}
+        ${SQLite3_LIBRARIES}
+        Qt5::Core
+        Qt5::Gui
+        Qt5::Widgets
+    )
+
+    # 安装 GUI 版本
+    install(TARGETS ${TARGET_NAME}_gui DESTINATION ./)
+endif()
 
 # 数据库管理工具
 add_executable(db_tool

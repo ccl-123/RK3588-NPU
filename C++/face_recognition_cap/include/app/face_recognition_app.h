@@ -115,6 +115,70 @@ public:
      */
     FeatureLibrary& get_feature_library() { return feature_library_; }
 
+    /**
+     * @brief GUI 模式：获取当前帧（不阻塞）
+     * @param frame 输出帧
+     * @return true 成功获取, false 失败
+     */
+    bool get_current_frame(cv::Mat& frame);
+
+    /**
+     * @brief GUI 模式：处理单帧并返回结果
+     * @param frame 输出处理后的帧
+     * @param results 输出识别结果列表
+     * @return true 成功处理, false 失败
+     */
+    bool process_single_frame(cv::Mat& frame, std::vector<RecognitionResult>& results);
+
+    /**
+     * @brief 检查是否正在运行
+     */
+    bool is_running() const { return running_; }
+
+    // ==================== GUI 人脸注册接口 ====================
+    // 注意：以下接口专为 GUI 人脸注册功能设计，返回友好的数据结构
+    // 实时识别线程使用 private 版本的 detect_faces() 和 recognize_and_match()
+
+    /**
+     * @brief 从原始帧中检测人脸（GUI 注册专用）
+     * @param frame 输入帧（原始分辨率，如 1280x720）
+     * @param face_boxes 输出人脸框列表（相对于原始帧的坐标）
+     * @param landmarks 输出关键点列表（每个人脸 5 个关键点，相对于原始帧的坐标）
+     * @return 检测到的人脸数量
+     *
+     * @note 此函数会自动处理图像缩放和 padding，返回的坐标已转换回原始帧坐标系
+     * @note 用于 GUI 人脸注册时的人脸检测，不用于实时识别
+     */
+    int detect_faces(const cv::Mat& frame,
+                    std::vector<cv::Rect>& face_boxes,
+                    std::vector<std::vector<cv::Point2f>>& landmarks);
+
+    /**
+     * @brief 从对齐后的人脸图像提取特征（GUI 注册专用）
+     * @param aligned_face 对齐后的人脸图像（112x112，RGB 格式）
+     * @param feature 输出特征向量（512 维）
+     * @return true 成功, false 失败
+     *
+     * @note 输入图像必须已经对齐到 112x112 并转换为 RGB 格式
+     * @note 用于 GUI 人脸注册时的特征提取，不用于实时识别
+     */
+    bool extract_face_feature(const cv::Mat& aligned_face, std::vector<float>& feature);
+
+    /**
+     * @brief 从原始帧中提取人脸特征（GUI 注册专用，包含检测、对齐、提取）
+     * @param frame 输入帧（原始分辨率，如 1280x720）
+     * @param feature 输出特征向量（512 维）
+     * @param face_box 输出人脸框（可选，相对于原始帧的坐标）
+     * @return true 成功（检测到一个人脸）, false 失败
+     *
+     * @note 此函数是一站式接口，自动完成检测、对齐、特征提取
+     * @note 如果检测到多个人脸，只处理第一个
+     * @note 用于 GUI 人脸注册的便捷接口，不用于实时识别
+     */
+    bool extract_feature_from_frame(const cv::Mat& frame,
+                                   std::vector<float>& feature,
+                                   cv::Rect* face_box = nullptr);
+
 private:
     /**
      * @brief 初始化摄像头
@@ -122,19 +186,37 @@ private:
     int init_camera();
 
     /**
-     * @brief 处理单帧图像
+     * @brief 处理单帧图像（实时识别线程使用）
      */
     void process_frame();
 
+    // ==================== 实时识别核心函数 ====================
+    // 注意：以下函数用于实时识别线程，经过充分测试，稳定可靠
+    // 使用 similarTransform + warpPerspective 进行人脸对齐
+    // GUI 人脸注册使用 public 版本的接口
+
     /**
-     * @brief 人脸检测
+     * @brief 人脸检测（实时识别专用）
+     * @param img 输入图像（已缩放到 resize_w_ x resize_h_）
+     * @param result_group 输出检测结果（RKNN 原始格式）
+     *
+     * @note 此函数用于实时识别线程，输入图像已经过预处理
+     * @note 使用 similarTransform + warpPerspective 进行人脸对齐
+     * @note 不要在 GUI 注册功能中使用此函数
      */
     void detect_faces(const cv::Mat& img, detect_result_group_t& result_group);
 
     /**
-     * @brief 人脸识别和匹配
+     * @brief 人脸识别和匹配（实时识别专用）
+     * @param orig_img 原始图像（未缩放）
+     * @param result_group 检测结果
+     * @param render_img 输出渲染图像（绘制人脸框和识别结果）
+     *
+     * @note 此函数用于实时识别线程，包含人脸对齐、特征提取、匹配、绘制
+     * @note 使用 similarTransform + warpPerspective 进行人脸对齐
+     * @note 不要在 GUI 注册功能中使用此函数
      */
-    void recognize_and_match(const cv::Mat& orig_img, 
+    void recognize_and_match(const cv::Mat& orig_img,
                             const detect_result_group_t& result_group,
                             cv::Mat& render_img);
 
