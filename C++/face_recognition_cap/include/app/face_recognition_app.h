@@ -1,6 +1,6 @@
 /**
  * @file face_recognition_app.h
- * @brief 人脸识别应用主类 - 封装整个应用的流程控制
+ * @brief 人脸识别应用主类 - 封装整个应用的流程控制(支持回调)
  * @author Augment Agent
  * @date 2025-11-20
  */
@@ -9,6 +9,8 @@
 #define _FACE_RECOGNITION_APP_H_
 
 #include <string>
+#include <functional>
+#include <chrono>
 #include <opencv2/opencv.hpp>
 #include "core/postprocess.h"
 #include "app/model_manager.h"
@@ -16,6 +18,20 @@
 #include "app/preprocessing_thread.h"
 #include "app/rendering_thread.h"
 #include "app/performance_monitor.h"
+
+/**
+ * @brief 识别结果结构(新增)
+ */
+struct RecognitionResult {
+    int user_id;                                        // 用户ID
+    std::string user_name;                              // 用户姓名
+    float similarity;                                   // 相似度
+    cv::Mat face_image;                                 // 人脸图像
+    cv::Rect face_box;                                  // 人脸框
+    std::chrono::system_clock::time_point timestamp;    // 时间戳
+
+    RecognitionResult() : user_id(0), similarity(0.0f) {}
+};
 
 /**
  * @brief 应用配置结构
@@ -26,6 +42,8 @@ struct AppConfig {
     std::string camera_type;            // 摄像头类型: "usb" 或 "mipi"
     std::string device_number;          // 设备编号
     std::string feature_lib_path;       // 特征库路径
+    std::string database_path;          // 数据库路径(新增)
+    bool use_database;                  // 是否使用数据库(新增)
     int camera_width;                   // 摄像头宽度
     int camera_height;                  // 摄像头高度
     float box_conf_threshold;           // 人脸检测置信度阈值
@@ -43,17 +61,25 @@ struct AppConfig {
         , use_async_usb(true)
         , perf_report_interval(10)
         , feature_lib_path("./data/face_feature_lib/")
+        , database_path("./data/database/face_recognition.db")
+        , use_database(false)
     {}
 };
 
 /**
+ * @brief 识别结果回调函数类型(新增)
+ */
+using RecognitionCallback = std::function<void(const RecognitionResult&)>;
+
+/**
  * @brief 人脸识别应用主类
- * 
+ *
  * 职责:
  * - 初始化所有模块 (模型、摄像头、线程等)
  * - 控制主循环流程
  * - 协调各模块协同工作
  * - 资源清理和释放
+ * - 支持识别结果回调(新增)
  */
 class FaceRecognitionApp {
 public:
@@ -77,6 +103,17 @@ public:
      * @brief 停止应用
      */
     void stop();
+
+    /**
+     * @brief 设置识别结果回调函数(新增)
+     * @param callback 回调函数
+     */
+    void set_recognition_callback(RecognitionCallback callback);
+
+    /**
+     * @brief 获取特征库引用(新增)
+     */
+    FeatureLibrary& get_feature_library() { return feature_library_; }
 
 private:
     /**
@@ -123,6 +160,9 @@ private:
     PreprocessingThread* preprocess_thread_;
     RenderingThread* render_thread_;
     PerformanceMonitor perf_monitor_;
+
+    // 回调函数(新增)
+    RecognitionCallback recognition_callback_;
 
     // 人脸对齐目标点
     cv::Mat dst_landmark_;

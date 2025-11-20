@@ -1,6 +1,6 @@
 /**
  * @file feature_library.h
- * @brief 人脸特征库管理器 - 负责特征库的加载和匹配
+ * @brief 人脸特征库管理器 - 负责特征库的加载和匹配(支持数据库)
  * @author Augment Agent
  * @date 2025-11-20
  */
@@ -11,11 +11,16 @@
 #include <vector>
 #include <string>
 
+// 前向声明
+namespace db {
+    class DatabaseManager;
+}
+
 /**
  * @brief 人脸特征库管理类
- * 
+ *
  * 职责:
- * - 从文件系统加载人脸特征库
+ * - 从文件系统或数据库加载人脸特征库
  * - 管理特征向量和对应的人名
  * - 提供特征匹配功能
  * - 释放特征库资源
@@ -26,12 +31,20 @@ public:
     ~FeatureLibrary();
 
     /**
-     * @brief 从指定目录加载特征库
+     * @brief 从指定目录加载特征库(文件系统模式)
      * @param lib_path 特征库目录路径
      * @param feature_dim 特征向量维度 (默认512)
      * @return 加载的特征数量, -1表示失败
      */
     int load_from_directory(const std::string& lib_path, int feature_dim = 512);
+
+    /**
+     * @brief 从数据库加载特征库(数据库模式)
+     * @param db_manager 数据库管理器
+     * @param feature_dim 特征向量维度 (默认512)
+     * @return 加载的特征数量, -1表示失败
+     */
+    int load_from_database(db::DatabaseManager* db_manager, int feature_dim = 512);
 
     /**
      * @brief 匹配人脸特征
@@ -41,8 +54,36 @@ public:
      * @param max_score 输出最大相似度分数
      * @return true 匹配成功, false 未匹配到
      */
-    bool match_feature(const float* feature, float threshold, 
+    bool match_feature(const float* feature, float threshold,
                       std::string& matched_name, float& max_score);
+
+    /**
+     * @brief 匹配人脸特征(返回user_id)
+     * @param feature 待匹配的特征向量
+     * @param threshold 匹配阈值
+     * @param user_id 输出用户ID
+     * @param matched_name 输出匹配到的人名
+     * @param max_score 输出最大相似度分数
+     * @return true 匹配成功, false 未匹配到
+     */
+    bool match_feature_with_id(const float* feature, float threshold,
+                               int& user_id, std::string& matched_name, float& max_score);
+
+    /**
+     * @brief 添加新特征到特征库(仅内存)
+     * @param user_id 用户ID
+     * @param name 用户姓名
+     * @param feature 特征向量
+     * @return true成功, false失败
+     */
+    bool add_feature(int user_id, const std::string& name, const float* feature);
+
+    /**
+     * @brief 删除用户的所有特征(仅内存)
+     * @param user_id 用户ID
+     * @return true成功, false失败
+     */
+    bool remove_feature(int user_id);
 
     /**
      * @brief 获取特征库大小
@@ -65,6 +106,11 @@ public:
      */
     const std::vector<std::string>& get_names() const { return lib_face_name_; }
 
+    /**
+     * @brief 获取所有用户ID列表
+     */
+    const std::vector<int>& get_user_ids() const { return lib_user_ids_; }
+
 private:
     /**
      * @brief 计算余弦相似度
@@ -77,7 +123,9 @@ private:
 private:
     std::vector<float*> lib_feature_;        // 特征向量列表
     std::vector<std::string> lib_face_name_; // 对应的人名列表
+    std::vector<int> lib_user_ids_;          // 对应的用户ID列表(新增)
     int feature_dim_;                         // 特征向量维度
+    db::DatabaseManager* db_manager_;        // 数据库管理器(新增)
 };
 
 #endif // _FEATURE_LIBRARY_H_

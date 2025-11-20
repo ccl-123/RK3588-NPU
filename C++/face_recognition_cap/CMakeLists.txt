@@ -40,12 +40,18 @@ include_directories( ${RGA_PATH}/include)
 
 set(CMAKE_INSTALL_RPATH "lib")
 
+# SQLite3
+find_package(SQLite3 REQUIRED)
+include_directories(${SQLite3_INCLUDE_DIRS})
+
 # demo - 分层架构
 include_directories( ${CMAKE_SOURCE_DIR}/include)
 include_directories( ${CMAKE_SOURCE_DIR}/include/core)
 include_directories( ${CMAKE_SOURCE_DIR}/include/hardware)
 include_directories( ${CMAKE_SOURCE_DIR}/include/utils)
 include_directories( ${CMAKE_SOURCE_DIR}/include/app)
+include_directories( ${CMAKE_SOURCE_DIR}/include/database)
+include_directories( ${CMAKE_SOURCE_DIR}/include/service)
 
 # 源文件分组
 set(CORE_SOURCES
@@ -56,6 +62,18 @@ set(CORE_SOURCES
 
 set(HARDWARE_SOURCES
     src/hardware/camera_util.cc
+)
+
+set(DATABASE_SOURCES
+    src/database/database_manager.cc
+    src/database/user_dao.cc
+    src/database/face_feature_dao.cc
+    src/database/attendance_record_dao.cc
+)
+
+set(SERVICE_SOURCES
+    src/service/attendance_service.cc
+    src/service/user_service.cc
 )
 
 set(APP_SOURCES
@@ -75,6 +93,8 @@ add_executable(${TARGET_NAME}
     ${MAIN_SOURCES}
     ${CORE_SOURCES}
     ${HARDWARE_SOURCES}
+    ${DATABASE_SOURCES}
+    ${SERVICE_SOURCES}
     ${APP_SOURCES}
 )
 
@@ -82,11 +102,27 @@ target_link_libraries(${TARGET_NAME}
   ${RKNN_RT_LIB}
   ${RGA_LIB}
   ${OpenCV_LIBS}
+  ${SQLite3_LIBRARIES}
+)
+
+# 数据库管理工具
+add_executable(db_tool
+    tools/db_tool.cc
+    ${DATABASE_SOURCES}
+    ${SERVICE_SOURCES}
+    src/app/feature_library.cc
+    src/core/postprocess.cc
+)
+
+target_link_libraries(db_tool
+  ${OpenCV_LIBS}
+  ${SQLite3_LIBRARIES}
 )
 
 # install target and libraries
 set(CMAKE_INSTALL_PREFIX ${CMAKE_SOURCE_DIR}/install/${TARGET_NAME})
 install(TARGETS ${TARGET_NAME} DESTINATION ./)
+install(TARGETS db_tool DESTINATION ./)
 
 install(PROGRAMS ${RKNN_RT_LIB} DESTINATION lib)
 install(PROGRAMS ${RGA_LIB} DESTINATION lib)

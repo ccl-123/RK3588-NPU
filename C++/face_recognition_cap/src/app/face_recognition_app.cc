@@ -1,6 +1,6 @@
 /**
  * @file face_recognition_app.cc
- * @brief 人脸识别应用主类实现
+ * @brief 人脸识别应用主类实现(支持回调)
  * @author CL
  * @date 2025-11-20
  */
@@ -10,6 +10,7 @@
 #include "core/facenet.h"
 #include "core/postprocess.h"
 #include "hardware/camera_util.h"
+#include "database/database_manager.h"
 #include <sys/time.h>
 #include <iostream>
 #include <cstring>
@@ -25,6 +26,7 @@ FaceRecognitionApp::FaceRecognitionApp()
     , padding_(0)
     , initialized_(false)
     , running_(false)
+    , recognition_callback_(nullptr)
 {
 }
 
@@ -54,7 +56,22 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
 
     // 2. 加载特征库
     std::cout << "Loading feature library..." << std::endl;
-    int feature_count = feature_library_.load_from_directory(config_.feature_lib_path, FACENET_FEATURE_DIM);
+    int feature_count = 0;
+
+    if (config_.use_database) {
+        // 从数据库加载
+        auto db_manager = db::DatabaseManager::instance();
+        if (!db_manager->initialize(config_.database_path)) {
+            std::cerr << "Failed to initialize database" << std::endl;
+            return -1;
+        }
+
+        feature_count = feature_library_.load_from_database(db_manager, FACENET_FEATURE_DIM);
+    } else {
+        // 从文件系统加载
+        feature_count = feature_library_.load_from_directory(config_.feature_lib_path, FACENET_FEATURE_DIM);
+    }
+
     if (feature_count <= 0) {
         std::cerr << "Failed to load feature library" << std::endl;
         return -1;
@@ -323,8 +340,38 @@ void FaceRecognitionApp::recognize_and_match(const cv::Mat& orig_img,
         gettimeofday(&t_match_start, NULL);
         std::string name;
         float max_score;
-        feature_library_.match_feature(facenet_result, config_.facenet_threshold, name, max_score);
+        int user_id = 0;
+        feature_library_.match_feature_with_id(facenet_result, config_.facenet_threshold,
+                                               user_id, name, max_score);
         gettimeofday(&t_match_end, NULL);
+
+        // 触发回调(新增)
+        if (recognition_callback_ && name != "stranger") {
+            RecognitionResult result;
+            result.user_id = user_id;
+            result.user_name = name;
+            result.similarity = max_score;
+            result.timestamp = std::chrono::system_clock::now();
+
+            // 提取人脸图像
+            int x1 = result_group.results[i].box.left;
+            int y1 = result_group.results[i].box.top;
+            int x2 = result_group.results[i].box.right;
+            int y2 = result_group.results[i].box.bottom;
+
+            // 确保坐标在图像范围内
+            x1 = std::max(0, x1);
+            y1 = std::max(0, y1);
+            x2 = std::min(orig_img.cols, x2);
+            y2 = std::min(orig_img.rows, y2);
+
+            if (x2 > x1 && y2 > y1) {
+                result.face_image = orig_img(cv::Rect(x1, y1, x2 - x1, y2 - y1)).clone();
+                result.face_box = cv::Rect(x1, y1, x2 - x1, y2 - y1);
+            }
+
+            recognition_callback_(result);
+        }
 
         // 释放输出
         facenet_output_release(
@@ -405,3 +452,6 @@ void FaceRecognitionApp::cleanup() {
     std::cout << "Cleanup complete" << std::endl;
 }
 
+void FaceRecognitionApp::set_recognition_callback(RecognitionCallback callback) {
+    recognition_callback_ = callback;
+}
