@@ -86,6 +86,8 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
     }
 
     // 5. 初始化人脸对齐目标点
+    // 注意：必须先创建 Mat，再复制数据，避免使用局部变量指针
+    dst_landmark_ = cv::Mat(5, 2, CV_32FC1);
     float dst_landmark_data[5][2] = {
         {54.7065, 73.8519},
         {105.0454, 73.5734},
@@ -93,7 +95,6 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
         {59.3561, 131.9507},
         {89.6141, 131.7201}
     };
-    dst_landmark_ = cv::Mat(5, 2, CV_32FC1, dst_landmark_data);
     memcpy(dst_landmark_.data, dst_landmark_data, 2 * 5 * sizeof(float));
 
     // 6. 创建并启动线程
