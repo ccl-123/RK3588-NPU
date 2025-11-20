@@ -57,6 +57,7 @@ MainWindow::MainWindow(QWidget* parent)
     qRegisterMetaType<std::vector<RecognitionResult>>("std::vector<RecognitionResult>");
 
     setup_ui();
+    load_stylesheet();
 
     // 初始化定时器（只保留状态更新定时器）
     status_timer_ = new QTimer(this);
@@ -66,6 +67,207 @@ MainWindow::MainWindow(QWidget* parent)
     last_fps_time_ = std::chrono::steady_clock::now();
 
     spdlog::info("MainWindow initialized");
+}
+
+void MainWindow::load_stylesheet() {
+    const QString style = R"(
+        /* Global */
+        QWidget {
+            font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+            font-size: 14px;
+            color: #F0F0F0;
+            background-color: #2D2D2D;
+        }
+        
+        /* Buttons */
+        QPushButton {
+            background-color: #3E3E42;
+            border: 1px solid #555555;
+            border-radius: 4px;
+            padding: 6px 16px;
+            min-height: 20px;
+        }
+        QPushButton:hover {
+            background-color: #4E4E52;
+            border-color: #007ACC;
+        }
+        QPushButton:pressed {
+            background-color: #007ACC;
+            border-color: #007ACC;
+        }
+        QPushButton:disabled {
+            background-color: #2D2D2D;
+            color: #666666;
+            border-color: #444444;
+        }
+        
+        /* Primary Button */
+        QPushButton[class="primary"] {
+            background-color: #007ACC;
+            border: 1px solid #007ACC;
+            color: white;
+            font-weight: bold;
+        }
+        QPushButton[class="primary"]:hover {
+            background-color: #1E8AD6;
+        }
+        QPushButton[class="primary"]:pressed {
+            background-color: #005A9E;
+        }
+        QPushButton[class="primary"]:disabled {
+            background-color: #2D2D2D;
+            border-color: #444444;
+            color: #666666;
+        }
+
+        /* Danger Button */
+        QPushButton[class="danger"] {
+            background-color: #C42B1C;
+            border: 1px solid #C42B1C;
+            color: white;
+        }
+        QPushButton[class="danger"]:hover {
+            background-color: #D93626;
+        }
+
+        /* Inputs */
+        QLineEdit, QComboBox, QDateEdit, QSpinBox {
+            background-color: #1E1E1E;
+            border: 1px solid #3E3E42;
+            border-radius: 4px;
+            padding: 5px;
+            color: #F0F0F0;
+            selection-background-color: #007ACC;
+        }
+        QLineEdit:focus, QComboBox:focus {
+            border: 1px solid #007ACC;
+        }
+        QComboBox::drop-down {
+            border: none;
+            width: 20px;
+        }
+
+        /* Tables */
+        QTableWidget {
+            background-color: #1E1E1E;
+            alternate-background-color: #252526;
+            gridline-color: #3E3E42;
+            border: 1px solid #3E3E42;
+            selection-background-color: #007ACC;
+            selection-color: white;
+        }
+        QHeaderView::section {
+            background-color: #2D2D2D;
+            padding: 8px;
+            border: none;
+            border-right: 1px solid #3E3E42;
+            border-bottom: 1px solid #3E3E42;
+            font-weight: bold;
+        }
+        QTableCornerButton::section {
+            background-color: #2D2D2D;
+            border: none;
+        }
+
+        /* Menu & Toolbar */
+        QMenuBar {
+            background-color: #2D2D2D;
+            border-bottom: 1px solid #3E3E42;
+        }
+        QMenuBar::item:selected {
+            background-color: #3E3E42;
+        }
+        QMenu {
+            background-color: #2D2D2D;
+            border: 1px solid #3E3E42;
+        }
+        QMenu::item:selected {
+            background-color: #007ACC;
+        }
+        QToolBar {
+            background-color: #2D2D2D;
+            border-bottom: 1px solid #3E3E42;
+            spacing: 8px;
+            padding: 4px;
+        }
+        QToolButton {
+            background-color: transparent;
+            border-radius: 4px;
+            padding: 4px;
+        }
+        QToolButton:hover {
+            background-color: #3E3E42;
+        }
+
+        /* Dock Widget */
+        QDockWidget {
+            titlebar-close-icon: url(:/icons/close.png);
+            titlebar-normal-icon: url(:/icons/float.png);
+        }
+        QDockWidget::title {
+            background-color: #252526;
+            padding: 8px;
+            border-bottom: 1px solid #3E3E42;
+            font-weight: bold;
+        }
+
+        /* Status Bar */
+        QStatusBar {
+            background-color: #007ACC;
+            color: white;
+        }
+        QStatusBar QLabel {
+            color: white;
+        }
+
+        /* GroupBox */
+        QGroupBox {
+            border: 1px solid #3E3E42;
+            border-radius: 6px;
+            margin-top: 24px;
+            font-weight: bold;
+        }
+        QGroupBox::title {
+            subcontrol-origin: margin;
+            subcontrol-position: top left;
+            padding: 0 5px;
+            left: 10px;
+        }
+        
+        /* List Widget */
+        QListWidget {
+            background-color: #1E1E1E;
+            border: 1px solid #3E3E42;
+            border-radius: 4px;
+        }
+        QListWidget::item {
+            padding: 4px;
+        }
+        QListWidget::item:selected {
+            background-color: #007ACC;
+        }
+        
+        /* ScrollBar */
+        QScrollBar:vertical {
+            border: none;
+            background: #2D2D2D;
+            width: 10px;
+            margin: 0px;
+        }
+        QScrollBar::handle:vertical {
+            background: #555;
+            min-height: 20px;
+            border-radius: 5px;
+        }
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+            height: 0px;
+        }
+    )";
+    
+    // 应用到全局 Application
+    if (qApp) {
+        qApp->setStyleSheet(style);
+    }
 }
 
 MainWindow::~MainWindow() {

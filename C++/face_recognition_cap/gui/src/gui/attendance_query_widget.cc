@@ -55,6 +55,7 @@ void AttendanceQueryWidget::setup_ui() {
     query_layout->addWidget(user_combo_);
     
     query_btn_ = new QPushButton("查询");
+    query_btn_->setProperty("class", "primary");
     connect(query_btn_, &QPushButton::clicked, this, &AttendanceQueryWidget::on_query_clicked);
     query_layout->addWidget(query_btn_);
     
@@ -71,6 +72,8 @@ void AttendanceQueryWidget::setup_ui() {
     QPushButton* close_btn = new QPushButton("关闭");
     connect(close_btn, &QPushButton::clicked, this, &QWidget::close);
     query_layout->addWidget(close_btn);
+    
+    query_layout->setSpacing(10);
 
     query_group->setLayout(query_layout);
     main_layout->addWidget(query_group);

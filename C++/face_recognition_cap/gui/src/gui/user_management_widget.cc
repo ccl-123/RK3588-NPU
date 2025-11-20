@@ -44,12 +44,14 @@ void UserManagementWidget::setup_ui() {
     connect(refresh_btn_, &QPushButton::clicked, this, &UserManagementWidget::on_refresh_clicked);
     
     add_btn_ = new QPushButton("添加用户");
+    add_btn_->setProperty("class", "primary");
     connect(add_btn_, &QPushButton::clicked, this, &UserManagementWidget::on_add_clicked);
     
     edit_btn_ = new QPushButton("编辑");
     connect(edit_btn_, &QPushButton::clicked, this, &UserManagementWidget::on_edit_clicked);
     
     delete_btn_ = new QPushButton("删除");
+    delete_btn_->setProperty("class", "danger");
     connect(delete_btn_, &QPushButton::clicked, this, &UserManagementWidget::on_delete_clicked);
     
     enable_btn_ = new QPushButton("启用");
@@ -71,6 +73,7 @@ void UserManagementWidget::setup_ui() {
     toolbar_layout->addWidget(enable_btn_);
     toolbar_layout->addWidget(disable_btn_);
     toolbar_layout->addWidget(close_btn);
+    toolbar_layout->setSpacing(10);
     
     // 用户表格
     user_table_ = new QTableWidget();

@@ -123,12 +123,24 @@ void FaceRegistrationDialog::setup_ui() {
     list_layout->addWidget(new QLabel("已采集:"));
     list_layout->addWidget(captured_faces_list_);
     list_layout->addWidget(progress_bar_);
+    
+    capture_btn_ = new QPushButton("采集人脸");
+    capture_btn_->setProperty("class", "primary");  // 蓝色强调按钮
+    connect(capture_btn_, &QPushButton::clicked, this, &FaceRegistrationDialog::on_capture_clicked);
     list_layout->addWidget(capture_btn_);
+    
+    delete_btn_ = new QPushButton("删除");
+    delete_btn_->setEnabled(false);
+    delete_btn_->setProperty("class", "danger");    // 红色危险按钮
+    connect(delete_btn_, &QPushButton::clicked, this, &FaceRegistrationDialog::on_delete_clicked);
     list_layout->addWidget(delete_btn_);
+    
     list_layout->addStretch();
+    list_layout->setSpacing(10);  // 增加间距
     
     capture_layout->addLayout(preview_layout);
     capture_layout->addLayout(list_layout);
+    capture_layout->setSpacing(20); // 左右分栏间距
     
     capture_group->setLayout(capture_layout);
     main_layout->addWidget(capture_group);
@@ -139,6 +151,7 @@ void FaceRegistrationDialog::setup_ui() {
     
     register_btn_ = new QPushButton("注册");
     register_btn_->setEnabled(false);
+    register_btn_->setProperty("class", "primary"); // 蓝色强调按钮
     connect(register_btn_, &QPushButton::clicked, this, &FaceRegistrationDialog::on_register_clicked);
     
     cancel_btn_ = new QPushButton("取消");
@@ -146,6 +159,7 @@ void FaceRegistrationDialog::setup_ui() {
     
     button_layout->addWidget(register_btn_);
     button_layout->addWidget(cancel_btn_);
+    button_layout->setSpacing(15);
     
     main_layout->addLayout(button_layout);
 }
