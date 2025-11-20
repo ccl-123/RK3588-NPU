@@ -1,7 +1,7 @@
 /**
  * @file user_service.cc
  * @brief 用户管理业务服务实现
- * @author Augment Agent
+ * @author CL
  * @date 2025-11-20
  */
 

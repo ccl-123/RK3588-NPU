@@ -1,7 +1,7 @@
 /**
  * @file user_management_widget.h
  * @brief 用户管理界面
- * @author Augment Agent
+ * @author CL
  * @date 2025-11-20
  */
 

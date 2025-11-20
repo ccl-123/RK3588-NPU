@@ -1,7 +1,7 @@
 /**
  * @file performance_monitor.h
  * @brief 性能监控器 - 统计和显示各阶段耗时
- * @author Augment Agent
+ * @author CL
  * @date 2025-11-20
  */
 

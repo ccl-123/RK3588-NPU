@@ -1,7 +1,7 @@
 /**
  * @file db_tool.cc
  * @brief 数据库管理工具
- * @author Augment Agent
+ * @author CL
  * @date 2025-11-20
  * 
  * 功能:

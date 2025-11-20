@@ -328,6 +328,6 @@ install/face_recognition_cap/
 
 **⭐ 如果这个项目对您有帮助，请给我们一个 Star！**
 
-Made with ❤️ by Augment Agent
+Made with ❤️ by CL
 
 </div>

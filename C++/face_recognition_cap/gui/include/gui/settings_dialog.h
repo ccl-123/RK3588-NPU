@@ -1,7 +1,7 @@
 /**
  * @file settings_dialog.h
  * @brief 系统设置对话框
- * @author Augment Agent
+ * @author CL
  * @date 2025-11-20
  */
 

@@ -124,7 +124,7 @@ QString AboutDialog::get_system_info() {
     
     // 开发者信息
     stream << "<h3>👥 开发者</h3>";
-    stream << "<p><b>开发:</b> Augment Agent<br>";
+    stream << "<p><b>开发:</b> CL<br>";
     stream << "<b>文档:</b> Documentation Team<br>";
     stream << "<b>测试:</b> QA Team</p>";
     

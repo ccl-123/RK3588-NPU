@@ -1,7 +1,7 @@
 /**
  * @file user_dao.cc
  * @brief 用户数据访问对象实现
- * @author Augment Agent
+ * @author CL
  * @date 2025-11-20
  */
 

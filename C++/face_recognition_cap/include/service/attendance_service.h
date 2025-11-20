@@ -1,7 +1,7 @@
 /**
  * @file attendance_service.h
  * @brief 考勤业务服务
- * @author Augment Agent
+ * @author CL
  * @date 2025-11-20
  */
 

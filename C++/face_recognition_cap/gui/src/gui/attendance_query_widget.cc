@@ -65,9 +65,13 @@ void AttendanceQueryWidget::setup_ui() {
     refresh_btn_ = new QPushButton("刷新");
     connect(refresh_btn_, &QPushButton::clicked, this, &AttendanceQueryWidget::on_refresh_clicked);
     query_layout->addWidget(refresh_btn_);
-    
+
     query_layout->addStretch();
-    
+
+    QPushButton* close_btn = new QPushButton("关闭");
+    connect(close_btn, &QPushButton::clicked, this, &QWidget::close);
+    query_layout->addWidget(close_btn);
+
     query_group->setLayout(query_layout);
     main_layout->addWidget(query_group);
     

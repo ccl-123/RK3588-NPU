@@ -1,7 +1,7 @@
 /**
  * @file feature_library.h
  * @brief 人脸特征库管理器 - 负责特征库的加载和匹配(支持数据库)
- * @author Augment Agent
+ * @author CL
  * @date 2025-11-20
  */
 

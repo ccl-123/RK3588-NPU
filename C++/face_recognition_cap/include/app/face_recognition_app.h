@@ -1,7 +1,7 @@
 /**
  * @file face_recognition_app.h
  * @brief 人脸识别应用主类 - 封装整个应用的流程控制(支持回调)
- * @author Augment Agent
+ * @author CL
  * @date 2025-11-20
  */
 
@@ -109,6 +109,12 @@ public:
      * @param callback 回调函数
      */
     void set_recognition_callback(RecognitionCallback callback);
+
+    /**
+     * @brief 设置考勤服务(新增)
+     * @param service 考勤服务指针
+     */
+    void set_attendance_service(void* service);
 
     /**
      * @brief 获取特征库引用(新增)
@@ -248,6 +254,9 @@ private:
 
     // 回调函数(新增)
     RecognitionCallback recognition_callback_;
+
+    // 考勤服务指针(新增)
+    void* attendance_service_;
 
     // 人脸对齐目标点
     cv::Mat dst_landmark_;

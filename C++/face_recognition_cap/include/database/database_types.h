@@ -1,7 +1,7 @@
 /**
  * @file database_types.h
  * @brief 数据库相关数据类型定义
- * @author Augment Agent
+ * @author CL
  * @date 2025-11-20
  */
 

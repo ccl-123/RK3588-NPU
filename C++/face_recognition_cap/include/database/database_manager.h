@@ -1,7 +1,7 @@
 /**
  * @file database_manager.h
  * @brief 数据库连接管理器 - 单例模式 + 连接池
- * @author Augment Agent
+ * @author CL
  * @date 2025-11-20
  */
 

@@ -25,6 +25,7 @@
 #include <QHeaderView>
 #include <QAction>
 #include <QIcon>
+#include <QTimer>
 #include <spdlog/spdlog.h>
 
 MainWindow::MainWindow(QWidget* parent)
@@ -38,10 +39,10 @@ MainWindow::MainWindow(QWidget* parent)
     , status_label_(nullptr)
     , fps_label_(nullptr)
     , recognition_label_(nullptr)
+    , attendance_status_label_(nullptr)
     , frame_timer_(nullptr)
     , status_timer_(nullptr)
     , registration_dialog_(nullptr)
-    , attendance_query_widget_(nullptr)
     , is_running_(false)
     , frame_count_(0)
     , fps_(0.0)
@@ -104,18 +105,38 @@ bool MainWindow::initialize(const std::string& retinaface_model,
         QMessageBox::critical(this, "错误", "人脸识别系统初始化失败");
         return false;
     }
-    
+
+    // 设置考勤服务（用于检查是否已签到）
+    recognition_app_->set_attendance_service(attendance_service_.get());
+
     // 设置识别回调
     recognition_app_->set_recognition_callback([this](const RecognitionResult& result) {
-        emit on_recognition_result(result.user_id, 
-                                   QString::fromStdString(result.user_name),
-                                   result.similarity);
-        
-        // 记录考勤
+        // 记录考勤（先记录，再发送信号）
+        bool is_new_attendance = false;
         if (attendance_service_) {
-            attendance_service_->record_attendance(result.user_id, 
+            int record_id = attendance_service_->record_attendance(result.user_id,
                                                   result.user_name,
                                                   result.similarity);
+            is_new_attendance = (record_id > 0);  // 如果返回 > 0，说明是新签到
+        }
+
+        // 发送识别结果信号（包含是否新签到的信息）
+        emit on_recognition_result(result.user_id,
+                                   QString::fromStdString(result.user_name),
+                                   result.similarity,
+                                   is_new_attendance);
+
+        // 如果是新签到，显示提示
+        if (is_new_attendance) {
+            QMetaObject::invokeMethod(this, [this, name = result.user_name]() {
+                attendance_status_label_->setText(QString("✓ %1 签到成功").arg(QString::fromStdString(name)));
+                attendance_status_label_->setVisible(true);
+
+                // 3秒后隐藏提示
+                QTimer::singleShot(3000, this, [this]() {
+                    attendance_status_label_->setVisible(false);
+                });
+            }, Qt::QueuedConnection);
         }
     });
     
@@ -220,6 +241,12 @@ void MainWindow::create_status_bar() {
 
     recognition_label_ = new QLabel("未识别");
     statusBar()->addPermanentWidget(recognition_label_);
+
+    // 签到状态提示标签（初始隐藏）
+    attendance_status_label_ = new QLabel("");
+    attendance_status_label_->setStyleSheet("QLabel { color: white; background-color: green; padding: 5px; font-weight: bold; }");
+    attendance_status_label_->setVisible(false);
+    statusBar()->addPermanentWidget(attendance_status_label_);
 }
 
 void MainWindow::create_dock_widgets() {
@@ -287,6 +314,13 @@ void MainWindow::update_frame() {
             fr.name = result.user_name;
             fr.similarity = result.similarity;
             fr.is_recognized = (result.user_id > 0);
+
+            // 检查是否已签到（5分钟内）
+            fr.is_duplicate = false;
+            if (attendance_service_ && result.user_id > 0) {
+                fr.is_duplicate = attendance_service_->is_duplicate_check(result.user_id, 300);
+            }
+
             face_results.push_back(fr);
         }
         video_widget_->set_face_results(face_results);
@@ -309,21 +343,26 @@ void MainWindow::update_status() {
     fps_label_->setText(QString("FPS: %1").arg(fps_, 0, 'f', 1));
 }
 
-void MainWindow::on_recognition_result(int user_id, const QString& name, float similarity) {
-    recognition_label_->setText(QString("识别: %1 (%.2f)").arg(name).arg(similarity));
+void MainWindow::on_recognition_result(int user_id, const QString& name, float similarity, bool is_new_attendance) {
+    recognition_label_->setText(QString("识别: %1 (%2)").arg(name).arg(similarity, 0, 'f', 2));
 
-    // 更新考勤表格
-    int row = attendance_table_->rowCount();
-    attendance_table_->insertRow(row);
-    attendance_table_->setItem(row, 0, new QTableWidgetItem(name));
-    attendance_table_->setItem(row, 1, new QTableWidgetItem(
-        QDateTime::currentDateTime().toString("hh:mm:ss")));
-    attendance_table_->setItem(row, 2, new QTableWidgetItem("签到"));
-    attendance_table_->setItem(row, 3, new QTableWidgetItem(
-        QString::number(similarity, 'f', 2)));
+    // 只有新签到时才更新考勤表格
+    if (is_new_attendance) {
+        int row = attendance_table_->rowCount();
+        attendance_table_->insertRow(row);
+        attendance_table_->setItem(row, 0, new QTableWidgetItem(name));
+        attendance_table_->setItem(row, 1, new QTableWidgetItem(
+            QDateTime::currentDateTime().toString("hh:mm:ss")));
+        attendance_table_->setItem(row, 2, new QTableWidgetItem("签到"));
+        attendance_table_->setItem(row, 3, new QTableWidgetItem(
+            QString::number(similarity, 'f', 2)));
 
-    spdlog::info("Recognition: {} (ID: {}, similarity: {:.2f})",
-                 name.toStdString(), user_id, similarity);
+        spdlog::info("New attendance recorded: {} (ID: {}, similarity: {:.2f})",
+                     name.toStdString(), user_id, similarity);
+    } else {
+        spdlog::debug("Recognition (duplicate): {} (ID: {}, similarity: {:.2f})",
+                      name.toStdString(), user_id, similarity);
+    }
 }
 
 void MainWindow::on_action_open_camera() {
@@ -359,11 +398,14 @@ void MainWindow::on_action_register_face() {
 }
 
 void MainWindow::on_action_query_attendance() {
-    if (!attendance_query_widget_) {
-        attendance_query_widget_ = new AttendanceQueryWidget(
-            attendance_service_.get(), this);
-    }
-    attendance_query_widget_->show();
+    // 每次创建新窗口，避免窗口关闭问题
+    AttendanceQueryWidget* query_widget = new AttendanceQueryWidget(
+        attendance_service_.get(), nullptr);  // parent 设为 nullptr
+    query_widget->setAttribute(Qt::WA_DeleteOnClose);  // 关闭时自动删除
+    query_widget->setWindowFlags(Qt::Window);  // 设置为独立窗口
+    query_widget->setWindowTitle("考勤查询");
+    query_widget->resize(900, 600);
+    query_widget->show();
 }
 
 void MainWindow::on_action_user_management() {
@@ -372,8 +414,9 @@ void MainWindow::on_action_user_management() {
         return;
     }
 
-    UserManagementWidget* user_mgmt = new UserManagementWidget(user_service_.get(), this);
-    user_mgmt->setAttribute(Qt::WA_DeleteOnClose);
+    UserManagementWidget* user_mgmt = new UserManagementWidget(user_service_.get(), nullptr);  // parent 设为 nullptr
+    user_mgmt->setAttribute(Qt::WA_DeleteOnClose);  // 关闭时自动删除
+    user_mgmt->setWindowFlags(Qt::Window);  // 设置为独立窗口
     user_mgmt->setWindowTitle("用户管理");
     user_mgmt->resize(800, 600);
     user_mgmt->show();
@@ -385,7 +428,21 @@ void MainWindow::on_action_about() {
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
-    stop_recognition();
-    event->accept();
+    // 确认退出
+    QMessageBox::StandardButton reply = QMessageBox::question(
+        this,
+        "确认退出",
+        "确定要退出人脸识别考勤系统吗？",
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No
+    );
+
+    if (reply == QMessageBox::Yes) {
+        spdlog::info("User confirmed exit, stopping recognition...");
+        stop_recognition();
+        event->accept();
+    } else {
+        event->ignore();
+    }
 }
 

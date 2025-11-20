@@ -1,7 +1,7 @@
 /**
  * @file preprocessing_thread.h
  * @brief 预处理线程 - 使用RGA硬件加速进行图像预处理
- * @author Augment Agent
+ * @author CL
  * @date 2025-11-20
  */
 

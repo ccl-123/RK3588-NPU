@@ -1,7 +1,7 @@
 /**
  * @file database_manager.cc
  * @brief 数据库管理器实现
- * @author Augment Agent
+ * @author CL
  * @date 2025-11-20
  */
 

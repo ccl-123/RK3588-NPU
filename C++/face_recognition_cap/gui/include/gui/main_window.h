@@ -86,7 +86,7 @@ private slots:
     void update_status();
     
     // 识别回调
-    void on_recognition_result(int user_id, const QString& name, float similarity);
+    void on_recognition_result(int user_id, const QString& name, float similarity, bool is_new_attendance);
 
 private:
     // UI 初始化
@@ -113,6 +113,7 @@ private:
     QLabel* status_label_;
     QLabel* fps_label_;
     QLabel* recognition_label_;
+    QLabel* attendance_status_label_;  // 签到状态提示标签
     
     // 定时器
     QTimer* frame_timer_;
@@ -120,7 +121,7 @@ private:
     
     // 对话框
     FaceRegistrationDialog* registration_dialog_;
-    AttendanceQueryWidget* attendance_query_widget_;
+    // 注意：AttendanceQueryWidget 和 UserManagementWidget 每次创建新窗口，不需要成员变量
     
     // 系统状态
     bool is_running_;

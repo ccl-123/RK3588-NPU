@@ -57,7 +57,10 @@ void UserManagementWidget::setup_ui() {
     
     disable_btn_ = new QPushButton("禁用");
     connect(disable_btn_, &QPushButton::clicked, this, &UserManagementWidget::on_disable_clicked);
-    
+
+    QPushButton* close_btn = new QPushButton("关闭");
+    connect(close_btn, &QPushButton::clicked, this, &QWidget::close);
+
     toolbar_layout->addWidget(search_edit_);
     toolbar_layout->addWidget(status_filter_);
     toolbar_layout->addWidget(refresh_btn_);
@@ -67,6 +70,7 @@ void UserManagementWidget::setup_ui() {
     toolbar_layout->addWidget(delete_btn_);
     toolbar_layout->addWidget(enable_btn_);
     toolbar_layout->addWidget(disable_btn_);
+    toolbar_layout->addWidget(close_btn);
     
     // 用户表格
     user_table_ = new QTableWidget();

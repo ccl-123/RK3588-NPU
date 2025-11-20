@@ -1,7 +1,7 @@
 /**
  * @file model_manager.h
  * @brief 模型管理器 - 负责RKNN模型的加载、配置和释放
- * @author Augment Agent
+ * @author CL
  * @date 2025-11-20
  */
 

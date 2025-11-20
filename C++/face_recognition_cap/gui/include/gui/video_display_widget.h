@@ -27,6 +27,7 @@ struct FaceResult {
     std::string name;       // 识别的姓名
     float similarity;       // 相似度
     bool is_recognized;     // 是否识别成功
+    bool is_duplicate;      // 是否已签到（5分钟内重复）
 };
 
 /**

@@ -162,10 +162,10 @@ void FaceRegistrationDialog::update_preview() {
             }
         }
 
-        // 显示人脸数量提示
+        // 显示人脸数量提示（在检测框下方）
         std::string text = "Face " + std::to_string(i + 1);
         cv::putText(display_frame, text,
-                   cv::Point(box.x, box.y - 10),
+                   cv::Point(box.x, box.y + box.height + 25),
                    cv::FONT_HERSHEY_SIMPLEX, 0.6,
                    cv::Scalar(0, 255, 0), 2);
     }

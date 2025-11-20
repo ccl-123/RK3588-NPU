@@ -11,6 +11,7 @@
 #include "core/postprocess.h"
 #include "hardware/camera_util.h"
 #include "database/database_manager.h"
+#include "service/attendance_service.h"
 #include <spdlog/spdlog.h>
 #include <sys/time.h>
 #include <iostream>
@@ -28,6 +29,7 @@ FaceRecognitionApp::FaceRecognitionApp()
     , initialized_(false)
     , running_(false)
     , recognition_callback_(nullptr)
+    , attendance_service_(nullptr)
 {
 }
 
@@ -405,11 +407,13 @@ void FaceRecognitionApp::recognize_and_match(const cv::Mat& orig_img,
         cv::rectangle(render_img, cv::Point(x1, y1), cv::Point(x2, y2),
                      cv::Scalar(255, 0, 0, 255), 2);
 
-        // 显示姓名和置信度
-        char label[128];
+        // 显示姓名和置信度（在检测框上方）
+        char label[256];
         snprintf(label, sizeof(label), "%s (%.2f)", name.c_str(), max_score);
+
+        // 显示文本在检测框上方（统一使用绿色）
         cv::putText(render_img, label, cv::Point(x1, y1 - 10),
-                   cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 255, 0), 2);
+                   cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 0), 2);
 
         // 累计时间
         total_align_time += (get_us(t_align_end) - get_us(t_align_start)) / 1000;
@@ -812,15 +816,17 @@ bool FaceRecognitionApp::process_single_frame(cv::Mat& frame, std::vector<Recogn
 
         cv::rectangle(frame, cv::Point(x1, y1), cv::Point(x2, y2), color, 2);
 
-        char text[128];
+        // 显示姓名和置信度（在检测框上方）
+        char text[256];
         if (max_similarity >= config_.facenet_threshold) {
             snprintf(text, sizeof(text), "%s (%.2f)", matched_name.c_str(), max_similarity);
         } else {
             snprintf(text, sizeof(text), "Unknown (%.2f)", max_similarity);
         }
 
+        // 显示文本在检测框上方
         cv::putText(frame, text, cv::Point(x1, y1 - 10),
-                   cv::FONT_HERSHEY_SIMPLEX, 0.6, color, 2);
+                   cv::FONT_HERSHEY_SIMPLEX, 0.7, color, 2);
 
         // 释放 FaceNet 输出资源
         facenet_output_release(
@@ -836,4 +842,8 @@ bool FaceRecognitionApp::process_single_frame(cv::Mat& frame, std::vector<Recogn
     }
 
     return true;
+}
+
+void FaceRecognitionApp::set_attendance_service(void* service) {
+    attendance_service_ = service;
 }

@@ -1,7 +1,7 @@
 /**
  * @file attendance_record_dao.h
  * @brief 考勤记录数据访问对象
- * @author Augment Agent
+ * @author CL
  * @date 2025-11-20
  */
 

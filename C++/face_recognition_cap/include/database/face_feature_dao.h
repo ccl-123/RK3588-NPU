@@ -1,7 +1,7 @@
 /**
  * @file face_feature_dao.h
  * @brief 人脸特征数据访问对象
- * @author Augment Agent
+ * @author CL
  * @date 2025-11-20
  */
 

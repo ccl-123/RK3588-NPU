@@ -280,6 +280,6 @@ Copyright © 2025. All rights reserved.
 
 ---
 
-**开发者**: Augment Agent  
+**开发者**: CL  
 **最后更新**: 2025-11-20
 

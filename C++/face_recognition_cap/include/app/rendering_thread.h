@@ -1,7 +1,7 @@
 /**
  * @file rendering_thread.h
  * @brief 渲染线程 - 异步显示图像，避免阻塞主线程
- * @author Augment Agent
+ * @author CL
  * @date 2025-11-20
  */
 
