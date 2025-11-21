@@ -148,15 +148,10 @@ void VideoDisplayWidget::draw_face_results(QPainter& painter) {
         int w = static_cast<int>(result.box.width * scale);
         int h = static_cast<int>(result.box.height * scale);
 
-        // 绘制人脸框
-        if (result.is_recognized) {
-            painter.setPen(QPen(Qt::green, 2));
-        } else {
-            painter.setPen(QPen(Qt::red, 2));
-        }
-        painter.drawRect(x, y, w, h);
+        // 注意：人脸框和名称已经由 OpenCV 在图像上绘制，这里不再重复绘制
+        // 只绘制额外的提示信息（如"已签到"）
 
-        // 如果已签到，在人脸框下方显示"已签到"提示
+        // 如果已签到，在人脸框上方显示"已签到"提示
         if (result.is_recognized && result.is_duplicate) {
             painter.setFont(QFont("Arial", 12, QFont::Bold));
             painter.setPen(Qt::green);
@@ -164,17 +159,16 @@ void VideoDisplayWidget::draw_face_results(QPainter& painter) {
             QString status_text = QString::fromUtf8("已签到");
             QFontMetrics fm(painter.font());
             int text_width = fm.horizontalAdvance(status_text);
+            int text_height = fm.height();
 
-            // 在人脸框下方居中显示
+            // 在人脸框上方居中显示（名称上方）
             int text_x = x + (w - text_width) / 2;
-            int text_y = y + h + 20;
+            int text_y = y - 35;  // 在名称上方，留出空间
 
             // 绘制半透明背景
-            painter.fillRect(text_x - 5, text_y - 15, text_width + 10, 20, QColor(0, 0, 0, 180));
+            painter.fillRect(text_x - 5, text_y - text_height + 5, text_width + 10, text_height + 5, QColor(0, 0, 0, 180));
             painter.drawText(text_x, text_y, status_text);
         }
-
-        // 注意：姓名和相似度已经由 OpenCV 在检测框上方绘制，这里不再重复绘制
     }
 }
 

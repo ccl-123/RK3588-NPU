@@ -455,9 +455,9 @@ void MainWindow::create_menus() {
     connect(theme_action, &QAction::triggered, this, &MainWindow::on_action_toggle_theme);
 
     // 帮助菜单
-    QMenu* help_menu = menuBar()->addMenu("帮助(&H)");
+    QMenu* help_menu = menuBar()->addMenu(QString::fromUtf8("帮助(&H)"));
 
-    QAction* about_action = help_menu->addAction("关于(&A)");
+    QAction* about_action = help_menu->addAction(QString::fromUtf8("关于(&A)"));
     connect(about_action, &QAction::triggered, this, &MainWindow::on_action_about);
 }
 

@@ -16,7 +16,7 @@
 AboutDialog::AboutDialog(QWidget* parent)
     : QDialog(parent)
 {
-    setWindowTitle("关于人脸识别考勤系统");
+    setWindowTitle(QString::fromUtf8("关于人脸识别考勤系统"));
     setFixedSize(600, 500);
     
     setup_ui();
@@ -31,7 +31,7 @@ void AboutDialog::setup_ui() {
     main_layout->setContentsMargins(30, 30, 30, 30);
     
     // Logo 和标题
-    title_label_ = new QLabel("人脸识别考勤系统", this);
+    title_label_ = new QLabel(QString::fromUtf8("人脸识别考勤系统"), this);
     QFont title_font = title_label_->font();
     title_font.setPointSize(20);
     title_font.setBold(true);
@@ -64,7 +64,7 @@ void AboutDialog::setup_ui() {
     QHBoxLayout* button_layout = new QHBoxLayout();
     button_layout->addStretch();
     
-    close_btn_ = new QPushButton("关闭", this);
+    close_btn_ = new QPushButton(QString::fromUtf8("关闭"), this);
     close_btn_->setMinimumWidth(100);
     connect(close_btn_, &QPushButton::clicked, this, &QDialog::accept);
     button_layout->addWidget(close_btn_);
@@ -73,71 +73,71 @@ void AboutDialog::setup_ui() {
 }
 
 QString AboutDialog::get_version_info() {
-    return QString("版本 1.0.0 (2025-11-20)");
+    return QString::fromUtf8("版本 1.0.0 (2025-11-20)");
 }
 
 QString AboutDialog::get_system_info() {
     QString info;
     QTextStream stream(&info);
     
-    stream << "<html><body style='font-family: Arial, sans-serif;'>";
+    stream << "<html><head><meta charset='UTF-8'></head><body style='font-family: Arial, sans-serif;'>";
     
     // 系统信息
-    stream << "<h3>📊 系统信息</h3>";
+    stream << QString::fromUtf8("<h3>📊 系统信息</h3>");
     stream << "<table cellpadding='5'>";
-    stream << "<tr><td><b>平台:</b></td><td>Rockchip RK3588 (ARM64)</td></tr>";
-    stream << "<tr><td><b>操作系统:</b></td><td>" << QSysInfo::prettyProductName() << "</td></tr>";
-    stream << "<tr><td><b>内核:</b></td><td>" << QSysInfo::kernelVersion() << "</td></tr>";
-    stream << "<tr><td><b>Qt 版本:</b></td><td>" << qVersion() << "</td></tr>";
+    stream << QString::fromUtf8("<tr><td><b>平台:</b></td><td>Rockchip RK3588 (ARM64)</td></tr>");
+    stream << QString::fromUtf8("<tr><td><b>操作系统:</b></td><td>") << QSysInfo::prettyProductName() << "</td></tr>";
+    stream << QString::fromUtf8("<tr><td><b>内核:</b></td><td>") << QSysInfo::kernelVersion() << "</td></tr>";
+    stream << QString::fromUtf8("<tr><td><b>Qt 版本:</b></td><td>") << qVersion() << "</td></tr>";
     stream << "</table>";
     
     // 技术栈
-    stream << "<h3>🔧 技术栈</h3>";
+    stream << QString::fromUtf8("<h3>🔧 技术栈</h3>");
     stream << "<table cellpadding='5'>";
-    stream << "<tr><td><b>AI 加速:</b></td><td>RKNN NPU 2.3.0</td></tr>";
-    stream << "<tr><td><b>人脸检测:</b></td><td>RetinaFace</td></tr>";
-    stream << "<tr><td><b>特征提取:</b></td><td>MobileFaceNet (512维)</td></tr>";
-    stream << "<tr><td><b>计算机视觉:</b></td><td>OpenCV 4.5.4</td></tr>";
-    stream << "<tr><td><b>数据库:</b></td><td>SQLite 3.37.2</td></tr>";
-    stream << "<tr><td><b>日志库:</b></td><td>spdlog 1.12.0</td></tr>";
+    stream << QString::fromUtf8("<tr><td><b>AI 加速:</b></td><td>RKNN NPU 2.3.0</td></tr>");
+    stream << QString::fromUtf8("<tr><td><b>人脸检测:</b></td><td>RetinaFace</td></tr>");
+    stream << QString::fromUtf8("<tr><td><b>特征提取:</b></td><td>MobileFaceNet (512维)</td></tr>");
+    stream << QString::fromUtf8("<tr><td><b>计算机视觉:</b></td><td>OpenCV 4.5.4</td></tr>");
+    stream << QString::fromUtf8("<tr><td><b>数据库:</b></td><td>SQLite 3.37.2</td></tr>");
+    stream << QString::fromUtf8("<tr><td><b>日志库:</b></td><td>spdlog 1.12.0</td></tr>");
     stream << "</table>";
     
     // 性能指标
-    stream << "<h3>⚡ 性能指标</h3>";
+    stream << QString::fromUtf8("<h3>⚡ 性能指标</h3>");
     stream << "<table cellpadding='5'>";
-    stream << "<tr><td><b>识别帧率:</b></td><td>45-65 FPS (GUI) / 60-73 FPS (CLI)</td></tr>";
-    stream << "<tr><td><b>识别延迟:</b></td><td>&lt;80ms (GUI) / &lt;50ms (CLI)</td></tr>";
-    stream << "<tr><td><b>识别准确率:</b></td><td>&gt;95% (良好光照)</td></tr>";
-    stream << "<tr><td><b>内存占用:</b></td><td>~200MB (GUI) / ~150MB (CLI)</td></tr>";
+    stream << QString::fromUtf8("<tr><td><b>识别帧率:</b></td><td>45-65 FPS (GUI) / 60-73 FPS (CLI)</td></tr>");
+    stream << QString::fromUtf8("<tr><td><b>识别延迟:</b></td><td>&lt;80ms (GUI) / &lt;50ms (CLI)</td></tr>");
+    stream << QString::fromUtf8("<tr><td><b>识别准确率:</b></td><td>&gt;95% (良好光照)</td></tr>");
+    stream << QString::fromUtf8("<tr><td><b>内存占用:</b></td><td>~200MB (GUI) / ~150MB (CLI)</td></tr>");
     stream << "</table>";
     
     // 功能特性
-    stream << "<h3>✨ 功能特性</h3>";
+    stream << QString::fromUtf8("<h3>✨ 功能特性</h3>");
     stream << "<ul>";
-    stream << "<li>✅ 实时人脸检测和识别</li>";
-    stream << "<li>✅ 自动考勤记录（签到/签退）</li>";
-    stream << "<li>✅ 用户信息管理</li>";
-    stream << "<li>✅ 考勤记录查询和导出</li>";
-    stream << "<li>✅ 人脸质量检测</li>";
-    stream << "<li>✅ 数据库持久化存储</li>";
+    stream << QString::fromUtf8("<li>✅ 实时人脸检测和识别</li>");
+    stream << QString::fromUtf8("<li>✅ 自动考勤记录（签到/签退）</li>");
+    stream << QString::fromUtf8("<li>✅ 用户信息管理</li>");
+    stream << QString::fromUtf8("<li>✅ 考勤记录查询和导出</li>");
+    stream << QString::fromUtf8("<li>✅ 人脸质量检测</li>");
+    stream << QString::fromUtf8("<li>✅ 数据库持久化存储</li>");
     stream << "</ul>";
     
     // 开发者信息
-    stream << "<h3>👥 开发者</h3>";
-    stream << "<p><b>开发:</b> CL<br>";
-    stream << "<b>文档:</b> Documentation Team<br>";
-    stream << "<b>测试:</b> QA Team</p>";
+    stream << QString::fromUtf8("<h3>👥 开发者</h3>");
+    stream << QString::fromUtf8("<p><b>开发:</b> CL<br>");
+    stream << QString::fromUtf8("<b>文档:</b> Documentation Team<br>");
+    stream << QString::fromUtf8("<b>测试:</b> QA Team</p>");
     
     // 许可证
-    stream << "<h3>📝 许可证</h3>";
-    stream << "<p>Copyright © 2025. All rights reserved.<br>";
-    stream << "本软件为专有软件，未经授权不得复制、分发或修改。</p>";
+    stream << QString::fromUtf8("<h3>📝 许可证</h3>");
+    stream << QString::fromUtf8("<p>Copyright © 2025. All rights reserved.<br>");
+    stream << QString::fromUtf8("本软件为专有软件，未经授权不得复制、分发或修改。</p>");
     
     // 联系方式
-    stream << "<h3>📞 联系方式</h3>";
-    stream << "<p><b>技术支持:</b> support@example.com<br>";
-    stream << "<b>问题反馈:</b> issues@example.com<br>";
-    stream << "<b>官方网站:</b> <a href='https://example.com'>https://example.com</a></p>";
+    stream << QString::fromUtf8("<h3>📞 联系方式</h3>");
+    stream << QString::fromUtf8("<p><b>技术支持:</b> support@example.com<br>");
+    stream << QString::fromUtf8("<b>问题反馈:</b> issues@example.com<br>");
+    stream << QString::fromUtf8("<b>官方网站:</b> <a href='https://example.com'>https://example.com</a></p>");
     
     stream << "</body></html>";
     
@@ -145,7 +145,7 @@ QString AboutDialog::get_system_info() {
 }
 
 QString AboutDialog::get_license_info() {
-    return QString(
+    return QString::fromUtf8(
         "Copyright © 2025. All rights reserved.\n\n"
         "本软件为专有软件，未经授权不得复制、分发或修改。\n\n"
         "THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, "

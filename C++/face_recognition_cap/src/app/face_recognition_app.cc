@@ -238,10 +238,6 @@ int FaceRecognitionApp::run() {
         snprintf(fps_text, sizeof(fps_text), "FPS: %.1f (%.1f ms)",
                  perf_monitor_.get_smoothed_fps(), current_frame_time);
 
-        cv::putText(render_img, fps_text, cv::Point(10, 30),
-                    cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
-        cv::putText(render_img, "3-Thread Optimized", cv::Point(10, 60),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 255), 2);
 
         struct timeval t_render_start, t_render_end;
         gettimeofday(&t_render_start, NULL);
@@ -421,16 +417,19 @@ void FaceRecognitionApp::recognize_and_match(const cv::Mat& orig_img,
         );
 
         // 绘制结果（使用之前已声明的 x1, y1, x2, y2）
-        cv::rectangle(render_img, cv::Point(x1, y1), cv::Point(x2, y2),
-                     cv::Scalar(255, 0, 0, 255), 2);
+        // 根据识别结果选择颜色：识别成功用绿色，陌生人用红色
+        cv::Scalar color = (name != "stranger" && max_score >= config_.facenet_threshold) ?
+                          cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255);
+        
+        cv::rectangle(render_img, cv::Point(x1, y1), cv::Point(x2, y2), color, 2);
 
         // 显示姓名和置信度（在检测框上方）
         char label[256];
         snprintf(label, sizeof(label), "%s (%.2f)", name.c_str(), max_score);
 
-        // 显示文本在检测框上方（统一使用绿色）
+        // 显示文本在检测框上方（使用与人脸框相同的颜色）
         cv::putText(render_img, label, cv::Point(x1, y1 - 10),
-                   cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 0), 2);
+                   cv::FONT_HERSHEY_SIMPLEX, 0.7, color, 2);
 
         // 累计时间
         total_align_time += (get_us(t_align_end) - get_us(t_align_start)) / 1000;
