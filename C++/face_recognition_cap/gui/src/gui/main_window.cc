@@ -14,7 +14,6 @@
 #include "gui/about_dialog.h"
 #include "themes/theme_manager.h"
 #include "ui/attendance_page.h"
-#include "ui/dashboard_page.h"
 #include "ui/recognition_page.h"
 #include "ui/settings_page.h"
 #include "ui/user_management_page.h"
@@ -56,7 +55,6 @@ MainWindow::MainWindow(QWidget* parent)
     , content_stack_(nullptr)
     , router_(nullptr)
     , recognition_page_(nullptr)
-    , dashboard_page_(nullptr)
     , attendance_page_(nullptr)
     , user_page_(nullptr)
     , settings_page_(nullptr)
@@ -177,7 +175,15 @@ bool MainWindow::initialize(const std::string& retinaface_model,
     
     spdlog::info("System initialized successfully");
 
-    // 4. 初始加载用户列表
+    // 4. 设置页面服务
+    if (attendance_page_) {
+        attendance_page_->setAttendanceService(attendance_service_.get());
+    }
+    if (user_page_) {
+        user_page_->setUserService(user_service_.get());
+    }
+
+    // 5. 初始加载用户列表
     load_users();
 
     return true;
@@ -230,7 +236,6 @@ void MainWindow::setup_ui() {
     root_layout->addWidget(title_bar_);
 
     auto user_menu = new QMenu(title_bar_);
-    user_menu->addAction(tr("切换主题"), this, &MainWindow::on_action_toggle_theme);
     user_menu->addAction(tr("关于"), this, &MainWindow::on_action_about);
     user_menu->addSeparator();
     user_menu->addAction(tr("退出"), this, &MainWindow::on_action_exit);
@@ -255,6 +260,7 @@ void MainWindow::setup_ui() {
 
     connect(title_bar_, &TitleBar::requestMinimize, this, &MainWindow::showMinimized);
     connect(title_bar_, &TitleBar::requestClose, this, &MainWindow::close);
+    connect(title_bar_, &TitleBar::requestToggleTheme, this, &MainWindow::on_action_toggle_theme);
 
     if (statusBar()) {
         statusBar()->hide();
@@ -268,13 +274,11 @@ void MainWindow::setup_pages() {
 
     router_ = new UiRouter(content_stack_, this);
 
-    dashboard_page_ = new DashboardPage(content_stack_);
     recognition_page_ = new RecognitionPage(content_stack_);
     attendance_page_ = new AttendancePage(content_stack_);
     user_page_ = new UserManagementPage(content_stack_);
     settings_page_ = new SettingsPage(content_stack_);
 
-    router_->registerPage("dashboard", dashboard_page_);
     router_->registerPage("recognition", recognition_page_);
     router_->registerPage("attendance", attendance_page_);
     router_->registerPage("users", user_page_);
@@ -295,8 +299,7 @@ void MainWindow::setup_navigation() {
     }
 
     QList<SideMenu::Item> items = {
-        {"dashboard", tr("仪表盘"), ""},
-        {"recognition", tr("实时识别"), ""},
+        {"recognition", tr("实时画面"), ""},
         {"attendance", tr("考勤记录"), ""},
         {"users", tr("用户管理"), ""},
         {"settings", tr("系统设置"), ""}
@@ -311,10 +314,8 @@ void MainWindow::setup_navigation() {
 
     connect(router_, &UiRouter::routeChanged, this, [this](const QString& key, QWidget*) {
         QString breadcrumb;
-        if (key == "dashboard") {
-            breadcrumb = tr("仪表盘");
-        } else if (key == "recognition") {
-            breadcrumb = tr("实时识别");
+        if (key == "recognition") {
+            breadcrumb = tr("实时画面");
         } else if (key == "attendance") {
             breadcrumb = tr("考勤记录");
         } else if (key == "users") {
@@ -341,19 +342,14 @@ void MainWindow::connect_page_signals() {
                 this, &MainWindow::on_action_register_face);
     }
 
-    if (attendance_page_) {
-        connect(attendance_page_, &AttendancePage::openAttendanceQueryRequested,
-                this, &MainWindow::on_action_query_attendance);
-    }
-
     if (user_page_) {
-        connect(user_page_, &UserManagementPage::openUserManagementRequested,
-                this, &MainWindow::on_action_user_management);
+        connect(user_page_, &UserManagementPage::dataChanged,
+                this, &MainWindow::load_users);
     }
 
     if (settings_page_) {
-        connect(settings_page_, &SettingsPage::openSettingsDialogRequested,
-                this, &MainWindow::on_action_settings);
+        connect(settings_page_, &SettingsPage::themeToggleRequested,
+                this, &MainWindow::on_action_toggle_theme);
     }
 }
 

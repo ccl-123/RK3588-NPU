@@ -15,7 +15,7 @@ set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
 # rknn api
 set(RKNN_API_PATH ${CMAKE_SOURCE_DIR}/../runtime/librknn_api)
 
-if (CMAKE_C_COMPILER MATCHES "aarch64")
+if (CMAKE_C_COMPILER MATCHES "aarch64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
   set(LIB_ARCH aarch64)
 else()
   set(LIB_ARCH armhf)
@@ -30,12 +30,12 @@ find_package(OpenCV REQUIRED)
 #rga
 set(RGA_PATH ${CMAKE_SOURCE_DIR}/../3rdparty/rga/)
 
-if (CMAKE_C_COMPILER MATCHES "aarch64")
+if (CMAKE_C_COMPILER MATCHES "aarch64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
   set(LIB_ARCH aarch64)
 else()
   set(LIB_ARCH armhf)
 endif()
-set(RGA_LIB ${RGA_PATH}/lib/Linux//${LIB_ARCH}/librga.so)
+set(RGA_LIB ${RGA_PATH}/lib/Linux/${LIB_ARCH}/librga.so)
 include_directories( ${RGA_PATH}/include)
 
 set(CMAKE_INSTALL_RPATH "lib")
@@ -108,6 +108,7 @@ if(Qt5_FOUND)
         gui/src/gui/main_window.cc
         gui/src/gui/video_display_widget.cc
         gui/src/gui/face_registration_dialog.cc
+        gui/src/gui/user_edit_dialog.cc
         gui/src/gui/attendance_query_widget.cc
         gui/src/gui/user_management_widget.cc
         gui/src/gui/settings_dialog.cc
@@ -161,6 +162,7 @@ if(Qt5_FOUND)
         gui/include/gui/main_window.h
         gui/include/gui/video_display_widget.h
         gui/include/gui/face_registration_dialog.h
+        gui/include/gui/user_edit_dialog.h
         gui/include/gui/attendance_query_widget.h
         gui/include/gui/user_management_widget.h
         gui/include/gui/settings_dialog.h

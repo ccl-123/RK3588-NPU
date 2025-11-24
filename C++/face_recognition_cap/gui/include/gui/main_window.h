@@ -31,7 +31,6 @@ class UiRouter;
 class SideMenu;
 class TitleBar;
 class RecognitionPage;
-class DashboardPage;
 class AttendancePage;
 class UserManagementPage;
 class SettingsPage;
@@ -112,7 +111,6 @@ private:
     QStackedWidget* content_stack_;
     UiRouter* router_;
     RecognitionPage* recognition_page_;
-    DashboardPage* dashboard_page_;
     AttendancePage* attendance_page_;
     UserManagementPage* user_page_;
     SettingsPage* settings_page_;

@@ -24,6 +24,7 @@ signals:
     void requestMinimize();
     void requestMaximize();
     void requestClose();
+    void requestToggleTheme();
 
 protected:
     void mousePressEvent(QMouseEvent* event) override;
@@ -33,6 +34,7 @@ private:
     QPoint drag_pos_;
     QLabel* title_label_;
     QLabel* breadcrumb_label_;
+    IconButton* theme_button_;
     IconButton* user_button_;
     IconButton* minimize_button_;
     IconButton* close_button_;

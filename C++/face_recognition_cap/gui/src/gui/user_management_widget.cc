@@ -7,6 +7,7 @@
 
 #include "gui/user_management_widget.h"
 
+#include "gui/user_edit_dialog.h"
 #include "widgets/card_widget.h"
 #include "widgets/modern_table_view.h"
 #include "widgets/search_input.h"
@@ -174,14 +175,22 @@ void UserManagementWidget::on_add_clicked() {
 
 void UserManagementWidget::on_edit_clicked() {
     int row = user_table_->currentRow();
-    if (row < 0) {
+    if (row < 0 || !user_service_) {
         return;
     }
     
-    ToastNotification::showMessage(this,
-                                   tr("敬请期待"),
-                                   tr("编辑功能开发中..."),
-                                   ToastNotification::Level::Warning);
+    int user_id = user_table_->item(row, 0)->text().toInt();
+    QString user_name = user_table_->item(row, 1)->text();
+    
+    UserEditDialog dialog(user_service_, user_id, this);
+    if (dialog.exec() == QDialog::Accepted) {
+        ToastNotification::showMessage(this, tr("操作成功"),
+                                       QString(tr("用户 %1 信息已更新")).arg(user_name),
+                                       ToastNotification::Level::Success);
+        load_users();
+        emit user_updated();
+        emit data_changed();
+    }
 }
 
 void UserManagementWidget::on_delete_clicked() {

@@ -2,7 +2,6 @@
 
 #include "utils/svg_icon_manager.h"
 #include "widgets/icon_button.h"
-#include "widgets/search_input.h"
 
 #include <QHBoxLayout>
 #include <QLabel>
@@ -15,6 +14,7 @@ TitleBar::TitleBar(QWidget* parent)
     : QWidget(parent)
     , title_label_(new QLabel(this))
     , breadcrumb_label_(new QLabel(this))
+    , theme_button_(new IconButton(this))
     , user_button_(new IconButton(this))
     , minimize_button_(new IconButton(this))
     , close_button_(new IconButton(this)) {
@@ -31,9 +31,8 @@ TitleBar::TitleBar(QWidget* parent)
     breadcrumb_label_->setObjectName("Breadcrumb");
     breadcrumb_label_->setStyleSheet("color: #8c8c8c;");
 
-    auto search = new SearchInput(this);
-    search->setFixedWidth(240);
-    search->setPlaceholderText(tr("搜索功能或用户"));
+    theme_button_->setSvg(":/icons/actions/theme.svg", QSize(24, 24));
+    theme_button_->setToolTip(tr("切换主题"));
 
     user_button_->setSvg(":/icons/status/user.svg", QSize(24, 24));
     user_button_->setToolTip(tr("当前用户"));
@@ -45,11 +44,12 @@ TitleBar::TitleBar(QWidget* parent)
     layout->addSpacing(12);
     layout->addWidget(breadcrumb_label_);
     layout->addStretch();
-    layout->addWidget(search);
+    layout->addWidget(theme_button_);
     layout->addWidget(user_button_);
     layout->addWidget(minimize_button_);
     layout->addWidget(close_button_);
 
+    connect(theme_button_, &QToolButton::clicked, this, &TitleBar::requestToggleTheme);
     connect(minimize_button_, &QToolButton::clicked, this, &TitleBar::requestMinimize);
     connect(close_button_, &QToolButton::clicked, this, &TitleBar::requestClose);
 }
