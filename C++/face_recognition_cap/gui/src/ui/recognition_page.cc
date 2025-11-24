@@ -11,6 +11,8 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 #include <QVariant>
+#include <QWidget>
+#include <QSizePolicy>
 
 RecognitionPage::RecognitionPage(QWidget* parent)
     : QWidget(parent)
@@ -19,7 +21,11 @@ RecognitionPage::RecognitionPage(QWidget* parent)
     , status_label_(nullptr)
     , fps_label_(nullptr)
     , recognition_label_(nullptr)
-    , attendance_status_label_(nullptr) {
+    , attendance_status_label_(nullptr)
+    , user_name_label_(nullptr)
+    , user_id_label_(nullptr)
+    , user_dept_label_(nullptr)
+    , user_similarity_label_(nullptr) {
     auto layout = new QHBoxLayout(this);
     layout->setContentsMargins(32, 24, 32, 24);
     layout->setSpacing(24);
@@ -61,18 +67,112 @@ QLabel* RecognitionPage::attendanceStatusLabel() const {
     return attendance_status_label_;
 }
 
+QLabel* RecognitionPage::userNameLabel() const {
+    return user_name_label_;
+}
+
+QLabel* RecognitionPage::userIdLabel() const {
+    return user_id_label_;
+}
+
+QLabel* RecognitionPage::userDeptLabel() const {
+    return user_dept_label_;
+}
+
+QLabel* RecognitionPage::userSimilarityLabel() const {
+    return user_similarity_label_;
+}
+
 CardWidget* RecognitionPage::createVideoCard() {
     auto card = new CardWidget();
-    card->setTitle(tr("实时识别"));
     card->setVariant("dark");
-
-    video_widget_ = new VideoDisplayWidget(card);
+    card->setTitle("");  // 清空标题，隐藏 header
+    
+    // 创建一个容器 widget 来包含视频和用户信息面板
+    auto container = new QWidget();
+    container->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    
+    // 主垂直布局（视频在上，信息面板在下）
+    auto main_layout = new QVBoxLayout(container);
+    main_layout->setContentsMargins(0, 0, 0, 0);
+    main_layout->setSpacing(0);
+    
+    // ========== 视频显示区域 ==========
+    video_widget_ = new VideoDisplayWidget(container);
     video_widget_->set_show_fps(true);
-
-    auto layout = new QVBoxLayout(card->bodyContainer());
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->addWidget(video_widget_, 1);
-
+    video_widget_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    
+    // 视频占据主要空间（拉伸因子为1）
+    main_layout->addWidget(video_widget_, 1);
+    
+    // ========== 用户信息面板（底部固定区域）==========
+    auto info_panel = new QWidget(container);
+    info_panel->setObjectName("UserInfoPanel");
+    info_panel->setAttribute(Qt::WA_StyledBackground, true);
+    info_panel->setAutoFillBackground(true);
+    
+    // 设置样式：深色半透明背景 + 蓝色顶部边框
+    info_panel->setStyleSheet(R"(
+        QWidget#UserInfoPanel {
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                stop:0 rgba(0,0,0,0.9), stop:1 rgba(0,0,0,0.8));
+            border-top: 2px solid #1677ff;
+        }
+        QWidget#UserInfoPanel QLabel {
+            background: transparent;
+        }
+    )");
+    
+    // 固定高度，不会被压缩
+    info_panel->setFixedHeight(95);
+    info_panel->setMinimumHeight(95);
+    info_panel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    
+    // 信息面板布局
+    auto info_layout = new QVBoxLayout(info_panel);
+    info_layout->setContentsMargins(20, 12, 20, 12);
+    info_layout->setSpacing(10);
+    
+    // 第一行：用户名
+    auto name_row = new QHBoxLayout();
+    name_row->setSpacing(8);
+    
+    user_name_label_ = new QLabel(tr("等待识别..."), info_panel);
+    user_name_label_->setStyleSheet("color: #ffffff; font-size: 16px; font-weight: bold; background: transparent;");
+    
+    name_row->addWidget(user_name_label_);
+    name_row->addStretch();
+    
+    // 第二行：详细信息（工号、部门、相似度）
+    auto detail_row = new QHBoxLayout();
+    detail_row->setSpacing(32);
+    
+    user_id_label_ = new QLabel(tr("工号: --"), info_panel);
+    user_id_label_->setStyleSheet("color: #bfbfbf; font-size: 13px; background: transparent;");
+    
+    user_dept_label_ = new QLabel(tr("部门: --"), info_panel);
+    user_dept_label_->setStyleSheet("color: #bfbfbf; font-size: 13px; background: transparent;");
+    
+    user_similarity_label_ = new QLabel(tr("相似度: --"), info_panel);
+    user_similarity_label_->setStyleSheet("color: #bfbfbf; font-size: 13px; background: transparent;");
+    
+    detail_row->addWidget(user_id_label_);
+    detail_row->addWidget(user_dept_label_);
+    detail_row->addWidget(user_similarity_label_);
+    detail_row->addStretch();
+    
+    info_layout->addLayout(name_row);
+    info_layout->addLayout(detail_row);
+    
+    // 添加信息面板到主布局（拉伸因子为0，固定在底部）
+    main_layout->addWidget(info_panel, 0);
+    
+    // 将容器添加到卡片的 body
+    auto card_layout = new QVBoxLayout(card->bodyContainer());
+    card_layout->setContentsMargins(0, 0, 0, 0);
+    card_layout->setSpacing(0);
+    card_layout->addWidget(container);
+    
     return card;
 }
 

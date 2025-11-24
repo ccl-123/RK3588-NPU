@@ -31,14 +31,25 @@ TitleBar::TitleBar(QWidget* parent)
     breadcrumb_label_->setObjectName("Breadcrumb");
     breadcrumb_label_->setStyleSheet("color: #8c8c8c;");
 
-    theme_button_->setSvg(":/icons/actions/theme.svg", QSize(24, 24));
-    theme_button_->setToolTip(tr("切换主题"));
+    theme_button_->setSvg(":/icons/actions/theme.svg", QSize(20, 20));
+    theme_button_->setText(tr("主题"));
+    theme_button_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    theme_button_->setToolTip(tr("切换深色/浅色主题"));
 
-    user_button_->setSvg(":/icons/status/user.svg", QSize(24, 24));
-    user_button_->setToolTip(tr("当前用户"));
+    user_button_->setSvg(":/icons/status/user.svg", QSize(20, 20));
+    user_button_->setText(tr("用户"));
+    user_button_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    user_button_->setToolTip(tr("用户菜单"));
 
     minimize_button_->setSvg(":/icons/actions/minimize.svg", QSize(16, 16));
+    minimize_button_->setText(tr("最小化"));
+    minimize_button_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    minimize_button_->setToolTip(tr("最小化窗口"));
+    
     close_button_->setSvg(":/icons/actions/close.svg", QSize(16, 16));
+    close_button_->setText(tr("关闭"));
+    close_button_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    close_button_->setToolTip(tr("关闭程序"));
 
     layout->addWidget(title_label_);
     layout->addSpacing(12);

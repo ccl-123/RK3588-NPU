@@ -7,120 +7,216 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFormLayout>
+#include <QGridLayout>
 #include <QGroupBox>
 #include <QMessageBox>
 #include <QFileInfo>
 #include <QVariant>
+#include <QTime>
+#include <QScrollArea>
+#include <QStringList>
 #include <spdlog/spdlog.h>
 
 SettingsPage::SettingsPage(QWidget* parent)
     : QWidget(parent)
     , version_label_(nullptr)
     , db_size_label_(nullptr)
-    , cache_size_label_(nullptr)
     , auto_start_check_(nullptr)
     , show_fps_check_(nullptr)
     , show_confidence_check_(nullptr)
     , duplicate_check_interval_spin_(nullptr)
-    , recognition_threshold_spin_(nullptr) {
+    , recognition_threshold_spin_(nullptr)
+    , recognition_confirm_count_spin_(nullptr)
+    , work_start_time_edit_(nullptr)
+    , work_end_time_edit_(nullptr)
+    , late_threshold_spin_(nullptr)
+    , early_leave_threshold_spin_(nullptr)
+    , allow_multiple_checkin_check_(nullptr)
+    , checkin_sound_check_(nullptr)
+    , show_checkin_reminder_check_(nullptr) {
     setup_ui();
     load_settings();
 }
 
 void SettingsPage::setup_ui() {
-    auto layout = new QVBoxLayout(this);
-    layout->setContentsMargins(32, 24, 32, 24);
-    layout->setSpacing(24);
-
-    // 系统信息卡片
-    auto info_card = new CardWidget(this);
-    info_card->setTitle(tr("系统信息"));
-
-    auto info_layout = new QFormLayout(info_card->bodyContainer());
-    info_layout->setLabelAlignment(Qt::AlignRight);
-    info_layout->setHorizontalSpacing(24);
-    info_layout->setVerticalSpacing(12);
-
-    version_label_ = new QLabel("v1.0.0");
-    info_layout->addRow(tr("版本号:"), version_label_);
-
-    auto build_date_label = new QLabel("2025-11-24");
-    info_layout->addRow(tr("构建日期:"), build_date_label);
-
-    db_size_label_ = new QLabel("0 KB");
-    info_layout->addRow(tr("数据库大小:"), db_size_label_);
-
-    cache_size_label_ = new QLabel("0 KB");
-    info_layout->addRow(tr("缓存大小:"), cache_size_label_);
-
-    // 显示设置卡片
-    auto display_card = new CardWidget(this);
-    display_card->setTitle(tr("显示设置"));
+    // 创建滚动区域以容纳所有设置
+    auto scroll = new QScrollArea(this);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
     
-    auto display_layout = new QVBoxLayout(display_card->bodyContainer());
-    display_layout->setSpacing(12);
+    auto content = new QWidget();
+    scroll->setWidget(content);
+    
+    auto main_layout = new QVBoxLayout(this);
+    main_layout->setContentsMargins(0, 0, 0, 0);
+    main_layout->addWidget(scroll);
+    
+    auto layout = new QVBoxLayout(content);
+    layout->setContentsMargins(24, 16, 24, 16);
+    layout->setSpacing(16);
 
-    auto theme_row = new QHBoxLayout();
-    theme_row->addWidget(new QLabel(tr("主题:")));
-    auto theme_btn = new QPushButton(tr("切换主题"));
-    connect(theme_btn, &QPushButton::clicked, this, &SettingsPage::on_theme_toggle_clicked);
-    theme_row->addWidget(theme_btn);
-    theme_row->addStretch();
-    display_layout->addLayout(theme_row);
-
-    show_fps_check_ = new QCheckBox(tr("显示 FPS 信息"));
-    show_fps_check_->setChecked(true);
-    display_layout->addWidget(show_fps_check_);
-
-    show_confidence_check_ = new QCheckBox(tr("显示识别置信度"));
-    show_confidence_check_->setChecked(true);
-    display_layout->addWidget(show_confidence_check_);
-
-    // 识别设置卡片
-    auto recognition_card = new CardWidget(this);
+    // ========== 系统信息（紧凑型）==========
+    auto info_card = new CardWidget(content);
+    info_card->setTitle(tr("系统信息"));
+    
+    auto info_layout = new QGridLayout(info_card->bodyContainer());
+    info_layout->setContentsMargins(0, 0, 0, 0);
+    info_layout->setHorizontalSpacing(16);
+    info_layout->setVerticalSpacing(8);
+    
+    version_label_ = new QLabel("v1.0.0");
+    db_size_label_ = new QLabel("0 KB");
+    
+    info_layout->addWidget(new QLabel(tr("版本:")), 0, 0, Qt::AlignRight);
+    info_layout->addWidget(version_label_, 0, 1);
+    info_layout->addWidget(new QLabel(tr("数据库:")), 0, 2, Qt::AlignRight);
+    info_layout->addWidget(db_size_label_, 0, 3);
+    
+    // ========== 考勤系统设置（新增）==========
+    auto attendance_card = new CardWidget(content);
+    attendance_card->setTitle(tr("考勤设置"));
+    
+    auto attendance_layout = new QGridLayout(attendance_card->bodyContainer());
+    attendance_layout->setContentsMargins(0, 0, 0, 0);
+    attendance_layout->setHorizontalSpacing(12);
+    attendance_layout->setVerticalSpacing(10);
+    
+    int row = 0;
+    
+    // 工作时间设置
+    work_start_time_edit_ = new QTimeEdit();
+    work_start_time_edit_->setTime(QTime(9, 0));
+    work_start_time_edit_->setDisplayFormat("HH:mm");
+    attendance_layout->addWidget(new QLabel(tr("上班时间:")), row, 0, Qt::AlignRight);
+    attendance_layout->addWidget(work_start_time_edit_, row, 1);
+    
+    work_end_time_edit_ = new QTimeEdit();
+    work_end_time_edit_->setTime(QTime(18, 0));
+    work_end_time_edit_->setDisplayFormat("HH:mm");
+    attendance_layout->addWidget(new QLabel(tr("下班时间:")), row, 2, Qt::AlignRight);
+    attendance_layout->addWidget(work_end_time_edit_, row, 3);
+    row++;
+    
+    // 迟到/早退阈值
+    late_threshold_spin_ = new QSpinBox();
+    late_threshold_spin_->setRange(0, 120);
+    late_threshold_spin_->setValue(30);
+    late_threshold_spin_->setSuffix(" 分钟");
+    attendance_layout->addWidget(new QLabel(tr("迟到阈值:")), row, 0, Qt::AlignRight);
+    attendance_layout->addWidget(late_threshold_spin_, row, 1);
+    
+    early_leave_threshold_spin_ = new QSpinBox();
+    early_leave_threshold_spin_->setRange(0, 120);
+    early_leave_threshold_spin_->setValue(30);
+    early_leave_threshold_spin_->setSuffix(" 分钟");
+    attendance_layout->addWidget(new QLabel(tr("早退阈值:")), row, 2, Qt::AlignRight);
+    attendance_layout->addWidget(early_leave_threshold_spin_, row, 3);
+    row++;
+    
+    // 签到选项（横向排列）
+    auto checkin_opts = new QHBoxLayout();
+    checkin_opts->setSpacing(20);
+    
+    allow_multiple_checkin_check_ = new QCheckBox(tr("允许一天多次签到"));
+    allow_multiple_checkin_check_->setChecked(false);
+    checkin_opts->addWidget(allow_multiple_checkin_check_);
+    checkin_opts->addStretch();
+    
+    attendance_layout->addLayout(checkin_opts, row, 0, 1, 4);
+    row++;
+    
+    // 提醒设置
+    checkin_sound_check_ = new QCheckBox(tr("签到声音提示"));
+    checkin_sound_check_->setChecked(true);
+    attendance_layout->addWidget(checkin_sound_check_, row, 0, 1, 2);
+    
+    show_checkin_reminder_check_ = new QCheckBox(tr("显示签到提醒"));
+    show_checkin_reminder_check_->setChecked(true);
+    attendance_layout->addWidget(show_checkin_reminder_check_, row, 2, 1, 2);
+    
+    // ========== 识别设置 ==========
+    auto recognition_card = new CardWidget(content);
     recognition_card->setTitle(tr("识别设置"));
     
-    auto recognition_layout = new QFormLayout(recognition_card->bodyContainer());
-    recognition_layout->setLabelAlignment(Qt::AlignRight);
-    recognition_layout->setHorizontalSpacing(24);
-    recognition_layout->setVerticalSpacing(12);
-
+    auto recognition_layout = new QGridLayout(recognition_card->bodyContainer());
+    recognition_layout->setContentsMargins(0, 0, 0, 0);
+    recognition_layout->setHorizontalSpacing(12);
+    recognition_layout->setVerticalSpacing(10);
+    
+    // 第一行：识别阈值和重复检测
     recognition_threshold_spin_ = new QDoubleSpinBox();
-    recognition_threshold_spin_->setRange(0.1, 1.0);
+    recognition_threshold_spin_->setRange(0.3, 0.95);
     recognition_threshold_spin_->setSingleStep(0.05);
     recognition_threshold_spin_->setDecimals(2);
     recognition_threshold_spin_->setValue(0.60);
-    recognition_threshold_spin_->setSuffix("");
-    recognition_layout->addRow(tr("识别阈值:"), recognition_threshold_spin_);
-
+    recognition_layout->addWidget(new QLabel(tr("识别阈值:")), 0, 0, Qt::AlignRight);
+    recognition_layout->addWidget(recognition_threshold_spin_, 0, 1);
+    
     duplicate_check_interval_spin_ = new QSpinBox();
     duplicate_check_interval_spin_->setRange(60, 3600);
     duplicate_check_interval_spin_->setSingleStep(60);
     duplicate_check_interval_spin_->setValue(300);
     duplicate_check_interval_spin_->setSuffix(" 秒");
-    recognition_layout->addRow(tr("重复检测间隔:"), duplicate_check_interval_spin_);
-
-    // 系统设置卡片
-    auto system_card = new CardWidget(this);
+    duplicate_check_interval_spin_->setToolTip(tr("防止同一人短时间内重复签到"));
+    recognition_layout->addWidget(new QLabel(tr("防重复签到:")), 0, 2, Qt::AlignRight);
+    recognition_layout->addWidget(duplicate_check_interval_spin_, 0, 3);
+    
+    // 第二行：连续确认次数（防误识别）
+    recognition_confirm_count_spin_ = new QSpinBox();
+    recognition_confirm_count_spin_->setRange(1, 10);
+    recognition_confirm_count_spin_->setValue(3);
+    recognition_confirm_count_spin_->setSuffix(" 次");
+    recognition_confirm_count_spin_->setToolTip(tr("连续识别到同一人多少次后才确认签到，可防止误识别"));
+    recognition_layout->addWidget(new QLabel(tr("确认次数:")), 1, 0, Qt::AlignRight);
+    recognition_layout->addWidget(recognition_confirm_count_spin_, 1, 1);
+    
+    auto confirm_hint = new QLabel(tr("(防止误识别导致错误签到)"));
+    confirm_hint->setStyleSheet("color: #8c8c8c; font-size: 12px;");
+    recognition_layout->addWidget(confirm_hint, 1, 2, 1, 2);
+    
+    // ========== 显示与系统设置 ==========
+    auto system_card = new CardWidget(content);
     system_card->setTitle(tr("系统设置"));
     
     auto system_layout = new QVBoxLayout(system_card->bodyContainer());
-    system_layout->setSpacing(12);
-
-    auto_start_check_ = new QCheckBox(tr("系统启动时自动运行"));
+    system_layout->setContentsMargins(0, 0, 0, 0);
+    system_layout->setSpacing(10);
+    
+    // 显示选项（横向排列）
+    auto display_row = new QHBoxLayout();
+    display_row->setSpacing(20);
+    
+    show_fps_check_ = new QCheckBox(tr("显示FPS"));
+    show_fps_check_->setChecked(true);
+    display_row->addWidget(show_fps_check_);
+    
+    show_confidence_check_ = new QCheckBox(tr("显示置信度"));
+    show_confidence_check_->setChecked(true);
+    display_row->addWidget(show_confidence_check_);
+    
+    auto_start_check_ = new QCheckBox(tr("开机自启"));
     auto_start_check_->setChecked(false);
-    system_layout->addWidget(auto_start_check_);
-
-    // 数据管理
-    auto data_row = new QHBoxLayout();
-    data_row->addWidget(new QLabel(tr("数据管理:")));
+    display_row->addWidget(auto_start_check_);
+    
+    display_row->addStretch();
+    system_layout->addLayout(display_row);
+    
+    // 操作按钮
+    auto action_row = new QHBoxLayout();
+    action_row->setSpacing(12);
+    
+    auto theme_btn = new QPushButton(tr("切换主题"));
+    connect(theme_btn, &QPushButton::clicked, this, &SettingsPage::on_theme_toggle_clicked);
+    action_row->addWidget(theme_btn);
+    
     auto clear_cache_btn = new QPushButton(tr("清理缓存"));
     connect(clear_cache_btn, &QPushButton::clicked, this, &SettingsPage::on_clear_cache_clicked);
-    data_row->addWidget(clear_cache_btn);
-    data_row->addStretch();
-    system_layout->addLayout(data_row);
+    action_row->addWidget(clear_cache_btn);
+    
+    action_row->addStretch();
+    system_layout->addLayout(action_row);
 
-    // 按钮栏
+    // ========== 底部按钮栏 ==========
     auto button_layout = new QHBoxLayout();
     button_layout->setSpacing(12);
     button_layout->addStretch();
@@ -134,8 +230,9 @@ void SettingsPage::setup_ui() {
     connect(save_btn, &QPushButton::clicked, this, &SettingsPage::on_save_clicked);
     button_layout->addWidget(save_btn);
 
+    // 添加所有卡片
     layout->addWidget(info_card);
-    layout->addWidget(display_card);
+    layout->addWidget(attendance_card);
     layout->addWidget(recognition_card);
     layout->addWidget(system_card);
     layout->addLayout(button_layout);
@@ -146,12 +243,60 @@ void SettingsPage::load_settings() {
     // 这里可以从配置文件或数据库加载设置
     // 目前使用默认值
     
-    // 更新数据库大小信息
-    QFileInfo db_file("data/database/attendance.db");
-    if (db_file.exists() && db_size_label_) {
-        qint64 size_kb = db_file.size() / 1024;
-        db_size_label_->setText(QString("%1 KB").arg(size_kb));
+    // 更新数据库大小信息 - 尝试多个可能的路径
+    if (db_size_label_) {
+        QStringList db_paths = {
+            // 绝对路径（优先）
+            "/home/firefly/open_project/edge2-npu/C++/face_recognition_cap/install/face_recognition_cap/data/database/face_recognition.db",
+            // 相对于安装目录
+            "data/database/face_recognition.db",
+            "../data/database/face_recognition.db",
+            "../../data/database/face_recognition.db",
+            // 相对于项目根目录
+            "install/face_recognition_cap/data/database/face_recognition.db",
+            "../install/face_recognition_cap/data/database/face_recognition.db",
+            // 其他可能的路径
+            "data/database/attendance.db"
+        };
+        
+        bool db_found = false;
+        for (const QString& path : db_paths) {
+            QFileInfo db_file(path);
+            if (db_file.exists()) {
+                qint64 size_bytes = db_file.size();
+                qint64 size_kb = size_bytes / 1024;
+                
+                if (size_kb > 1024) {
+                    db_size_label_->setText(QString("%1 MB").arg(size_kb / 1024.0, 0, 'f', 2));
+                } else if (size_kb > 0) {
+                    db_size_label_->setText(QString("%1 KB").arg(size_kb));
+                } else {
+                    db_size_label_->setText(QString("%1 字节").arg(size_bytes));
+                }
+                
+                spdlog::info("Database found: {} (size: {} bytes)", path.toStdString(), size_bytes);
+                db_found = true;
+                break;
+            }
+        }
+        
+        if (!db_found) {
+            db_size_label_->setText("未找到");
+            spdlog::warn("Database file not found in any expected location");
+        }
     }
+    
+    // 加载考勤设置默认值
+    if (work_start_time_edit_) work_start_time_edit_->setTime(QTime(9, 0));
+    if (work_end_time_edit_) work_end_time_edit_->setTime(QTime(18, 0));
+    if (late_threshold_spin_) late_threshold_spin_->setValue(30);
+    if (early_leave_threshold_spin_) early_leave_threshold_spin_->setValue(30);
+    if (allow_multiple_checkin_check_) allow_multiple_checkin_check_->setChecked(false);
+    if (checkin_sound_check_) checkin_sound_check_->setChecked(true);
+    if (show_checkin_reminder_check_) show_checkin_reminder_check_->setChecked(true);
+    
+    // 加载识别确认次数默认值
+    if (recognition_confirm_count_spin_) recognition_confirm_count_spin_->setValue(3);
     
     spdlog::info("Settings loaded");
 }
@@ -160,10 +305,21 @@ void SettingsPage::save_settings() {
     // 这里可以保存设置到配置文件或数据库
     // 目前只是记录日志
     
-    spdlog::info("Settings saved: recognition_threshold={}, duplicate_check_interval={}, show_fps={}, auto_start={}",
+    spdlog::info("Settings saved:");
+    spdlog::info("  - Recognition: threshold={:.2f}, duplicate_interval={}s, confirm_count={}",
                  recognition_threshold_spin_ ? recognition_threshold_spin_->value() : 0.6,
                  duplicate_check_interval_spin_ ? duplicate_check_interval_spin_->value() : 300,
+                 recognition_confirm_count_spin_ ? recognition_confirm_count_spin_->value() : 3);
+    
+    spdlog::info("  - Attendance: work_time={}~{}, late_threshold={}min, early_leave={}min",
+                 work_start_time_edit_ ? work_start_time_edit_->time().toString("HH:mm").toStdString() : "09:00",
+                 work_end_time_edit_ ? work_end_time_edit_->time().toString("HH:mm").toStdString() : "18:00",
+                 late_threshold_spin_ ? late_threshold_spin_->value() : 30,
+                 early_leave_threshold_spin_ ? early_leave_threshold_spin_->value() : 30);
+    
+    spdlog::info("  - Display: show_fps={}, show_confidence={}, auto_start={}",
                  show_fps_check_ ? show_fps_check_->isChecked() : true,
+                 show_confidence_check_ ? show_confidence_check_->isChecked() : true,
                  auto_start_check_ ? auto_start_check_->isChecked() : false);
     
     emit settingsChanged();
@@ -184,8 +340,21 @@ void SettingsPage::on_reset_clicked() {
         QMessageBox::Yes | QMessageBox::No);
     
     if (reply == QMessageBox::Yes) {
+        // 识别设置
         if (recognition_threshold_spin_) recognition_threshold_spin_->setValue(0.60);
         if (duplicate_check_interval_spin_) duplicate_check_interval_spin_->setValue(300);
+        if (recognition_confirm_count_spin_) recognition_confirm_count_spin_->setValue(3);
+        
+        // 考勤设置
+        if (work_start_time_edit_) work_start_time_edit_->setTime(QTime(9, 0));
+        if (work_end_time_edit_) work_end_time_edit_->setTime(QTime(18, 0));
+        if (late_threshold_spin_) late_threshold_spin_->setValue(30);
+        if (early_leave_threshold_spin_) early_leave_threshold_spin_->setValue(30);
+        if (allow_multiple_checkin_check_) allow_multiple_checkin_check_->setChecked(false);
+        if (checkin_sound_check_) checkin_sound_check_->setChecked(true);
+        if (show_checkin_reminder_check_) show_checkin_reminder_check_->setChecked(true);
+        
+        // 显示设置
         if (show_fps_check_) show_fps_check_->setChecked(true);
         if (show_confidence_check_) show_confidence_check_->setChecked(true);
         if (auto_start_check_) auto_start_check_->setChecked(false);
@@ -197,14 +366,13 @@ void SettingsPage::on_reset_clicked() {
 
 void SettingsPage::on_clear_cache_clicked() {
     QMessageBox::StandardButton reply = QMessageBox::question(
-        this, tr("确认"), tr("确定要清理缓存吗？"),
+        this, tr("确认"), tr("确定要清理缓存吗？\n这将清除临时文件和日志。"),
         QMessageBox::Yes | QMessageBox::No);
     
     if (reply == QMessageBox::Yes) {
         // 这里可以实现实际的缓存清理逻辑
-        if (cache_size_label_) {
-            cache_size_label_->setText("0 KB");
-        }
+        // 例如：清理临时人脸图片、日志文件等
+        
         QMessageBox::information(this, tr("成功"), tr("缓存已清理"));
         spdlog::info("Cache cleared");
     }

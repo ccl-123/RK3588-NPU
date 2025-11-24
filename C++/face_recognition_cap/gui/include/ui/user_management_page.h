@@ -24,6 +24,7 @@ public:
 signals:
     void userUpdated();
     void dataChanged();
+    void registerFaceRequested();
 
 private slots:
     void on_refresh_clicked();

@@ -44,6 +44,10 @@
 Q_DECLARE_METATYPE(cv::Mat)
 Q_DECLARE_METATYPE(std::vector<RecognitionResult>)
 
+// 定义 static constexpr 成员变量（C++17之前需要类外定义）
+constexpr int MainWindow::CONFIRM_THRESHOLD;
+constexpr int MainWindow::CONFIRM_TIMEOUT_MS;
+
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
     , db_manager_(nullptr)
@@ -62,6 +66,10 @@ MainWindow::MainWindow(QWidget* parent)
     , fps_label_(nullptr)
     , recognition_label_(nullptr)
     , attendance_status_label_(nullptr)
+    , user_name_label_(nullptr)
+    , user_id_label_(nullptr)
+    , user_dept_label_(nullptr)
+    , user_similarity_label_(nullptr)
     , status_timer_(nullptr)
     , registration_dialog_(nullptr)
     , is_running_(false)
@@ -69,6 +77,7 @@ MainWindow::MainWindow(QWidget* parent)
     , fps_(0.0)
     , camera_id_(0)
     , is_dark_theme_(false)  // 默认使用浅色主题
+    , last_recognition_{0, "", 0.0f, 0, std::chrono::steady_clock::now()}
 {
     // 注册 Qt 元类型（必须在使用前注册）
     qRegisterMetaType<cv::Mat>("cv::Mat");
@@ -137,39 +146,91 @@ bool MainWindow::initialize(const std::string& retinaface_model,
     // 3. 设置考勤服务（用于检查是否已签到）
     recognition_app_->set_attendance_service(attendance_service_.get());
 
-    // 设置识别回调
+    // 设置识别回调（带连续确认机制，防止误识别导致错误签到）
     recognition_app_->set_recognition_callback([this](const RecognitionResult& result) {
-        // 记录考勤（先记录，再发送信号）
-        bool is_new_attendance = false;
-        if (attendance_service_) {
-            int record_id = attendance_service_->record_attendance(result.user_id,
-                                                  result.user_name,
-                                                  result.similarity);
-            is_new_attendance = (record_id > 0);  // 如果返回 > 0，说明是新签到
+        auto now = std::chrono::steady_clock::now();
+        auto time_diff = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - last_recognition_.last_seen).count();
+        
+        // 检查是否是同一个人的连续识别
+        bool is_same_person = (result.user_id == last_recognition_.user_id) && 
+                             (result.user_id > 0);
+        
+        // 如果超时或者不是同一个人，重置计数器
+        if (time_diff > CONFIRM_TIMEOUT_MS || !is_same_person) {
+            last_recognition_.user_id = result.user_id;
+            last_recognition_.user_name = result.user_name;
+            last_recognition_.similarity = result.similarity;
+            last_recognition_.confirm_count = 1;
+            last_recognition_.last_seen = now;
+            
+            // 第一次识别时更新显示，但不签到
+            emit on_recognition_result(result.user_id,
+                                      QString::fromStdString(result.user_name),
+                                      result.similarity,
+                                      false);  // 不是新签到
+            
+            spdlog::debug("Recognition started: {} (count: 1/{})", 
+                         result.user_name, CONFIRM_THRESHOLD);
+            return;
         }
-
-        // 发送识别结果信号（包含是否新签到的信息）
+        
+        // 是同一个人，增加确认计数
+        last_recognition_.confirm_count++;
+        last_recognition_.last_seen = now;
+        last_recognition_.similarity = std::max(last_recognition_.similarity, result.similarity);
+        
+        spdlog::debug("Recognition continued: {} (count: {}/{})", 
+                     result.user_name, last_recognition_.confirm_count, CONFIRM_THRESHOLD);
+        
+        // 更新显示（不触发签到）
         emit on_recognition_result(result.user_id,
-                                   QString::fromStdString(result.user_name),
-                                   result.similarity,
-                                   is_new_attendance);
+                                  QString::fromStdString(result.user_name),
+                                  result.similarity,
+                                  false);
+        
+        // 只有达到确认阈值才真正签到
+        if (last_recognition_.confirm_count == CONFIRM_THRESHOLD) {
+            bool is_new_attendance = false;
+            
+            // 记录考勤
+            if (attendance_service_) {
+                int record_id = attendance_service_->record_attendance(
+                    result.user_id,
+                    result.user_name,
+                    last_recognition_.similarity);
+                is_new_attendance = (record_id > 0);
+            }
+            
+            spdlog::info("Recognition confirmed: {} (similarity: {:.2f}, is_new: {})",
+                        result.user_name, last_recognition_.similarity, is_new_attendance);
 
-        // 如果是新签到，显示提示
-        if (is_new_attendance) {
-            QMetaObject::invokeMethod(this, [this, name = result.user_name]() {
-                if (!attendance_status_label_) {
-                    return;
-                }
-                attendance_status_label_->setText(QString("✓ %1 签到成功").arg(QString::fromStdString(name)));
-                attendance_status_label_->setVisible(true);
-
-                // 3秒后隐藏提示
-                QTimer::singleShot(3000, this, [this]() {
-                    if (attendance_status_label_) {
-                    attendance_status_label_->setVisible(false);
+            // 如果是新签到，显示提示
+            if (is_new_attendance) {
+                QMetaObject::invokeMethod(this, [this, name = result.user_name]() {
+                    if (!attendance_status_label_) {
+                        return;
                     }
-                });
-            }, Qt::QueuedConnection);
+                    attendance_status_label_->setText(QString("✓ %1 签到成功").arg(QString::fromStdString(name)));
+                    attendance_status_label_->setVisible(true);
+
+                    // 3秒后隐藏提示
+                    QTimer::singleShot(3000, this, [this]() {
+                        if (attendance_status_label_) {
+                            attendance_status_label_->setVisible(false);
+                        }
+                    });
+                }, Qt::QueuedConnection);
+                
+                // 更新考勤表格
+                emit on_recognition_result(result.user_id,
+                                          QString::fromStdString(result.user_name),
+                                          last_recognition_.similarity,
+                                          true);  // 标记为新签到
+            }
+            
+            // 重置确认状态，避免重复签到
+            last_recognition_.confirm_count = 0;
         }
     });
     
@@ -290,6 +351,10 @@ void MainWindow::setup_pages() {
     fps_label_ = recognition_page_->fpsLabel();
     recognition_label_ = recognition_page_->recognitionLabel();
     attendance_status_label_ = recognition_page_->attendanceStatusLabel();
+    user_name_label_ = recognition_page_->userNameLabel();
+    user_id_label_ = recognition_page_->userIdLabel();
+    user_dept_label_ = recognition_page_->userDeptLabel();
+    user_similarity_label_ = recognition_page_->userSimilarityLabel();
     user_table_ = user_page_->table();
 }
 
@@ -345,6 +410,8 @@ void MainWindow::connect_page_signals() {
     if (user_page_) {
         connect(user_page_, &UserManagementPage::dataChanged,
                 this, &MainWindow::load_users);
+        connect(user_page_, &UserManagementPage::registerFaceRequested,
+                this, &MainWindow::on_action_register_face);
     }
 
     if (settings_page_) {
@@ -405,6 +472,9 @@ void MainWindow::stop_recognition() {
     if (recognition_thread_.joinable()) {
         recognition_thread_.join();
     }
+    
+    // 重置识别确认状态
+    last_recognition_ = {0, "", 0.0f, 0, std::chrono::steady_clock::now()};
 
     spdlog::info("Recognition stopped");
 }
@@ -464,15 +534,47 @@ void MainWindow::update_status() {
 void MainWindow::on_recognition_result(int user_id, const QString& name, float similarity, bool is_new_attendance) {
     recognition_label_->setText(QString("识别: %1 (%2)").arg(name).arg(similarity, 0, 'f', 2));
 
-    // 只有新签到时才更新考勤表格
+    // 更新用户信息面板
+    if (user_name_label_) {
+        user_name_label_->setText(QString("最近识别：%1").arg(name));
+    }
+    
+    if (user_similarity_label_) {
+        user_similarity_label_->setText(QString("相似度: %1%").arg(QString::number(similarity * 100, 'f', 1)));
+    }
+    
+    // 从数据库获取用户详细信息
+    if (user_service_ && user_id > 0) {
+        auto users = user_service_->get_all_users(-1);
+        for (const auto& user : users) {
+            if (user.user_id == user_id) {
+                if (user_id_label_) {
+                    user_id_label_->setText(QString("工号: %1").arg(QString::fromStdString(user.employee_id)));
+                }
+                if (user_dept_label_) {
+                    user_dept_label_->setText(QString("部门: %1").arg(QString::fromStdString(user.department)));
+                }
+                break;
+            }
+        }
+    } else {
+        // 未识别或无效用户
+        if (user_id_label_) {
+            user_id_label_->setText(tr("工号: --"));
+        }
+        if (user_dept_label_) {
+            user_dept_label_->setText(tr("部门: --"));
+        }
+    }
+
+    // 只有新签到时才更新考勤表格（最新的在上面）
     if (is_new_attendance && attendance_table_) {
-        int row = attendance_table_->rowCount();
-        attendance_table_->insertRow(row);
-        attendance_table_->setItem(row, 0, new QTableWidgetItem(name));
-        attendance_table_->setItem(row, 1, new QTableWidgetItem(
+        attendance_table_->insertRow(0);  // 插入到第0行，最新的在上面
+        attendance_table_->setItem(0, 0, new QTableWidgetItem(name));
+        attendance_table_->setItem(0, 1, new QTableWidgetItem(
             QDateTime::currentDateTime().toString("hh:mm:ss")));
-        attendance_table_->setItem(row, 2, new QTableWidgetItem("签到"));
-        attendance_table_->setItem(row, 3, new QTableWidgetItem(
+        attendance_table_->setItem(0, 2, new QTableWidgetItem("签到"));
+        attendance_table_->setItem(0, 3, new QTableWidgetItem(
             QString::number(similarity, 'f', 2)));
 
         spdlog::info("New attendance recorded: {} (ID: {}, similarity: {:.2f})",
@@ -569,6 +671,8 @@ void MainWindow::on_action_user_management() {
 
     // 连接信号槽：当用户管理窗口数据变更时，刷新主窗口的用户列表
     connect(user_mgmt, &UserManagementWidget::data_changed, this, &MainWindow::load_users);
+    // 连接人脸注册请求信号
+    connect(user_mgmt, &UserManagementWidget::register_face_requested, this, &MainWindow::on_action_register_face);
 
     user_mgmt->show();
 }

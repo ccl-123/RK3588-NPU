@@ -127,6 +127,11 @@ private:
      */
     std::string time_to_string(std::time_t time);
     
+    /**
+     * @brief 字符串转换为时间
+     */
+    std::time_t string_to_time(const std::string& time_str);
+    
 private:
     DatabaseManager* db_manager_;
 };

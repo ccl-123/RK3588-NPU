@@ -41,6 +41,7 @@ public:
 signals:
     void user_updated();
     void data_changed();  // 数据变更信号（用于通知主窗口刷新）
+    void register_face_requested();  // 请求打开人脸注册对话框
 
 private slots:
     void on_refresh_clicked();

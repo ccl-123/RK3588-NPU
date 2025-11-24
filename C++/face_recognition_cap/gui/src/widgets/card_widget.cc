@@ -47,6 +47,7 @@ CardWidget::CardWidget(QWidget* parent)
 
 void CardWidget::setTitle(const QString& title) {
     title_label_->setText(title);
+    header_container_->setVisible(!title.isEmpty() || subtitle_label_->isVisible());
 }
 
 void CardWidget::setSubtitle(const QString& subtitle) {

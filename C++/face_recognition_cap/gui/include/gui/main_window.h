@@ -120,6 +120,12 @@ private:
     QLabel* recognition_label_;
     QLabel* attendance_status_label_;
     
+    // 用户信息面板的 label
+    QLabel* user_name_label_;
+    QLabel* user_id_label_;
+    QLabel* user_dept_label_;
+    QLabel* user_similarity_label_;
+    
     // 定时器
     QTimer* status_timer_;
 
@@ -138,6 +144,18 @@ private:
 
     // 主题状态
     bool is_dark_theme_;
+    
+    // 连续识别确认机制（防止误识别导致错误签到）
+    struct RecognitionConfirmation {
+        int user_id;
+        std::string user_name;
+        float similarity;
+        int confirm_count;  // 连续确认次数
+        std::chrono::steady_clock::time_point last_seen;
+    };
+    RecognitionConfirmation last_recognition_;
+    static constexpr int CONFIRM_THRESHOLD = 3;  // 需要连续识别3次才确认
+    static constexpr int CONFIRM_TIMEOUT_MS = 2000;  // 确认超时时间（毫秒）
 
     // 配置
     std::string retinaface_model_;

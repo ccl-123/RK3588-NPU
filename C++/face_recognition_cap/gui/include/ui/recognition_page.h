@@ -22,6 +22,12 @@ public:
     QLabel* fpsLabel() const;
     QLabel* recognitionLabel() const;
     QLabel* attendanceStatusLabel() const;
+    
+    // 用户信息面板的 label
+    QLabel* userNameLabel() const;
+    QLabel* userIdLabel() const;
+    QLabel* userDeptLabel() const;
+    QLabel* userSimilarityLabel() const;
 
 signals:
     void startRecognitionRequested();
@@ -39,5 +45,11 @@ private:
     QLabel* fps_label_;
     QLabel* recognition_label_;
     QLabel* attendance_status_label_;
+    
+    // 用户信息面板的 label
+    QLabel* user_name_label_;
+    QLabel* user_id_label_;
+    QLabel* user_dept_label_;
+    QLabel* user_similarity_label_;
 };
 

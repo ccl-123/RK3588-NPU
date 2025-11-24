@@ -265,7 +265,11 @@ void AttendanceRecordDAO::fill_record_from_stmt(PreparedStatement* stmt, Attenda
     record.record_id = stmt->get_column_int(0);
     record.user_id = stmt->get_column_int(1);
     record.user_name = stmt->get_column_string(2);
-    // check_time 需要解析字符串
+    
+    // 解析 check_time 字符串（第3列）
+    std::string time_str = stmt->get_column_string(3);
+    record.check_time = string_to_time(time_str);
+    
     record.check_type = stmt->get_column_int(4);
     record.similarity = stmt->get_column_double(5);
     record.face_image = stmt->get_column_string(6);
@@ -284,6 +288,22 @@ std::string AttendanceRecordDAO::time_to_string(std::time_t time) {
     std::ostringstream oss;
     oss << std::put_time(tm_info, "%Y-%m-%d %H:%M:%S");
     return oss.str();
+}
+
+std::time_t AttendanceRecordDAO::string_to_time(const std::string& time_str) {
+    if (time_str.empty()) {
+        return 0;
+    }
+    
+    std::tm tm = {};
+    std::istringstream iss(time_str);
+    iss >> std::get_time(&tm, "%Y-%m-%d %H:%M:%S");
+    
+    if (iss.fail()) {
+        return 0;
+    }
+    
+    return std::mktime(&tm);
 }
 
 } // namespace db

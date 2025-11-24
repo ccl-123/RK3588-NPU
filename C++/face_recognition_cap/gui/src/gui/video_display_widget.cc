@@ -73,11 +73,11 @@ void VideoDisplayWidget::paintEvent(QPaintEvent* event) {
     
     QMutexLocker locker(&mutex_);
     
-    // 绘制视频帧
+    // 绘制视频帧（靠上对齐）
     if (!current_image_.isNull()) {
         QImage scaled_image = current_image_.scaled(size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
         int x = (width() - scaled_image.width()) / 2;
-        int y = (height() - scaled_image.height()) / 2;
+        int y = 0;  // 靠上对齐，不再居中
         painter.drawImage(x, y, scaled_image);
     }
     
@@ -135,10 +135,10 @@ void VideoDisplayWidget::draw_face_results(QPainter& painter) {
         return;
     }
     
-    // 计算图像显示区域
+    // 计算图像显示区域（靠上对齐）
     QImage scaled_image = current_image_.scaled(size(), Qt::KeepAspectRatio);
     int offset_x = (width() - scaled_image.width()) / 2;
-    int offset_y = (height() - scaled_image.height()) / 2;
+    int offset_y = 0;  // 靠上对齐，不再居中
     double scale = static_cast<double>(scaled_image.width()) / current_frame_.cols;
     
     for (const auto& result : face_results_) {

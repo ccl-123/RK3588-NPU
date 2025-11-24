@@ -170,7 +170,11 @@ void UserManagementWidget::on_refresh_clicked() {
 }
 
 void UserManagementWidget::on_add_clicked() {
-    QMessageBox::information(this, "提示", "请使用主界面的人脸注册功能添加用户");
+    // 发出信号请求主窗口打开人脸注册对话框
+    emit register_face_requested();
+    
+    // 关闭当前窗口，让用户专注于人脸注册
+    close();
 }
 
 void UserManagementWidget::on_edit_clicked() {

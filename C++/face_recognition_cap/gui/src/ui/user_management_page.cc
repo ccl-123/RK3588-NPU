@@ -172,7 +172,7 @@ void UserManagementPage::on_refresh_clicked() {
 }
 
 void UserManagementPage::on_add_clicked() {
-    QMessageBox::information(this, "提示", "请使用主界面的人脸注册功能添加用户");
+    emit registerFaceRequested();
 }
 
 void UserManagementPage::on_edit_clicked() {
