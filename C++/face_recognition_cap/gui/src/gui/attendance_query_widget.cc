@@ -6,15 +6,21 @@
  */
 
 #include "gui/attendance_query_widget.h"
+
+#include "widgets/card_widget.h"
+#include "widgets/modern_table_view.h"
+
 #include <QVBoxLayout>
 #include <QHBoxLayout>
-#include <QGroupBox>
+#include <QGridLayout>
 #include <QHeaderView>
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QTextStream>
 #include <ctime>
+#include <utility>
 #include <spdlog/spdlog.h>
+#include <QVariant>
 
 AttendanceQueryWidget::AttendanceQueryWidget(service::AttendanceService* attendance_service,
                                            QWidget* parent)
@@ -33,80 +39,104 @@ AttendanceQueryWidget::~AttendanceQueryWidget() {
 }
 
 void AttendanceQueryWidget::setup_ui() {
-    setWindowTitle("考勤查询");
-    resize(800, 600);
+    setWindowTitle(tr("考勤记录"));
+    resize(900, 640);
     
-    QVBoxLayout* main_layout = new QVBoxLayout(this);
-    
-    // 查询条件组
-    QGroupBox* query_group = new QGroupBox("查询条件");
-    QHBoxLayout* query_layout = new QHBoxLayout();
-    
-    query_layout->addWidget(new QLabel("日期:"));
-    date_edit_ = new QDateEdit();
+    auto main_layout = new QVBoxLayout(this);
+    main_layout->setContentsMargins(24, 24, 24, 24);
+    main_layout->setSpacing(24);
+
+    auto filter_card = new CardWidget(this);
+    filter_card->setTitle(tr("筛选条件"));
+    auto filter_layout = new QHBoxLayout(filter_card->bodyContainer());
+    filter_layout->setContentsMargins(0, 0, 0, 0);
+    filter_layout->setSpacing(12);
+
+    auto date_layout = new QVBoxLayout();
+    auto date_label = new QLabel(tr("日期"));
+    date_label->setObjectName("Caption");
+    date_layout->addWidget(date_label);
+    date_edit_ = new QDateEdit(filter_card);
     date_edit_->setCalendarPopup(true);
     date_edit_->setDate(QDate::currentDate());
     connect(date_edit_, &QDateEdit::dateChanged, this, &AttendanceQueryWidget::on_date_changed);
-    query_layout->addWidget(date_edit_);
+    date_layout->addWidget(date_edit_);
+    filter_layout->addLayout(date_layout);
+
+    auto user_layout = new QVBoxLayout();
+    auto user_label = new QLabel(tr("用户"));
+    user_label->setObjectName("Caption");
+    user_layout->addWidget(user_label);
+    user_combo_ = new QComboBox(filter_card);
+    user_combo_->addItem(tr("全部"));
+    user_layout->addWidget(user_combo_);
+    filter_layout->addLayout(user_layout);
+
+    filter_layout->addStretch();
     
-    query_layout->addWidget(new QLabel("用户:"));
-    user_combo_ = new QComboBox();
-    user_combo_->addItem("全部");
-    query_layout->addWidget(user_combo_);
-    
-    query_btn_ = new QPushButton("查询");
-    query_btn_->setProperty("class", "primary");
+    query_btn_ = new QPushButton(tr("查询"), filter_card);
+    query_btn_->setProperty("primary", QVariant(true));
     connect(query_btn_, &QPushButton::clicked, this, &AttendanceQueryWidget::on_query_clicked);
-    query_layout->addWidget(query_btn_);
-    
-    export_btn_ = new QPushButton("导出");
+    export_btn_ = new QPushButton(tr("导出"), filter_card);
     connect(export_btn_, &QPushButton::clicked, this, &AttendanceQueryWidget::on_export_clicked);
-    query_layout->addWidget(export_btn_);
-    
-    refresh_btn_ = new QPushButton("刷新");
+    refresh_btn_ = new QPushButton(tr("刷新"), filter_card);
     connect(refresh_btn_, &QPushButton::clicked, this, &AttendanceQueryWidget::on_refresh_clicked);
-    query_layout->addWidget(refresh_btn_);
-
-    query_layout->addStretch();
-
-    QPushButton* close_btn = new QPushButton("关闭");
+    auto close_btn = new QPushButton(tr("关闭"), filter_card);
     connect(close_btn, &QPushButton::clicked, this, &QWidget::close);
-    query_layout->addWidget(close_btn);
-    
-    query_layout->setSpacing(10);
 
-    query_group->setLayout(query_layout);
-    main_layout->addWidget(query_group);
-    
-    // 统计信息组
-    QGroupBox* stats_group = new QGroupBox("统计信息");
-    QHBoxLayout* stats_layout = new QHBoxLayout();
-    
-    total_label_ = new QLabel("总人数: 0");
-    on_time_label_ = new QLabel("正常: 0");
-    late_label_ = new QLabel("迟到: 0");
-    absent_label_ = new QLabel("缺勤: 0");
-    
-    stats_layout->addWidget(total_label_);
-    stats_layout->addWidget(on_time_label_);
-    stats_layout->addWidget(late_label_);
-    stats_layout->addWidget(absent_label_);
-    stats_layout->addStretch();
-    
-    stats_group->setLayout(stats_layout);
-    main_layout->addWidget(stats_group);
-    
-    // 考勤记录表格
-    records_table_ = new QTableWidget();
+    filter_layout->addWidget(query_btn_);
+    filter_layout->addWidget(export_btn_);
+    filter_layout->addWidget(refresh_btn_);
+    filter_layout->addWidget(close_btn);
+
+    auto stats_card = new CardWidget(this);
+    stats_card->setTitle(tr("统计概览"));
+    auto stats_layout = new QGridLayout(stats_card->bodyContainer());
+    stats_layout->setContentsMargins(0, 0, 0, 0);
+    stats_layout->setHorizontalSpacing(24);
+    stats_layout->setVerticalSpacing(8);
+
+    auto make_stat = [](const QString& title) {
+        auto wrapper = new QVBoxLayout();
+        wrapper->setSpacing(4);
+        auto caption = new QLabel(title);
+        caption->setObjectName("Caption");
+        auto value = new QLabel("0");
+        value->setStyleSheet("font-size: 24px; font-weight: 600;");
+        wrapper->addWidget(caption);
+        wrapper->addWidget(value);
+        return std::make_pair(wrapper, value);
+    };
+
+    auto total_stat = make_stat(tr("总记录"));
+    total_label_ = total_stat.second;
+    stats_layout->addLayout(total_stat.first, 0, 0);
+
+    auto on_time_stat = make_stat(tr("签到"));
+    on_time_label_ = on_time_stat.second;
+    stats_layout->addLayout(on_time_stat.first, 0, 1);
+
+    auto late_stat = make_stat(tr("迟到"));
+    late_label_ = late_stat.second;
+    stats_layout->addLayout(late_stat.first, 0, 2);
+
+    auto absent_stat = make_stat(tr("签退"));
+    absent_label_ = absent_stat.second;
+    stats_layout->addLayout(absent_stat.first, 0, 3);
+
+    records_table_ = new ModernTableView(this);
     records_table_->setColumnCount(6);
     records_table_->setHorizontalHeaderLabels({
-        "记录ID", "姓名", "打卡时间", "类型", "状态", "相似度"
+        tr("记录ID"), tr("姓名"), tr("打卡时间"), tr("类型"), tr("状态"), tr("相似度")
     });
     records_table_->horizontalHeader()->setStretchLastSection(true);
     records_table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     records_table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    records_table_->setEmptyText(tr("暂无考勤记录"));
     
-    main_layout->addWidget(records_table_);
+    main_layout->addWidget(filter_card);
+    main_layout->addWidget(stats_card);
+    main_layout->addWidget(records_table_, 1);
 }
 
 void AttendanceQueryWidget::load_attendance_records(const std::string& date) {
@@ -157,10 +187,10 @@ void AttendanceQueryWidget::update_statistics(const std::string& date) {
 
     auto stats = attendance_service_->get_statistics(date);
 
-    total_label_->setText(QString("总人数: %1").arg(stats.total_count));
-    on_time_label_->setText(QString("签到: %1").arg(stats.check_in_count));
-    late_label_->setText(QString("迟到: %1").arg(stats.late_count));
-    absent_label_->setText(QString("签退: %1").arg(stats.check_out_count));
+    total_label_->setText(QString::number(stats.total_count));
+    on_time_label_->setText(QString::number(stats.check_in_count));
+    late_label_->setText(QString::number(stats.late_count));
+    absent_label_->setText(QString::number(stats.check_out_count));
 }
 
 void AttendanceQueryWidget::export_to_csv(const QString& filename) {

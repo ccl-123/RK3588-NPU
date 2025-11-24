@@ -45,7 +45,7 @@ find_package(SQLite3 REQUIRED)
 include_directories(${SQLite3_INCLUDE_DIRS})
 
 # Qt5 (可选，用于 GUI 版本)
-find_package(Qt5 COMPONENTS Core Gui Widgets)
+find_package(Qt5 COMPONENTS Core Gui Widgets Svg)
 if(Qt5_FOUND)
     message(STATUS "Qt5 found, GUI version will be built")
     message(STATUS "Qt5 version: ${Qt5_VERSION}")
@@ -113,6 +113,23 @@ if(Qt5_FOUND)
         gui/src/gui/settings_dialog.cc
         gui/src/gui/about_dialog.cc
         gui/src/gui/toast.cc
+        gui/src/themes/theme_manager.cc
+        gui/src/utils/svg_icon_manager.cc
+        gui/src/utils/stack_router.cc
+        gui/src/widgets/card_widget.cc
+        gui/src/widgets/icon_button.cc
+        gui/src/widgets/search_input.cc
+        gui/src/widgets/status_tag.cc
+        gui/src/widgets/modern_table_view.cc
+        gui/src/widgets/title_bar.cc
+        gui/src/widgets/side_menu.cc
+        gui/src/widgets/toast_notification.cc
+        gui/src/ui/dashboard_page.cc
+        gui/src/ui/recognition_page.cc
+        gui/src/ui/attendance_page.cc
+        gui/src/ui/user_management_page.cc
+        gui/src/ui/settings_page.cc
+        gui/src/themes/ui_resources.qrc
     )
 
     set(MAIN_GUI_SOURCES
@@ -149,6 +166,22 @@ if(Qt5_FOUND)
         gui/include/gui/settings_dialog.h
         gui/include/gui/about_dialog.h
         gui/include/gui/toast.h
+        gui/include/themes/theme_manager.h
+        gui/include/utils/svg_icon_manager.h
+        gui/include/utils/stack_router.h
+        gui/include/widgets/card_widget.h
+        gui/include/widgets/icon_button.h
+        gui/include/widgets/search_input.h
+        gui/include/widgets/status_tag.h
+        gui/include/widgets/modern_table_view.h
+        gui/include/widgets/title_bar.h
+        gui/include/widgets/side_menu.h
+        gui/include/widgets/toast_notification.h
+        gui/include/ui/dashboard_page.h
+        gui/include/ui/recognition_page.h
+        gui/include/ui/attendance_page.h
+        gui/include/ui/user_management_page.h
+        gui/include/ui/settings_page.h
     )
 
     add_executable(${TARGET_NAME}_gui
@@ -177,6 +210,7 @@ if(Qt5_FOUND)
         Qt5::Core
         Qt5::Gui
         Qt5::Widgets
+        Qt5::Svg
     )
 
     # 安装 GUI 版本

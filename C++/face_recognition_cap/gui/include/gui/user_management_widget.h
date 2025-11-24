@@ -18,12 +18,15 @@
 #define USER_MANAGEMENT_WIDGET_H
 
 #include <QWidget>
-#include <QTableWidget>
 #include <QPushButton>
-#include <QLineEdit>
 #include <QComboBox>
+#include <vector>
+
 #include "service/user_service.h"
 #include "database/database_types.h"
+
+class SearchInput;
+class ModernTableView;
 
 /**
  * @brief 用户管理组件
@@ -60,7 +63,7 @@ private:
     service::UserService* user_service_;
     
     // UI 组件
-    QLineEdit* search_edit_;
+    SearchInput* search_input_;
     QComboBox* status_filter_;
     QPushButton* refresh_btn_;
     QPushButton* add_btn_;
@@ -68,7 +71,8 @@ private:
     QPushButton* delete_btn_;
     QPushButton* enable_btn_;
     QPushButton* disable_btn_;
-    QTableWidget* user_table_;
+    QPushButton* close_btn_;
+    ModernTableView* user_table_;
     
     // 数据
     std::vector<db::UserInfo> all_users_;

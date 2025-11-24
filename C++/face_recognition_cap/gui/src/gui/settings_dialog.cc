@@ -6,12 +6,15 @@
  */
 
 #include "gui/settings_dialog.h"
+
+#include "widgets/card_widget.h"
+
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFormLayout>
-#include <QGroupBox>
-#include <QDialogButtonBox>
+#include <QScrollArea>
 #include <QMessageBox>
+#include <QVariant>
 
 SettingsDialog::SettingsDialog(AppConfig* config, QWidget* parent)
     : QDialog(parent)
@@ -26,100 +29,106 @@ SettingsDialog::~SettingsDialog() {
 }
 
 void SettingsDialog::setup_ui() {
-    setWindowTitle("系统设置");
-    resize(500, 600);
-    
-    QVBoxLayout* main_layout = new QVBoxLayout(this);
-    
-    // 摄像头设置组
-    QGroupBox* camera_group = new QGroupBox("摄像头设置");
-    QFormLayout* camera_layout = new QFormLayout();
-    
-    camera_type_combo_ = new QComboBox();
-    camera_type_combo_->addItem("USB 摄像头", "usb");
-    camera_type_combo_->addItem("MIPI 摄像头", "mipi");
-    
-    device_number_edit_ = new QLineEdit();
-    
-    camera_width_spin_ = new QSpinBox();
+    setWindowTitle(tr("系统设置"));
+    resize(560, 680);
+
+    auto main_layout = new QVBoxLayout(this);
+    main_layout->setContentsMargins(24, 24, 24, 24);
+    main_layout->setSpacing(24);
+
+    auto build_form = [](CardWidget* card) {
+        auto layout = new QFormLayout(card->bodyContainer());
+        layout->setLabelAlignment(Qt::AlignRight);
+        layout->setHorizontalSpacing(24);
+        return layout;
+    };
+
+    auto camera_card = new CardWidget(this);
+    camera_card->setTitle(tr("摄像头设置"));
+    camera_card->setSubtitle(tr("配置设备类型、分辨率等基础参数"));
+    auto camera_layout = build_form(camera_card);
+
+    camera_type_combo_ = new QComboBox(camera_card);
+    camera_type_combo_->addItem(tr("USB 摄像头"), "usb");
+    camera_type_combo_->addItem(tr("MIPI 摄像头"), "mipi");
+
+    device_number_edit_ = new QLineEdit(camera_card);
+
+    camera_width_spin_ = new QSpinBox(camera_card);
     camera_width_spin_->setRange(320, 1920);
     camera_width_spin_->setSingleStep(160);
-    
-    camera_height_spin_ = new QSpinBox();
+
+    camera_height_spin_ = new QSpinBox(camera_card);
     camera_height_spin_->setRange(240, 1080);
     camera_height_spin_->setSingleStep(120);
-    
-    async_usb_check_ = new QCheckBox("启用异步读取（仅USB）");
-    
-    camera_layout->addRow("摄像头类型:", camera_type_combo_);
-    camera_layout->addRow("设备编号:", device_number_edit_);
-    camera_layout->addRow("分辨率宽度:", camera_width_spin_);
-    camera_layout->addRow("分辨率高度:", camera_height_spin_);
-    camera_layout->addRow("", async_usb_check_);
-    
-    camera_group->setLayout(camera_layout);
-    
-    // 识别参数组
-    QGroupBox* recognition_group = new QGroupBox("识别参数");
-    QFormLayout* recognition_layout = new QFormLayout();
-    
-    box_conf_spin_ = new QDoubleSpinBox();
+
+    async_usb_check_ = new QCheckBox(tr("启用异步读取（仅 USB）"), camera_card);
+
+    camera_layout->addRow(tr("摄像头类型"), camera_type_combo_);
+    camera_layout->addRow(tr("设备编号"), device_number_edit_);
+    camera_layout->addRow(tr("分辨率宽度"), camera_width_spin_);
+    camera_layout->addRow(tr("分辨率高度"), camera_height_spin_);
+    camera_layout->addRow(QString(), async_usb_check_);
+
+    auto recognition_card = new CardWidget(this);
+    recognition_card->setTitle(tr("识别参数"));
+    recognition_card->setSubtitle(tr("控制检测与识别模型灵敏度"));
+    auto recognition_layout = build_form(recognition_card);
+
+    box_conf_spin_ = new QDoubleSpinBox(recognition_card);
     box_conf_spin_->setRange(0.1, 1.0);
     box_conf_spin_->setSingleStep(0.05);
     box_conf_spin_->setDecimals(2);
-    
-    nms_threshold_spin_ = new QDoubleSpinBox();
+
+    nms_threshold_spin_ = new QDoubleSpinBox(recognition_card);
     nms_threshold_spin_->setRange(0.1, 1.0);
     nms_threshold_spin_->setSingleStep(0.05);
     nms_threshold_spin_->setDecimals(2);
-    
-    facenet_threshold_spin_ = new QDoubleSpinBox();
+
+    facenet_threshold_spin_ = new QDoubleSpinBox(recognition_card);
     facenet_threshold_spin_->setRange(0.1, 1.0);
     facenet_threshold_spin_->setSingleStep(0.05);
     facenet_threshold_spin_->setDecimals(2);
-    
-    recognition_layout->addRow("人脸检测置信度:", box_conf_spin_);
-    recognition_layout->addRow("NMS 阈值:", nms_threshold_spin_);
-    recognition_layout->addRow("人脸识别阈值:", facenet_threshold_spin_);
-    
-    recognition_group->setLayout(recognition_layout);
-    
-    // 性能设置组
-    QGroupBox* performance_group = new QGroupBox("性能设置");
-    QFormLayout* performance_layout = new QFormLayout();
-    
-    perf_report_interval_spin_ = new QSpinBox();
+
+    recognition_layout->addRow(tr("检测置信度"), box_conf_spin_);
+    recognition_layout->addRow(tr("NMS 阈值"), nms_threshold_spin_);
+    recognition_layout->addRow(tr("识别阈值"), facenet_threshold_spin_);
+
+    auto performance_card = new CardWidget(this);
+    performance_card->setTitle(tr("性能与监控"));
+    performance_card->setSubtitle(tr("调整性能上报、监控频率"));
+    auto performance_layout = build_form(performance_card);
+
+    perf_report_interval_spin_ = new QSpinBox(performance_card);
     perf_report_interval_spin_->setRange(1, 100);
-    perf_report_interval_spin_->setSuffix(" 帧");
-    
-    performance_layout->addRow("性能报告间隔:", perf_report_interval_spin_);
-    
-    performance_group->setLayout(performance_layout);
-    
-    // 按钮
-    QHBoxLayout* button_layout = new QHBoxLayout();
-    
-    ok_btn_ = new QPushButton("确定");
-    connect(ok_btn_, &QPushButton::clicked, this, &SettingsDialog::on_ok_clicked);
-    
-    cancel_btn_ = new QPushButton("取消");
-    connect(cancel_btn_, &QPushButton::clicked, this, &SettingsDialog::on_cancel_clicked);
-    
-    apply_btn_ = new QPushButton("应用");
-    connect(apply_btn_, &QPushButton::clicked, this, &SettingsDialog::on_apply_clicked);
-    
-    reset_btn_ = new QPushButton("恢复默认");
+    perf_report_interval_spin_->setSuffix(tr(" 帧"));
+    performance_layout->addRow(tr("性能报告间隔"), perf_report_interval_spin_);
+
+    auto button_layout = new QHBoxLayout();
+    button_layout->setContentsMargins(0, 0, 0, 0);
+
+    reset_btn_ = new QPushButton(tr("恢复默认"), this);
     connect(reset_btn_, &QPushButton::clicked, this, &SettingsDialog::on_reset_clicked);
-    
+
+    ok_btn_ = new QPushButton(tr("确定"), this);
+    ok_btn_->setProperty("primary", QVariant(true));
+    connect(ok_btn_, &QPushButton::clicked, this, &SettingsDialog::on_ok_clicked);
+
+    cancel_btn_ = new QPushButton(tr("取消"), this);
+    connect(cancel_btn_, &QPushButton::clicked, this, &SettingsDialog::on_cancel_clicked);
+
+    apply_btn_ = new QPushButton(tr("应用"), this);
+    connect(apply_btn_, &QPushButton::clicked, this, &SettingsDialog::on_apply_clicked);
+
     button_layout->addWidget(reset_btn_);
     button_layout->addStretch();
     button_layout->addWidget(ok_btn_);
     button_layout->addWidget(cancel_btn_);
     button_layout->addWidget(apply_btn_);
-    
-    main_layout->addWidget(camera_group);
-    main_layout->addWidget(recognition_group);
-    main_layout->addWidget(performance_group);
+
+    main_layout->addWidget(camera_card);
+    main_layout->addWidget(recognition_card);
+    main_layout->addWidget(performance_card);
     main_layout->addStretch();
     main_layout->addLayout(button_layout);
 }

@@ -6,19 +6,23 @@
  */
 
 #include "gui/about_dialog.h"
+
+#include "widgets/card_widget.h"
+
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFont>
 #include <QFile>
 #include <QTextStream>
 #include <QSysInfo>
+#include <QVariant>
 
 AboutDialog::AboutDialog(QWidget* parent)
     : QDialog(parent)
 {
     setWindowTitle(QString::fromUtf8("关于人脸识别考勤系统"));
-    setFixedSize(600, 500);
-    
+    setFixedSize(640, 520);
+
     setup_ui();
 }
 
@@ -26,50 +30,47 @@ AboutDialog::~AboutDialog() {
 }
 
 void AboutDialog::setup_ui() {
-    QVBoxLayout* main_layout = new QVBoxLayout(this);
-    main_layout->setSpacing(20);
-    main_layout->setContentsMargins(30, 30, 30, 30);
-    
-    // Logo 和标题
-    title_label_ = new QLabel(QString::fromUtf8("人脸识别考勤系统"), this);
-    QFont title_font = title_label_->font();
-    title_font.setPointSize(20);
-    title_font.setBold(true);
-    title_label_->setFont(title_font);
-    title_label_->setAlignment(Qt::AlignCenter);
-    main_layout->addWidget(title_label_);
-    
-    // 版本信息
-    version_label_ = new QLabel(get_version_info(), this);
-    QFont version_font = version_label_->font();
-    version_font.setPointSize(12);
-    version_label_->setFont(version_font);
-    version_label_->setAlignment(Qt::AlignCenter);
-    version_label_->setStyleSheet("color: #666;");
-    main_layout->addWidget(version_label_);
-    
-    // 分隔线
-    QFrame* line = new QFrame(this);
-    line->setFrameShape(QFrame::HLine);
-    line->setFrameShadow(QFrame::Sunken);
-    main_layout->addWidget(line);
-    
-    // 详细信息
-    info_browser_ = new QTextBrowser(this);
+    auto main_layout = new QVBoxLayout(this);
+    main_layout->setContentsMargins(24, 24, 24, 24);
+    main_layout->setSpacing(24);
+
+    auto hero_card = new CardWidget(this);
+    hero_card->setTitle(tr("人脸识别考勤系统"));
+    hero_card->setSubtitle(get_version_info());
+    hero_card->setVariant("default");
+
+    auto hero_layout = new QVBoxLayout(hero_card->bodyContainer());
+    hero_layout->setContentsMargins(0, 0, 0, 0);
+    hero_layout->setSpacing(12);
+
+    version_label_ = new QLabel(get_version_info(), hero_card);
+    version_label_->setAlignment(Qt::AlignLeft);
+    version_label_->setObjectName("Caption");
+    hero_layout->addWidget(version_label_);
+
+    auto info_card = new CardWidget(this);
+    info_card->setTitle(tr("系统信息"));
+    info_card->setSubtitle(tr("平台、技术栈与性能指标"));
+
+    info_browser_ = new QTextBrowser(info_card);
     info_browser_->setOpenExternalLinks(true);
     info_browser_->setHtml(get_system_info());
-    main_layout->addWidget(info_browser_);
-    
-    // 关闭按钮
-    QHBoxLayout* button_layout = new QHBoxLayout();
-    button_layout->addStretch();
-    
-    close_btn_ = new QPushButton(QString::fromUtf8("关闭"), this);
-    close_btn_->setMinimumWidth(100);
+
+    auto info_layout = new QVBoxLayout(info_card->bodyContainer());
+    info_layout->setContentsMargins(0, 0, 0, 0);
+    info_layout->addWidget(info_browser_);
+
+    auto buttons = new QHBoxLayout();
+    buttons->addStretch();
+    close_btn_ = new QPushButton(tr("关闭"), this);
+    close_btn_->setMinimumWidth(120);
+    close_btn_->setProperty("primary", QVariant(true));
     connect(close_btn_, &QPushButton::clicked, this, &QDialog::accept);
-    button_layout->addWidget(close_btn_);
-    
-    main_layout->addLayout(button_layout);
+    buttons->addWidget(close_btn_);
+
+    main_layout->addWidget(hero_card);
+    main_layout->addWidget(info_card, 1);
+    main_layout->addLayout(buttons);
 }
 
 QString AboutDialog::get_version_info() {

@@ -14,13 +14,17 @@
 #include <QWidget>
 #include <QDateEdit>
 #include <QPushButton>
-#include <QTableWidget>
 #include <QLabel>
 #include <QComboBox>
 #include <memory>
+#include <vector>
 
 #include "service/attendance_service.h"
 #include "database/database_types.h"
+
+class ModernTableView;
+
+class ModernTableView;
 
 /**
  * @brief 考勤查询组件
@@ -69,7 +73,7 @@ private:
     QPushButton* refresh_btn_;
     
     // 考勤记录表格
-    QTableWidget* records_table_;
+    ModernTableView* records_table_;
     
     // 统计信息
     QLabel* total_label_;

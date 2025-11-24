@@ -6,13 +6,17 @@
  */
 
 #include "gui/face_registration_dialog.h"
+
+#include "widgets/card_widget.h"
+
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QFormLayout>
-#include <QGroupBox>
 #include <QMessageBox>
 #include <QTimer>
 #include <QPainter>
+#include <QSpacerItem>
+#include <QVariant>
 #include <spdlog/spdlog.h>
 
 // 静态常量定义
@@ -62,98 +66,103 @@ void FaceRegistrationDialog::hideEvent(QHideEvent* event) {
 }
 
 void FaceRegistrationDialog::setup_ui() {
-    setWindowTitle("人脸注册");
-    resize(800, 600);
-    
-    QVBoxLayout* main_layout = new QVBoxLayout(this);
-    
-    // 用户信息组
-    QGroupBox* info_group = new QGroupBox("用户信息");
-    QFormLayout* info_layout = new QFormLayout();
-    
-    name_edit_ = new QLineEdit();
-    employee_id_edit_ = new QLineEdit();
-    department_combo_ = new QComboBox();
-    department_combo_->addItems({"技术部", "市场部", "研发部", "行政部", "财务部"});
-    
-    info_layout->addRow("姓名*:", name_edit_);
-    info_layout->addRow("工号:", employee_id_edit_);
-    info_layout->addRow("部门:", department_combo_);
-    
-    info_group->setLayout(info_layout);
-    main_layout->addWidget(info_group);
-    
-    // 人脸采集组
-    QGroupBox* capture_group = new QGroupBox("人脸采集");
-    QHBoxLayout* capture_layout = new QHBoxLayout();
-    
-    // 预览区域
-    QVBoxLayout* preview_layout = new QVBoxLayout();
-    preview_label_ = new QLabel();
-    preview_label_->setMinimumSize(400, 300);
-    preview_label_->setStyleSheet("border: 1px solid gray;");
+    setWindowTitle(tr("人脸注册"));
+    resize(880, 640);
+
+    auto main_layout = new QVBoxLayout(this);
+    main_layout->setContentsMargins(24, 24, 24, 24);
+    main_layout->setSpacing(24);
+
+    auto info_card = new CardWidget(this);
+    info_card->setTitle(tr("用户信息"));
+    auto info_layout = new QFormLayout(info_card->bodyContainer());
+    info_layout->setLabelAlignment(Qt::AlignRight);
+    info_layout->setHorizontalSpacing(24);
+
+    name_edit_ = new QLineEdit(info_card);
+    employee_id_edit_ = new QLineEdit(info_card);
+    department_combo_ = new QComboBox(info_card);
+    department_combo_->addItems({tr("技术部"), tr("市场部"), tr("研发部"),
+                                 tr("行政部"), tr("财务部")});
+
+    info_layout->addRow(tr("姓名*"), name_edit_);
+    info_layout->addRow(tr("工号"), employee_id_edit_);
+    info_layout->addRow(tr("部门"), department_combo_);
+
+    auto capture_card = new CardWidget(this);
+    capture_card->setTitle(tr("人脸采集"));
+    capture_card->setSubtitle(tr("保持正对摄像头，采集 3-5 张清晰照片"));
+
+    auto capture_layout = new QHBoxLayout(capture_card->bodyContainer());
+    capture_layout->setContentsMargins(0, 0, 0, 0);
+    capture_layout->setSpacing(24);
+
+    auto preview_layout = new QVBoxLayout();
+    preview_layout->setSpacing(12);
+
+    preview_label_ = new QLabel(capture_card);
+    preview_label_->setMinimumSize(420, 320);
     preview_label_->setAlignment(Qt::AlignCenter);
-    
-    quality_hint_label_ = new QLabel("请正视摄像头");
+    preview_label_->setStyleSheet("border: 1px dashed #d9d9d9; border-radius: 12px; background: #f5f6fb;");
+
+    quality_hint_label_ = new QLabel(tr("请正视摄像头，保持光线充足"), capture_card);
     quality_hint_label_->setAlignment(Qt::AlignCenter);
-    quality_hint_label_->setStyleSheet("color: blue; font-size: 14px;");
-    
+    quality_hint_label_->setObjectName("Caption");
+
     preview_layout->addWidget(preview_label_);
     preview_layout->addWidget(quality_hint_label_);
-    
-    // 采集列表和按钮
-    QVBoxLayout* list_layout = new QVBoxLayout();
-    
-    captured_faces_list_ = new QListWidget();
-    captured_faces_list_->setMaximumWidth(200);
+
+    auto side_panel = new QVBoxLayout();
+    side_panel->setSpacing(12);
+
+    auto collected_label = new QLabel(tr("已采集"), capture_card);
+    collected_label->setObjectName("Caption");
+    captured_faces_list_ = new QListWidget(capture_card);
+    captured_faces_list_->setMinimumWidth(220);
+    captured_faces_list_->setSelectionMode(QAbstractItemView::SingleSelection);
     connect(captured_faces_list_, &QListWidget::currentRowChanged,
             this, &FaceRegistrationDialog::on_face_selected);
 
-    progress_bar_ = new QProgressBar();
+    progress_bar_ = new QProgressBar(capture_card);
     progress_bar_->setRange(0, MAX_FACES);
     progress_bar_->setValue(0);
 
-    list_layout->addWidget(new QLabel("已采集:"));
-    list_layout->addWidget(captured_faces_list_);
-    list_layout->addWidget(progress_bar_);
-
-    capture_btn_ = new QPushButton("采集人脸");
-    capture_btn_->setProperty("class", "primary");  // 蓝色强调按钮
+    capture_btn_ = new QPushButton(tr("采集人脸"), capture_card);
+    capture_btn_->setProperty("primary", QVariant(true));
     connect(capture_btn_, &QPushButton::clicked, this, &FaceRegistrationDialog::on_capture_clicked);
-    list_layout->addWidget(capture_btn_);
 
-    delete_btn_ = new QPushButton("删除");
+    delete_btn_ = new QPushButton(tr("删除选中"), capture_card);
     delete_btn_->setEnabled(false);
-    delete_btn_->setProperty("class", "danger");    // 红色危险按钮
+    delete_btn_->setProperty("danger", QVariant(true));
     connect(delete_btn_, &QPushButton::clicked, this, &FaceRegistrationDialog::on_delete_clicked);
-    list_layout->addWidget(delete_btn_);
-    
-    list_layout->addStretch();
-    list_layout->setSpacing(10);  // 增加间距
-    
-    capture_layout->addLayout(preview_layout);
-    capture_layout->addLayout(list_layout);
-    capture_layout->setSpacing(20); // 左右分栏间距
-    
-    capture_group->setLayout(capture_layout);
-    main_layout->addWidget(capture_group);
-    
-    // 操作按钮
-    QHBoxLayout* button_layout = new QHBoxLayout();
+
+    side_panel->addWidget(collected_label);
+    side_panel->addWidget(captured_faces_list_);
+    side_panel->addWidget(progress_bar_);
+    side_panel->addWidget(capture_btn_);
+    side_panel->addWidget(delete_btn_);
+    side_panel->addStretch();
+
+    capture_layout->addLayout(preview_layout, 2);
+    capture_layout->addLayout(side_panel, 1);
+
+    auto button_layout = new QHBoxLayout();
     button_layout->addStretch();
-    
-    register_btn_ = new QPushButton("注册");
+
+    register_btn_ = new QPushButton(tr("注册"), this);
     register_btn_->setEnabled(false);
-    register_btn_->setProperty("class", "primary"); // 蓝色强调按钮
+    register_btn_->setProperty("primary", QVariant(true));
     connect(register_btn_, &QPushButton::clicked, this, &FaceRegistrationDialog::on_register_clicked);
-    
-    cancel_btn_ = new QPushButton("取消");
+
+    cancel_btn_ = new QPushButton(tr("取消"), this);
     connect(cancel_btn_, &QPushButton::clicked, this, &FaceRegistrationDialog::on_cancel_clicked);
-    
+
     button_layout->addWidget(register_btn_);
     button_layout->addWidget(cancel_btn_);
-    button_layout->setSpacing(15);
-    
+    button_layout->setSpacing(16);
+
+    main_layout->addWidget(info_card);
+    main_layout->addWidget(capture_card, 1);
     main_layout->addLayout(button_layout);
 }
 

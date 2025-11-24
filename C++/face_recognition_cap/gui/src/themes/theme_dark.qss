@@ -1,0 +1,54 @@
+QWidget {
+    font-family: "Tencent Sans","Source Han Sans","Microsoft YaHei",sans-serif;
+    color: #f5f5f5;
+    background-color: #141414;
+}
+
+CardWidget {
+    background: #1f1f1f;
+    border-radius: 16px;
+    border: 1px solid #303030;
+    padding: 24px;
+    box-shadow: 0px 10px 30px rgba(0,0,0,0.35);
+}
+
+QPushButton {
+    min-height: 36px;
+    padding: 0 18px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    background: #303030;
+    color: #f5f5f5;
+}
+
+QPushButton:hover {
+    background: #3a3a3a;
+}
+
+QPushButton[primary="true"] {
+    background: #1677ff;
+    color: #ffffff;
+}
+
+#SideMenu {
+    background: #000000;
+    color: #ffffff;
+}
+
+IconButton {
+    border-radius: 8px;
+    padding: 8px;
+}
+
+SearchInput QLineEdit {
+    border-radius: 12px;
+    border: 1px solid #303030;
+    background: #1f1f1f;
+    color: #f0f0f0;
+    padding: 8px 12px 8px 36px;
+}
+
+QScrollBar::handle:vertical {
+    background: rgba(255,255,255,0.35);
+}
+

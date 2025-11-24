@@ -12,14 +12,9 @@
 #define MAIN_WINDOW_H
 
 #include <QMainWindow>
-#include <QTimer>
 #include <QLabel>
-#include <QStatusBar>
-#include <QMenuBar>
-#include <QToolBar>
-#include <QDockWidget>
-#include <QTableWidget>
-#include <QPushButton>
+#include <QStackedWidget>
+#include <QTimer>
 #include <memory>
 #include <thread>
 
@@ -32,6 +27,15 @@
 class VideoDisplayWidget;
 class FaceRegistrationDialog;
 class AttendanceQueryWidget;
+class UiRouter;
+class SideMenu;
+class TitleBar;
+class RecognitionPage;
+class DashboardPage;
+class AttendancePage;
+class UserManagementPage;
+class SettingsPage;
+class ModernTableView;
 
 /**
  * @brief 主窗口类
@@ -72,40 +76,25 @@ public slots:
     void load_users();
 
 private slots:
-    // 菜单栏操作
     void on_action_open_camera();
     void on_action_close_camera();
     void on_action_settings();
     void on_action_exit();
-    
-    // 工具栏操作
     void on_action_register_face();
     void on_action_query_attendance();
     void on_action_user_management();
-    
-    // 帮助菜单
     void on_action_about();
-
-    // 主题切换
     void on_action_toggle_theme();
-
-    // 定时器更新
     void update_status();
-
-    // 帧回调槽（从后台线程接收渲染好的帧）
     void on_frame_ready(const cv::Mat& frame, const std::vector<RecognitionResult>& results);
-    
-    // 识别回调
     void on_recognition_result(int user_id, const QString& name, float similarity, bool is_new_attendance);
 
 private:
-    // UI 初始化
     void setup_ui();
-    void create_menus();
-    void create_toolbars();
-    void create_status_bar();
-    void create_dock_widgets();
-    void load_stylesheet();  // 加载全局样式表
+    void setup_navigation();
+    void setup_pages();
+    void connect_page_signals();
+    void apply_theme();
     
     // 系统组件
     std::unique_ptr<FaceRecognitionApp> recognition_app_;
@@ -115,16 +104,23 @@ private:
     
     // UI 组件
     VideoDisplayWidget* video_widget_;
-    QDockWidget* user_list_dock_;
-    QDockWidget* attendance_dock_;
-    QTableWidget* user_table_;
-    QTableWidget* attendance_table_;
+    ModernTableView* user_table_;
+    ModernTableView* attendance_table_;
     
-    // 状态栏组件
+    SideMenu* side_menu_;
+    TitleBar* title_bar_;
+    QStackedWidget* content_stack_;
+    UiRouter* router_;
+    RecognitionPage* recognition_page_;
+    DashboardPage* dashboard_page_;
+    AttendancePage* attendance_page_;
+    UserManagementPage* user_page_;
+    SettingsPage* settings_page_;
+
     QLabel* status_label_;
     QLabel* fps_label_;
     QLabel* recognition_label_;
-    QLabel* attendance_status_label_;  // 签到状态提示标签
+    QLabel* attendance_status_label_;
     
     // 定时器
     QTimer* status_timer_;

@@ -6,11 +6,19 @@
  */
 
 #include "gui/user_management_widget.h"
-#include "gui/toast.h"
+
+#include "widgets/card_widget.h"
+#include "widgets/modern_table_view.h"
+#include "widgets/search_input.h"
+#include "widgets/status_tag.h"
+#include "widgets/toast_notification.h"
+
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QLabel>
 #include <QMessageBox>
+#include <QVariant>
 #include <spdlog/spdlog.h>
 
 UserManagementWidget::UserManagementWidget(service::UserService* user_service, QWidget* parent)
@@ -25,46 +33,60 @@ UserManagementWidget::~UserManagementWidget() {
 }
 
 void UserManagementWidget::setup_ui() {
-    QVBoxLayout* main_layout = new QVBoxLayout(this);
+    setWindowTitle(tr("用户管理"));
+
+    auto main_layout = new QVBoxLayout(this);
+    main_layout->setContentsMargins(24, 24, 24, 24);
+    main_layout->setSpacing(0);
+
+    auto card = new CardWidget(this);
+    card->setTitle(tr("用户管理"));
+    card->setSubtitle(tr("查看、筛选并维护考勤用户"));
+    main_layout->addWidget(card);
+
+    auto body_layout = new QVBoxLayout(card->bodyContainer());
+    body_layout->setContentsMargins(0, 0, 0, 0);
+    body_layout->setSpacing(16);
+
+    auto toolbar_layout = new QHBoxLayout();
+    toolbar_layout->setSpacing(12);
     
-    // 工具栏
-    QHBoxLayout* toolbar_layout = new QHBoxLayout();
+    search_input_ = new SearchInput(card);
+    search_input_->setPlaceholderText(tr("搜索姓名或工号"));
+    connect(search_input_, &SearchInput::searchTriggered,
+            this, &UserManagementWidget::on_search_text_changed);
     
-    search_edit_ = new QLineEdit();
-    search_edit_->setPlaceholderText("🔍 搜索用户名或工号...");
-    connect(search_edit_, &QLineEdit::textChanged, this, &UserManagementWidget::on_search_text_changed);
-    
-    status_filter_ = new QComboBox();
-    status_filter_->addItem("全部状态", -1);
-    status_filter_->addItem("✅ 启用", 1);
-    status_filter_->addItem("⛔ 禁用", 0);
+    status_filter_ = new QComboBox(card);
+    status_filter_->addItem(tr("全部状态"), -1);
+    status_filter_->addItem(tr("启用"), 1);
+    status_filter_->addItem(tr("禁用"), 0);
     connect(status_filter_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &UserManagementWidget::on_status_filter_changed);
     
-    refresh_btn_ = new QPushButton("🔄 刷新");
+    refresh_btn_ = new QPushButton(tr("刷新"), card);
     connect(refresh_btn_, &QPushButton::clicked, this, &UserManagementWidget::on_refresh_clicked);
     
-    add_btn_ = new QPushButton("➕ 添加用户");
-    add_btn_->setProperty("class", "primary");
+    add_btn_ = new QPushButton(tr("添加用户"), card);
+    add_btn_->setProperty("primary", QVariant(true));
     connect(add_btn_, &QPushButton::clicked, this, &UserManagementWidget::on_add_clicked);
     
-    edit_btn_ = new QPushButton("✏️ 编辑");
+    edit_btn_ = new QPushButton(tr("编辑"), card);
     connect(edit_btn_, &QPushButton::clicked, this, &UserManagementWidget::on_edit_clicked);
     
-    delete_btn_ = new QPushButton("🗑️ 删除");
-    delete_btn_->setProperty("class", "danger");
+    delete_btn_ = new QPushButton(tr("删除"), card);
+    delete_btn_->setProperty("danger", QVariant(true));
     connect(delete_btn_, &QPushButton::clicked, this, &UserManagementWidget::on_delete_clicked);
     
-    enable_btn_ = new QPushButton("✅ 启用");
+    enable_btn_ = new QPushButton(tr("启用"), card);
     connect(enable_btn_, &QPushButton::clicked, this, &UserManagementWidget::on_enable_clicked);
     
-    disable_btn_ = new QPushButton("⛔ 禁用");
+    disable_btn_ = new QPushButton(tr("禁用"), card);
     connect(disable_btn_, &QPushButton::clicked, this, &UserManagementWidget::on_disable_clicked);
 
-    QPushButton* close_btn = new QPushButton("关闭");
-    connect(close_btn, &QPushButton::clicked, this, &QWidget::close);
+    close_btn_ = new QPushButton(tr("关闭"), card);
+    connect(close_btn_, &QPushButton::clicked, this, &QWidget::close);
 
-    toolbar_layout->addWidget(search_edit_);
+    toolbar_layout->addWidget(search_input_, 1);
     toolbar_layout->addWidget(status_filter_);
     toolbar_layout->addWidget(refresh_btn_);
     toolbar_layout->addStretch();
@@ -73,24 +95,24 @@ void UserManagementWidget::setup_ui() {
     toolbar_layout->addWidget(delete_btn_);
     toolbar_layout->addWidget(enable_btn_);
     toolbar_layout->addWidget(disable_btn_);
-    toolbar_layout->addWidget(close_btn);
-    toolbar_layout->setSpacing(10);
+    toolbar_layout->addWidget(close_btn_);
     
-    // 用户表格
-    user_table_ = new QTableWidget();
+    user_table_ = new ModernTableView(card);
     user_table_->setColumnCount(7);
-    user_table_->setHorizontalHeaderLabels({"ID", "姓名", "工号", "部门", "职位", "状态", "特征数"});
+    user_table_->setHorizontalHeaderLabels({tr("ID"), tr("姓名"), tr("工号"),
+                                            tr("部门"), tr("职位"), tr("状态"), tr("特征数")});
     user_table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     user_table_->setSelectionMode(QAbstractItemView::SingleSelection);
     user_table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     user_table_->horizontalHeader()->setStretchLastSection(true);
     user_table_->verticalHeader()->setVisible(false);
+    user_table_->setEmptyText(tr("暂无用户数据"));
     
     connect(user_table_, &QTableWidget::itemSelectionChanged,
             this, &UserManagementWidget::on_table_selection_changed);
     
-    main_layout->addLayout(toolbar_layout);
-    main_layout->addWidget(user_table_);
+    body_layout->addLayout(toolbar_layout);
+    body_layout->addWidget(user_table_, 1);
     
     update_button_states();
 }
@@ -121,13 +143,10 @@ void UserManagementWidget::update_table(const std::vector<db::UserInfo>& users) 
         user_table_->setItem(row, 3, new QTableWidgetItem(QString::fromStdString(user.department)));
         user_table_->setItem(row, 4, new QTableWidgetItem(QString::fromStdString(user.position)));
         
-        QTableWidgetItem* status_item = new QTableWidgetItem(user.status == 1 ? "启用" : "禁用");
-        if (user.status == 1) {
-            status_item->setForeground(QColor(40, 167, 69)); // Green
-        } else {
-            status_item->setForeground(QColor(220, 53, 69)); // Red
-        }
-        user_table_->setItem(row, 5, status_item);
+        auto status_tag = new StatusTag(user_table_);
+        status_tag->setText(user.status == 1 ? tr("启用") : tr("禁用"));
+        status_tag->setType(user.status == 1 ? StatusTag::Type::Success : StatusTag::Type::Error);
+        user_table_->setCellWidget(row, 5, status_tag);
         
         // 获取特征数
         int feature_count = user_service_->get_feature_count(user.user_id);
@@ -145,7 +164,8 @@ void UserManagementWidget::update_button_states() {
 
 void UserManagementWidget::on_refresh_clicked() {
     load_users();
-    Toast::show(this, "用户列表已刷新", Toast::Info);
+    ToastNotification::showMessage(this, tr("提示"), tr("用户列表已刷新"),
+                                   ToastNotification::Level::Info);
 }
 
 void UserManagementWidget::on_add_clicked() {
@@ -158,7 +178,10 @@ void UserManagementWidget::on_edit_clicked() {
         return;
     }
     
-    Toast::show(this, "编辑功能开发中...", Toast::Warning);
+    ToastNotification::showMessage(this,
+                                   tr("敬请期待"),
+                                   tr("编辑功能开发中..."),
+                                   ToastNotification::Level::Warning);
 }
 
 void UserManagementWidget::on_delete_clicked() {
@@ -176,12 +199,16 @@ void UserManagementWidget::on_delete_clicked() {
     
     if (reply == QMessageBox::Yes) {
         if (user_service_->delete_user(user_id)) {
-            Toast::show(this, QString("用户 %1 已删除").arg(user_name), Toast::Success);
+            ToastNotification::showMessage(this, tr("操作成功"),
+                                           QString(tr("用户 %1 已删除")).arg(user_name),
+                                           ToastNotification::Level::Success);
             load_users();
             emit user_updated();
             emit data_changed();  // 通知主窗口刷新
         } else {
-            Toast::show(this, "删除用户失败", Toast::Error);
+            ToastNotification::showMessage(this, tr("操作失败"),
+                                           tr("删除用户失败"),
+                                           ToastNotification::Level::Error);
         }
     }
 }
@@ -195,12 +222,16 @@ void UserManagementWidget::on_enable_clicked() {
     int user_id = user_table_->item(row, 0)->text().toInt();
 
     if (user_service_->set_user_status(user_id, true)) {
-        Toast::show(this, "用户已启用", Toast::Success);
+        ToastNotification::showMessage(this, tr("操作成功"),
+                                       tr("用户已启用"),
+                                       ToastNotification::Level::Success);
         load_users();
         emit user_updated();
         emit data_changed();  // 通知主窗口刷新
     } else {
-        Toast::show(this, "启用用户失败", Toast::Error);
+        ToastNotification::showMessage(this, tr("操作失败"),
+                                       tr("启用用户失败"),
+                                       ToastNotification::Level::Error);
     }
 }
 
@@ -213,12 +244,16 @@ void UserManagementWidget::on_disable_clicked() {
     int user_id = user_table_->item(row, 0)->text().toInt();
 
     if (user_service_->set_user_status(user_id, false)) {
-        Toast::show(this, "用户已禁用", Toast::Success);
+        ToastNotification::showMessage(this, tr("操作成功"),
+                                       tr("用户已禁用"),
+                                       ToastNotification::Level::Success);
         load_users();
         emit user_updated();
         emit data_changed();  // 通知主窗口刷新
     } else {
-        Toast::show(this, "禁用用户失败", Toast::Error);
+        ToastNotification::showMessage(this, tr("操作失败"),
+                                       tr("禁用用户失败"),
+                                       ToastNotification::Level::Error);
     }
 }
 

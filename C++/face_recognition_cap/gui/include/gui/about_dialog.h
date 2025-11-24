@@ -34,8 +34,6 @@ private:
     QString get_license_info();
     
     // UI 组件
-    QLabel* logo_label_;
-    QLabel* title_label_;
     QLabel* version_label_;
     QTextBrowser* info_browser_;
     QPushButton* close_btn_;

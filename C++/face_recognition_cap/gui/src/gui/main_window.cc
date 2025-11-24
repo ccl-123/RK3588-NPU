@@ -12,22 +12,33 @@
 #include "gui/user_management_widget.h"
 #include "gui/settings_dialog.h"
 #include "gui/about_dialog.h"
+#include "themes/theme_manager.h"
+#include "ui/attendance_page.h"
+#include "ui/dashboard_page.h"
+#include "ui/recognition_page.h"
+#include "ui/settings_page.h"
+#include "ui/user_management_page.h"
+#include "utils/stack_router.h"
+#include "widgets/modern_table_view.h"
+#include "widgets/side_menu.h"
+#include "widgets/title_bar.h"
+#include "widgets/toast_notification.h"
 
 #include <QApplication>
-#include <QMenuBar>
-#include <QToolBar>
-#include <QStatusBar>
-#include <QDockWidget>
-#include <QTableWidget>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QMessageBox>
 #include <QCloseEvent>
-#include <QHeaderView>
-#include <QAction>
-#include <QIcon>
 #include <QTimer>
 #include <QThread>
+#include <QStackedWidget>
+#include <QAction>
+#include <QIcon>
+#include <QDateTime>
+#include <QTableWidgetItem>
+#include <QList>
+#include <QMenu>
+#include <QStatusBar>
 #include <spdlog/spdlog.h>
 
 // 注册 Qt 元类型（用于跨线程信号槽）
@@ -38,10 +49,17 @@ MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
     , db_manager_(nullptr)
     , video_widget_(nullptr)
-    , user_list_dock_(nullptr)
-    , attendance_dock_(nullptr)
     , user_table_(nullptr)
     , attendance_table_(nullptr)
+    , side_menu_(nullptr)
+    , title_bar_(nullptr)
+    , content_stack_(nullptr)
+    , router_(nullptr)
+    , recognition_page_(nullptr)
+    , dashboard_page_(nullptr)
+    , attendance_page_(nullptr)
+    , user_page_(nullptr)
+    , settings_page_(nullptr)
     , status_label_(nullptr)
     , fps_label_(nullptr)
     , recognition_label_(nullptr)
@@ -70,206 +88,6 @@ MainWindow::MainWindow(QWidget* parent)
     spdlog::info("MainWindow initialized");
 }
 
-void MainWindow::load_stylesheet() {
-    const QString style = R"(
-        /* Global */
-        QWidget {
-            font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
-            font-size: 14px;
-            color: #F0F0F0;
-            background-color: #2D2D2D;
-        }
-        
-        /* Buttons */
-        QPushButton {
-            background-color: #3E3E42;
-            border: 1px solid #555555;
-            border-radius: 4px;
-            padding: 6px 16px;
-            min-height: 20px;
-        }
-        QPushButton:hover {
-            background-color: #4E4E52;
-            border-color: #007ACC;
-        }
-        QPushButton:pressed {
-            background-color: #007ACC;
-            border-color: #007ACC;
-        }
-        QPushButton:disabled {
-            background-color: #2D2D2D;
-            color: #666666;
-            border-color: #444444;
-        }
-        
-        /* Primary Button */
-        QPushButton[class="primary"] {
-            background-color: #007ACC;
-            border: 1px solid #007ACC;
-            color: white;
-            font-weight: bold;
-        }
-        QPushButton[class="primary"]:hover {
-            background-color: #1E8AD6;
-        }
-        QPushButton[class="primary"]:pressed {
-            background-color: #005A9E;
-        }
-        QPushButton[class="primary"]:disabled {
-            background-color: #2D2D2D;
-            border-color: #444444;
-            color: #666666;
-        }
-
-        /* Danger Button */
-        QPushButton[class="danger"] {
-            background-color: #C42B1C;
-            border: 1px solid #C42B1C;
-            color: white;
-        }
-        QPushButton[class="danger"]:hover {
-            background-color: #D93626;
-        }
-
-        /* Inputs */
-        QLineEdit, QComboBox, QDateEdit, QSpinBox {
-            background-color: #1E1E1E;
-            border: 1px solid #3E3E42;
-            border-radius: 4px;
-            padding: 5px;
-            color: #F0F0F0;
-            selection-background-color: #007ACC;
-        }
-        QLineEdit:focus, QComboBox:focus {
-            border: 1px solid #007ACC;
-        }
-        QComboBox::drop-down {
-            border: none;
-            width: 20px;
-        }
-
-        /* Tables */
-        QTableWidget {
-            background-color: #1E1E1E;
-            alternate-background-color: #252526;
-            gridline-color: #3E3E42;
-            border: 1px solid #3E3E42;
-            selection-background-color: #007ACC;
-            selection-color: white;
-        }
-        QHeaderView::section {
-            background-color: #2D2D2D;
-            padding: 8px;
-            border: none;
-            border-right: 1px solid #3E3E42;
-            border-bottom: 1px solid #3E3E42;
-            font-weight: bold;
-        }
-        QTableCornerButton::section {
-            background-color: #2D2D2D;
-            border: none;
-        }
-
-        /* Menu & Toolbar */
-        QMenuBar {
-            background-color: #2D2D2D;
-            border-bottom: 1px solid #3E3E42;
-        }
-        QMenuBar::item:selected {
-            background-color: #3E3E42;
-        }
-        QMenu {
-            background-color: #2D2D2D;
-            border: 1px solid #3E3E42;
-        }
-        QMenu::item:selected {
-            background-color: #007ACC;
-        }
-        QToolBar {
-            background-color: #2D2D2D;
-            border-bottom: 1px solid #3E3E42;
-            spacing: 8px;
-            padding: 4px;
-        }
-        QToolButton {
-            background-color: transparent;
-            border-radius: 4px;
-            padding: 4px;
-        }
-        QToolButton:hover {
-            background-color: #3E3E42;
-        }
-
-        /* Dock Widget */
-        QDockWidget {
-            titlebar-close-icon: url(:/icons/close.png);
-            titlebar-normal-icon: url(:/icons/float.png);
-        }
-        QDockWidget::title {
-            background-color: #252526;
-            padding: 8px;
-            border-bottom: 1px solid #3E3E42;
-            font-weight: bold;
-        }
-
-        /* Status Bar */
-        QStatusBar {
-            background-color: #007ACC;
-            color: white;
-        }
-        QStatusBar QLabel {
-            color: white;
-        }
-
-        /* GroupBox */
-        QGroupBox {
-            border: 1px solid #3E3E42;
-            border-radius: 6px;
-            margin-top: 24px;
-            font-weight: bold;
-        }
-        QGroupBox::title {
-            subcontrol-origin: margin;
-            subcontrol-position: top left;
-            padding: 0 5px;
-            left: 10px;
-        }
-        
-        /* List Widget */
-        QListWidget {
-            background-color: #1E1E1E;
-            border: 1px solid #3E3E42;
-            border-radius: 4px;
-        }
-        QListWidget::item {
-            padding: 4px;
-        }
-        QListWidget::item:selected {
-            background-color: #007ACC;
-        }
-        
-        /* ScrollBar */
-        QScrollBar:vertical {
-            border: none;
-            background: #2D2D2D;
-            width: 10px;
-            margin: 0px;
-        }
-        QScrollBar::handle:vertical {
-            background: #555;
-            min-height: 20px;
-            border-radius: 5px;
-        }
-        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-            height: 0px;
-        }
-    )";
-    
-    // 应用到全局 Application
-    if (qApp) {
-        qApp->setStyleSheet(style);
-    }
-}
 
 MainWindow::~MainWindow() {
     stop_recognition();
@@ -341,12 +159,17 @@ bool MainWindow::initialize(const std::string& retinaface_model,
         // 如果是新签到，显示提示
         if (is_new_attendance) {
             QMetaObject::invokeMethod(this, [this, name = result.user_name]() {
+                if (!attendance_status_label_) {
+                    return;
+                }
                 attendance_status_label_->setText(QString("✓ %1 签到成功").arg(QString::fromStdString(name)));
                 attendance_status_label_->setVisible(true);
 
                 // 3秒后隐藏提示
                 QTimer::singleShot(3000, this, [this]() {
+                    if (attendance_status_label_) {
                     attendance_status_label_->setVisible(false);
+                    }
                 });
             }, Qt::QueuedConnection);
         }
@@ -393,138 +216,150 @@ void MainWindow::load_users() {
 
 void MainWindow::setup_ui() {
     setWindowTitle("人脸识别考勤系统");
-    resize(1280, 720);
-    
-    // 创建中央视频显示组件
-    video_widget_ = new VideoDisplayWidget(this);
-    video_widget_->set_show_fps(true);
-    setCentralWidget(video_widget_);
-    
-    // 创建菜单栏
-    create_menus();
-    
-    // 创建工具栏
-    create_toolbars();
-    
-    // 创建状态栏
-    create_status_bar();
-    
-    // 创建停靠窗口
-    create_dock_widgets();
+    resize(1440, 900);
+
+    QWidget* host = new QWidget(this);
+    setCentralWidget(host);
+
+    auto root_layout = new QVBoxLayout(host);
+    root_layout->setContentsMargins(0, 0, 0, 0);
+    root_layout->setSpacing(0);
+
+    title_bar_ = new TitleBar(this);
+    title_bar_->setTitle(tr("人脸识别考勤系统"));
+    root_layout->addWidget(title_bar_);
+
+    auto user_menu = new QMenu(title_bar_);
+    user_menu->addAction(tr("切换主题"), this, &MainWindow::on_action_toggle_theme);
+    user_menu->addAction(tr("关于"), this, &MainWindow::on_action_about);
+    user_menu->addSeparator();
+    user_menu->addAction(tr("退出"), this, &MainWindow::on_action_exit);
+    title_bar_->setUserMenu(user_menu);
+
+    auto body = new QWidget(host);
+    auto body_layout = new QHBoxLayout(body);
+    body_layout->setContentsMargins(0, 0, 0, 0);
+    body_layout->setSpacing(0);
+    root_layout->addWidget(body, 1);
+
+    side_menu_ = new SideMenu(body);
+    body_layout->addWidget(side_menu_);
+
+    content_stack_ = new QStackedWidget(body);
+    body_layout->addWidget(content_stack_, 1);
+
+    setup_pages();
+    setup_navigation();
+    connect_page_signals();
+    apply_theme();
+
+    connect(title_bar_, &TitleBar::requestMinimize, this, &MainWindow::showMinimized);
+    connect(title_bar_, &TitleBar::requestClose, this, &MainWindow::close);
+
+    if (statusBar()) {
+        statusBar()->hide();
+    }
 }
 
-void MainWindow::create_menus() {
-    // 文件菜单
-    QMenu* file_menu = menuBar()->addMenu("文件(&F)");
-    
-    QAction* open_camera_action = file_menu->addAction("打开摄像头(&O)");
-    connect(open_camera_action, &QAction::triggered, this, &MainWindow::on_action_open_camera);
-    
-    QAction* close_camera_action = file_menu->addAction("关闭摄像头(&C)");
-    connect(close_camera_action, &QAction::triggered, this, &MainWindow::on_action_close_camera);
-    
-    file_menu->addSeparator();
-    
-    QAction* exit_action = file_menu->addAction("退出(&X)");
-    connect(exit_action, &QAction::triggered, this, &MainWindow::on_action_exit);
-    
-    // 用户菜单
-    QMenu* user_menu = menuBar()->addMenu("用户(&U)");
-    
-    QAction* register_action = user_menu->addAction("注册人脸(&R)");
-    connect(register_action, &QAction::triggered, this, &MainWindow::on_action_register_face);
-    
-    QAction* user_mgmt_action = user_menu->addAction("用户管理(&M)");
-    connect(user_mgmt_action, &QAction::triggered, this, &MainWindow::on_action_user_management);
+void MainWindow::setup_pages() {
+    if (!content_stack_) {
+        return;
+    }
 
-    // 考勤菜单
-    QMenu* attendance_menu = menuBar()->addMenu("考勤(&A)");
+    router_ = new UiRouter(content_stack_, this);
 
-    QAction* query_action = attendance_menu->addAction("考勤查询(&Q)");
-    connect(query_action, &QAction::triggered, this, &MainWindow::on_action_query_attendance);
+    dashboard_page_ = new DashboardPage(content_stack_);
+    recognition_page_ = new RecognitionPage(content_stack_);
+    attendance_page_ = new AttendancePage(content_stack_);
+    user_page_ = new UserManagementPage(content_stack_);
+    settings_page_ = new SettingsPage(content_stack_);
 
-    // 设置菜单
-    QMenu* settings_menu = menuBar()->addMenu("设置(&S)");
+    router_->registerPage("dashboard", dashboard_page_);
+    router_->registerPage("recognition", recognition_page_);
+    router_->registerPage("attendance", attendance_page_);
+    router_->registerPage("users", user_page_);
+    router_->registerPage("settings", settings_page_);
 
-    QAction* settings_action = settings_menu->addAction("系统设置(&S)");
-    connect(settings_action, &QAction::triggered, this, &MainWindow::on_action_settings);
-
-    settings_menu->addSeparator();
-
-    QAction* theme_action = settings_menu->addAction("切换主题(&T)");
-    connect(theme_action, &QAction::triggered, this, &MainWindow::on_action_toggle_theme);
-
-    // 帮助菜单
-    QMenu* help_menu = menuBar()->addMenu(QString::fromUtf8("帮助(&H)"));
-
-    QAction* about_action = help_menu->addAction(QString::fromUtf8("关于(&A)"));
-    connect(about_action, &QAction::triggered, this, &MainWindow::on_action_about);
+    video_widget_ = recognition_page_->videoWidget();
+    attendance_table_ = recognition_page_->attendanceTable();
+    status_label_ = recognition_page_->statusLabel();
+    fps_label_ = recognition_page_->fpsLabel();
+    recognition_label_ = recognition_page_->recognitionLabel();
+    attendance_status_label_ = recognition_page_->attendanceStatusLabel();
+    user_table_ = user_page_->table();
 }
 
-void MainWindow::create_toolbars() {
-    QToolBar* toolbar = addToolBar("主工具栏");
-    toolbar->setMovable(false);
+void MainWindow::setup_navigation() {
+    if (!side_menu_ || !router_) {
+        return;
+    }
 
-    // 打开摄像头
-    QAction* open_action = toolbar->addAction("打开摄像头");
-    connect(open_action, &QAction::triggered, this, &MainWindow::on_action_open_camera);
+    QList<SideMenu::Item> items = {
+        {"dashboard", tr("仪表盘"), ""},
+        {"recognition", tr("实时识别"), ""},
+        {"attendance", tr("考勤记录"), ""},
+        {"users", tr("用户管理"), ""},
+        {"settings", tr("系统设置"), ""}
+    };
+    side_menu_->setItems(items);
 
-    // 关闭摄像头
-    QAction* close_action = toolbar->addAction("关闭摄像头");
-    connect(close_action, &QAction::triggered, this, &MainWindow::on_action_close_camera);
+    connect(side_menu_, &SideMenu::routeChanged, this, [this](const QString& key) {
+        if (router_) {
+            router_->navigateTo(key);
+}
+    });
 
-    toolbar->addSeparator();
+    connect(router_, &UiRouter::routeChanged, this, [this](const QString& key, QWidget*) {
+        QString breadcrumb;
+        if (key == "dashboard") {
+            breadcrumb = tr("仪表盘");
+        } else if (key == "recognition") {
+            breadcrumb = tr("实时识别");
+        } else if (key == "attendance") {
+            breadcrumb = tr("考勤记录");
+        } else if (key == "users") {
+            breadcrumb = tr("用户管理");
+        } else if (key == "settings") {
+            breadcrumb = tr("系统设置");
+        }
+        if (title_bar_) {
+            title_bar_->setBreadcrumb({breadcrumb});
+        }
+    });
 
-    // 注册人脸
-    QAction* register_action = toolbar->addAction("注册人脸");
-    connect(register_action, &QAction::triggered, this, &MainWindow::on_action_register_face);
-
-    // 考勤查询
-    QAction* query_action = toolbar->addAction("考勤查询");
-    connect(query_action, &QAction::triggered, this, &MainWindow::on_action_query_attendance);
-
-    toolbar->addSeparator();
-
-    // 主题切换
-    QAction* theme_action = toolbar->addAction("🌓 切换主题");
-    connect(theme_action, &QAction::triggered, this, &MainWindow::on_action_toggle_theme);
+    router_->navigateTo("recognition");
+    side_menu_->setActiveKey("recognition");
 }
 
-void MainWindow::create_status_bar() {
-    status_label_ = new QLabel("就绪");
-    statusBar()->addWidget(status_label_, 1);
+void MainWindow::connect_page_signals() {
+    if (recognition_page_) {
+        connect(recognition_page_, &RecognitionPage::startRecognitionRequested,
+                this, &MainWindow::on_action_open_camera);
+        connect(recognition_page_, &RecognitionPage::stopRecognitionRequested,
+                this, &MainWindow::on_action_close_camera);
+        connect(recognition_page_, &RecognitionPage::registerFaceRequested,
+                this, &MainWindow::on_action_register_face);
+    }
 
-    fps_label_ = new QLabel("FPS: 0");
-    statusBar()->addPermanentWidget(fps_label_);
+    if (attendance_page_) {
+        connect(attendance_page_, &AttendancePage::openAttendanceQueryRequested,
+                this, &MainWindow::on_action_query_attendance);
+    }
 
-    recognition_label_ = new QLabel("未识别");
-    statusBar()->addPermanentWidget(recognition_label_);
+    if (user_page_) {
+        connect(user_page_, &UserManagementPage::openUserManagementRequested,
+                this, &MainWindow::on_action_user_management);
+    }
 
-    // 签到状态提示标签（初始隐藏）
-    attendance_status_label_ = new QLabel("");
-    attendance_status_label_->setStyleSheet("QLabel { color: white; background-color: green; padding: 5px; font-weight: bold; }");
-    attendance_status_label_->setVisible(false);
-    statusBar()->addPermanentWidget(attendance_status_label_);
+    if (settings_page_) {
+        connect(settings_page_, &SettingsPage::openSettingsDialogRequested,
+                this, &MainWindow::on_action_settings);
+    }
 }
 
-void MainWindow::create_dock_widgets() {
-    // 用户列表停靠窗口
-    user_list_dock_ = new QDockWidget("用户列表", this);
-    user_table_ = new QTableWidget(user_list_dock_);
-    user_table_->setColumnCount(3);
-    user_table_->setHorizontalHeaderLabels({"姓名", "工号", "部门"});
-    user_table_->horizontalHeader()->setStretchLastSection(true);
-    user_list_dock_->setWidget(user_table_);
-    addDockWidget(Qt::RightDockWidgetArea, user_list_dock_);
-
-    // 考勤记录停靠窗口
-    attendance_dock_ = new QDockWidget("今日考勤", this);
-    attendance_table_ = new QTableWidget(attendance_dock_);
-    attendance_table_->setColumnCount(4);
-    attendance_table_->setHorizontalHeaderLabels({"姓名", "时间", "类型", "相似度"});
-    attendance_table_->horizontalHeader()->setStretchLastSection(true);
-    attendance_dock_->setWidget(attendance_table_);
-    addDockWidget(Qt::RightDockWidgetArea, attendance_dock_);
+void MainWindow::apply_theme() {
+    ThemeManager::apply(is_dark_theme_ ? ThemeManager::Theme::Dark
+                                       : ThemeManager::Theme::Light);
 }
 
 void MainWindow::start_recognition() {
@@ -533,7 +368,9 @@ void MainWindow::start_recognition() {
     }
 
     is_running_ = true;
+    if (status_label_) {
     status_label_->setText("运行中");
+    }
 
     // 设置帧回调（使用 Qt 信号槽机制确保线程安全）
     recognition_app_->set_frame_callback([this](const cv::Mat& frame, const std::vector<RecognitionResult>& results) {
@@ -559,7 +396,9 @@ void MainWindow::stop_recognition() {
     }
 
     is_running_ = false;
+    if (status_label_) {
     status_label_->setText("已停止");
+    }
 
     // 停止识别应用
     if (recognition_app_) {
@@ -580,7 +419,9 @@ void MainWindow::on_frame_ready(const cv::Mat& frame, const std::vector<Recognit
     }
 
     // 更新视频显示
+    if (video_widget_) {
     video_widget_->update_frame(frame);
+    }
 
     // 转换识别结果为 FaceResult
     std::vector<FaceResult> face_results;
@@ -599,7 +440,9 @@ void MainWindow::on_frame_ready(const cv::Mat& frame, const std::vector<Recognit
 
         face_results.push_back(fr);
     }
+    if (video_widget_) {
     video_widget_->set_face_results(face_results);
+    }
 
     frame_count_++;
 
@@ -610,19 +453,23 @@ void MainWindow::on_frame_ready(const cv::Mat& frame, const std::vector<Recognit
         fps_ = frame_count_ * 1000.0 / duration.count();
         frame_count_ = 0;
         last_fps_time_ = now;
+        if (video_widget_) {
         video_widget_->set_fps(fps_);
+        }
     }
 }
 
 void MainWindow::update_status() {
+    if (fps_label_) {
     fps_label_->setText(QString("FPS: %1").arg(fps_, 0, 'f', 1));
+    }
 }
 
 void MainWindow::on_recognition_result(int user_id, const QString& name, float similarity, bool is_new_attendance) {
     recognition_label_->setText(QString("识别: %1 (%2)").arg(name).arg(similarity, 0, 'f', 2));
 
     // 只有新签到时才更新考勤表格
-    if (is_new_attendance) {
+    if (is_new_attendance && attendance_table_) {
         int row = attendance_table_->rowCount();
         attendance_table_->insertRow(row);
         attendance_table_->setItem(row, 0, new QTableWidgetItem(name));
@@ -737,18 +584,8 @@ void MainWindow::on_action_about() {
 
 void MainWindow::on_action_toggle_theme() {
     is_dark_theme_ = !is_dark_theme_;
-
-    if (is_dark_theme_) {
-        // 切换到深色主题
-        load_stylesheet();
-        spdlog::info("Switched to dark theme");
-    } else {
-        // 切换到浅色主题（清除样式表）
-        if (qApp) {
-            qApp->setStyleSheet("");
-        }
-        spdlog::info("Switched to light theme");
-    }
+    apply_theme();
+    spdlog::info("Theme toggled: {}", is_dark_theme_ ? "dark" : "light");
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
