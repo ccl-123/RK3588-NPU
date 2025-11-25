@@ -135,6 +135,20 @@ public:
     FeatureLibrary& get_feature_library() { return feature_library_; }
 
     /**
+     * @brief 动态更新识别阈值（用于设置页面）
+     * @param threshold 新的识别阈值（0.0 - 1.0）
+     */
+    void set_recognition_threshold(float threshold);
+
+    /**
+     * @brief 获取当前识别阈值
+     * @return 当前阈值
+     */
+    float get_recognition_threshold() const {
+        return config_.facenet_threshold;
+    }
+
+    /**
      * @brief GUI 模式：获取当前帧（不阻塞）
      * @param frame 输出帧
      * @return true 成功获取, false 失败

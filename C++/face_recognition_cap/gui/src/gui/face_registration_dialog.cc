@@ -8,6 +8,7 @@
 #include "gui/face_registration_dialog.h"
 
 #include "widgets/card_widget.h"
+#include "utils/audio_manager.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -239,6 +240,11 @@ void FaceRegistrationDialog::on_capture_clicked() {
         return;
     }
 
+    // 播放正在注册人脸的提示音
+    if (captured_faces_.empty()) {
+        AudioManager::instance()->playSound(AudioType::RegisteringFace);
+    }
+
     // 检测人脸
     std::vector<cv::Rect> face_boxes;
     std::vector<std::vector<cv::Point2f>> landmarks;
@@ -375,6 +381,9 @@ void FaceRegistrationDialog::on_register_clicked() {
         spdlog::warn("Failed to reload feature library");
     }
 
+    // 播放注册成功音频
+    AudioManager::instance()->playSound(AudioType::RegistrationSuccess);
+
     QMessageBox::information(this, "成功",
         QString("注册成功！\n用户: %1\n特征数: %2")
         .arg(name)
@@ -399,7 +408,8 @@ bool FaceRegistrationDialog::check_face_quality(const cv::Mat& face_image, std::
     }
 
     if (face_image.cols < 50 || face_image.rows < 50) {
-        hint = "图像太小";
+        hint = "图像太小，请靠近摄像头";
+        AudioManager::instance()->playSound(AudioType::MoveCloser);
         return false;
     }
 
@@ -415,12 +425,14 @@ bool FaceRegistrationDialog::check_face_quality(const cv::Mat& face_image, std::
     double brightness = mean_val[0];
 
     if (brightness < 50) {
-        hint = "光线太暗";
+        hint = "光线太暗，请改善照明";
+        AudioManager::instance()->playSound(AudioType::LowLight);
         return false;
     }
 
     if (brightness > 200) {
-        hint = "光线太亮";
+        hint = "光线太亮，请避免强光直射";
+        AudioManager::instance()->playSound(AudioType::LowLight);  // 可以复用 LowLight 或添加新音频
         return false;
     }
 

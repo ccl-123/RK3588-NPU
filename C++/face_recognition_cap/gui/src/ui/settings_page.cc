@@ -1,6 +1,8 @@
 #include "ui/settings_page.h"
 
 #include "widgets/card_widget.h"
+#include "utils/audio_manager.h"
+#include "utils/config_manager.h"
 
 #include <QLabel>
 #include <QPushButton>
@@ -33,7 +35,12 @@ SettingsPage::SettingsPage(QWidget* parent)
     , early_leave_threshold_spin_(nullptr)
     , allow_multiple_checkin_check_(nullptr)
     , checkin_sound_check_(nullptr)
-    , show_checkin_reminder_check_(nullptr) {
+    , show_checkin_reminder_check_(nullptr)
+    , audio_enabled_check_(nullptr)
+    , audio_volume_slider_(nullptr)
+    , audio_volume_label_(nullptr)
+    , audio_device_combo_(nullptr)
+    , test_audio_btn_(nullptr) {
     setup_ui();
     load_settings();
 }
@@ -216,6 +223,89 @@ void SettingsPage::setup_ui() {
     action_row->addStretch();
     system_layout->addLayout(action_row);
 
+    // ========== 音频设置 ==========
+    auto audio_card = new CardWidget(content);
+    audio_card->setTitle(tr("音频设置"));
+    
+    auto audio_layout = new QGridLayout(audio_card->bodyContainer());
+    audio_layout->setContentsMargins(0, 0, 0, 0);
+    audio_layout->setHorizontalSpacing(12);
+    audio_layout->setVerticalSpacing(10);
+    
+    int audio_row = 0;
+    
+    // 第1行：启用音频
+    audio_enabled_check_ = new QCheckBox(tr("启用语音播报"));
+    audio_enabled_check_->setChecked(true);
+    audio_layout->addWidget(audio_enabled_check_, audio_row, 0, 1, 4);
+    audio_row++;
+    
+    // 第2行：音量控制
+    audio_layout->addWidget(new QLabel(tr("音量:")), audio_row, 0, Qt::AlignRight);
+    
+    audio_volume_slider_ = new QSlider(Qt::Horizontal);
+    audio_volume_slider_->setRange(0, 100);
+    audio_volume_slider_->setValue(70);
+    audio_volume_slider_->setTickPosition(QSlider::TicksBelow);
+    audio_volume_slider_->setTickInterval(10);
+    audio_layout->addWidget(audio_volume_slider_, audio_row, 1, 1, 2);
+    
+    audio_volume_label_ = new QLabel("70%");
+    audio_volume_label_->setMinimumWidth(50);
+    audio_layout->addWidget(audio_volume_label_, audio_row, 3);
+    
+    // 连接音量滑块信号
+    connect(audio_volume_slider_, &QSlider::valueChanged, this, [this](int value) {
+        if (audio_volume_label_) {
+            audio_volume_label_->setText(QString("%1%").arg(value));
+        }
+        // 实时更新音量
+        AudioManager::instance()->setVolume(value);
+    });
+    audio_row++;
+    
+    // 第3行：音频设备选择
+    audio_layout->addWidget(new QLabel(tr("输出设备:")), audio_row, 0, Qt::AlignRight);
+    
+    audio_device_combo_ = new QComboBox();
+    audio_device_combo_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    audio_layout->addWidget(audio_device_combo_, audio_row, 1, 1, 2);
+    
+    test_audio_btn_ = new QPushButton(tr("测试"));
+    test_audio_btn_->setMaximumWidth(80);
+    audio_layout->addWidget(test_audio_btn_, audio_row, 3);
+    
+    // 填充音频设备列表
+    QStringList devices = AudioManager::instance()->availableDevices();
+    audio_device_combo_->addItems(devices);
+    QString currentDevice = AudioManager::instance()->currentDevice();
+    int deviceIndex = audio_device_combo_->findText(currentDevice);
+    if (deviceIndex >= 0) {
+        audio_device_combo_->setCurrentIndex(deviceIndex);
+    }
+    
+    // 连接设备选择信号
+    connect(audio_device_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
+        if (index >= 0 && audio_device_combo_) {
+            QString deviceName = audio_device_combo_->currentText();
+            AudioManager::instance()->setAudioDevice(deviceName);
+            spdlog::info("Audio device changed to: {}", deviceName.toStdString());
+        }
+    });
+    
+    // 连接测试按钮
+    connect(test_audio_btn_, &QPushButton::clicked, this, [this]() {
+        AudioManager::instance()->playSound(AudioType::CheckInSuccess);
+    });
+    
+    // 连接启用/禁用复选框
+    connect(audio_enabled_check_, &QCheckBox::toggled, this, [this](bool checked) {
+        AudioManager::instance()->setEnabled(checked);
+        if (audio_volume_slider_) audio_volume_slider_->setEnabled(checked);
+        if (audio_device_combo_) audio_device_combo_->setEnabled(checked);
+        if (test_audio_btn_) test_audio_btn_->setEnabled(checked);
+    });
+
     // ========== 底部按钮栏 ==========
     auto button_layout = new QHBoxLayout();
     button_layout->setSpacing(12);
@@ -235,13 +325,14 @@ void SettingsPage::setup_ui() {
     layout->addWidget(attendance_card);
     layout->addWidget(recognition_card);
     layout->addWidget(system_card);
+    layout->addWidget(audio_card);
     layout->addLayout(button_layout);
     layout->addStretch();
 }
 
 void SettingsPage::load_settings() {
-    // 这里可以从配置文件或数据库加载设置
-    // 目前使用默认值
+    // 从配置文件加载设置
+    ConfigManager* config = ConfigManager::instance();
     
     // 更新数据库大小信息 - 尝试多个可能的路径
     if (db_size_label_) {
@@ -286,24 +377,90 @@ void SettingsPage::load_settings() {
         }
     }
     
-    // 加载考勤设置默认值
-    if (work_start_time_edit_) work_start_time_edit_->setTime(QTime(9, 0));
-    if (work_end_time_edit_) work_end_time_edit_->setTime(QTime(18, 0));
-    if (late_threshold_spin_) late_threshold_spin_->setValue(30);
-    if (early_leave_threshold_spin_) early_leave_threshold_spin_->setValue(30);
-    if (allow_multiple_checkin_check_) allow_multiple_checkin_check_->setChecked(false);
-    if (checkin_sound_check_) checkin_sound_check_->setChecked(true);
-    if (show_checkin_reminder_check_) show_checkin_reminder_check_->setChecked(true);
+    // 加载识别设置
+    if (recognition_threshold_spin_) {
+        recognition_threshold_spin_->setValue(config->getRecognitionThreshold());
+    }
+    if (duplicate_check_interval_spin_) {
+        duplicate_check_interval_spin_->setValue(config->getDuplicateCheckInterval());
+    }
+    if (recognition_confirm_count_spin_) {
+        recognition_confirm_count_spin_->setValue(config->getRecognitionConfirmCount());
+    }
     
-    // 加载识别确认次数默认值
-    if (recognition_confirm_count_spin_) recognition_confirm_count_spin_->setValue(3);
+    // 加载考勤设置
+    if (work_start_time_edit_) {
+        work_start_time_edit_->setTime(QTime::fromString(config->getWorkStartTime(), "HH:mm"));
+    }
+    if (work_end_time_edit_) {
+        work_end_time_edit_->setTime(QTime::fromString(config->getWorkEndTime(), "HH:mm"));
+    }
+    if (late_threshold_spin_) late_threshold_spin_->setValue(config->getLateThreshold());
+    if (early_leave_threshold_spin_) early_leave_threshold_spin_->setValue(config->getEarlyLeaveThreshold());
+    if (allow_multiple_checkin_check_) allow_multiple_checkin_check_->setChecked(config->isAllowMultipleCheckin());
+    if (checkin_sound_check_) checkin_sound_check_->setChecked(config->isCheckinSound());
+    if (show_checkin_reminder_check_) show_checkin_reminder_check_->setChecked(config->isShowCheckinReminder());
+    
+    // 加载显示设置
+    if (show_fps_check_) show_fps_check_->setChecked(config->isShowFPS());
+    if (show_confidence_check_) show_confidence_check_->setChecked(config->isShowConfidence());
+    if (auto_start_check_) auto_start_check_->setChecked(config->isAutoStart());
+    
+    // 加载音频设置
+    if (audio_enabled_check_) {
+        audio_enabled_check_->setChecked(config->isAudioEnabled());
+    }
+    if (audio_volume_slider_) {
+        audio_volume_slider_->setValue(config->getAudioVolume());
+    }
+    if (audio_volume_label_) {
+        audio_volume_label_->setText(QString("%1%").arg(config->getAudioVolume()));
+    }
+    if (audio_device_combo_) {
+        QString currentDevice = config->getAudioDevice();
+        if (!currentDevice.isEmpty()) {
+            int deviceIndex = audio_device_combo_->findText(currentDevice);
+            if (deviceIndex >= 0) {
+                audio_device_combo_->setCurrentIndex(deviceIndex);
+            }
+        }
+    }
     
     spdlog::info("Settings loaded");
 }
 
 void SettingsPage::save_settings() {
-    // 这里可以保存设置到配置文件或数据库
-    // 目前只是记录日志
+    // 保存设置到配置文件
+    ConfigManager* config = ConfigManager::instance();
+    
+    // 保存识别设置
+    if (recognition_threshold_spin_) {
+        config->setRecognitionThreshold(recognition_threshold_spin_->value());
+    }
+    if (duplicate_check_interval_spin_) {
+        config->setDuplicateCheckInterval(duplicate_check_interval_spin_->value());
+    }
+    if (recognition_confirm_count_spin_) {
+        config->setRecognitionConfirmCount(recognition_confirm_count_spin_->value());
+    }
+    
+    // 保存考勤设置
+    if (work_start_time_edit_) {
+        config->setWorkStartTime(work_start_time_edit_->time().toString("HH:mm"));
+    }
+    if (work_end_time_edit_) {
+        config->setWorkEndTime(work_end_time_edit_->time().toString("HH:mm"));
+    }
+    if (late_threshold_spin_) config->setLateThreshold(late_threshold_spin_->value());
+    if (early_leave_threshold_spin_) config->setEarlyLeaveThreshold(early_leave_threshold_spin_->value());
+    if (allow_multiple_checkin_check_) config->setAllowMultipleCheckin(allow_multiple_checkin_check_->isChecked());
+    if (checkin_sound_check_) config->setCheckinSound(checkin_sound_check_->isChecked());
+    if (show_checkin_reminder_check_) config->setShowCheckinReminder(show_checkin_reminder_check_->isChecked());
+    
+    // 保存显示设置
+    if (show_fps_check_) config->setShowFPS(show_fps_check_->isChecked());
+    if (show_confidence_check_) config->setShowConfidence(show_confidence_check_->isChecked());
+    if (auto_start_check_) config->setAutoStart(auto_start_check_->isChecked());
     
     spdlog::info("Settings saved:");
     spdlog::info("  - Recognition: threshold={:.2f}, duplicate_interval={}s, confirm_count={}",
@@ -321,6 +478,28 @@ void SettingsPage::save_settings() {
                  show_fps_check_ ? show_fps_check_->isChecked() : true,
                  show_confidence_check_ ? show_confidence_check_->isChecked() : true,
                  auto_start_check_ ? auto_start_check_->isChecked() : false);
+    
+    // 保存音频设置到配置文件和 AudioManager
+    if (audio_enabled_check_) {
+        bool enabled = audio_enabled_check_->isChecked();
+        config->setAudioEnabled(enabled);
+        AudioManager::instance()->setEnabled(enabled);
+    }
+    if (audio_volume_slider_) {
+        int volume = audio_volume_slider_->value();
+        config->setAudioVolume(volume);
+        AudioManager::instance()->setVolume(volume);
+    }
+    if (audio_device_combo_ && audio_device_combo_->currentIndex() >= 0) {
+        QString deviceName = audio_device_combo_->currentText();
+        config->setAudioDevice(deviceName);
+        AudioManager::instance()->setAudioDevice(deviceName);
+    }
+    
+    spdlog::info("  - Audio: enabled={}, volume={}, device={}",
+                 audio_enabled_check_ ? audio_enabled_check_->isChecked() : true,
+                 audio_volume_slider_ ? audio_volume_slider_->value() : 70,
+                 audio_device_combo_ ? audio_device_combo_->currentText().toStdString() : "default");
     
     emit settingsChanged();
 }
@@ -358,6 +537,12 @@ void SettingsPage::on_reset_clicked() {
         if (show_fps_check_) show_fps_check_->setChecked(true);
         if (show_confidence_check_) show_confidence_check_->setChecked(true);
         if (auto_start_check_) auto_start_check_->setChecked(false);
+        
+        // 音频设置
+        if (audio_enabled_check_) audio_enabled_check_->setChecked(true);
+        if (audio_volume_slider_) audio_volume_slider_->setValue(70);
+        if (audio_volume_label_) audio_volume_label_->setText("70%");
+        // 音频设备保持当前设置不变
         
         QMessageBox::information(this, tr("成功"), tr("已恢复默认设置"));
         spdlog::info("Settings reset to defaults");

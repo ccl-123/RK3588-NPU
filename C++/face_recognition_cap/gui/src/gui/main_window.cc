@@ -18,6 +18,8 @@
 #include "ui/settings_page.h"
 #include "ui/user_management_page.h"
 #include "utils/stack_router.h"
+#include "utils/audio_manager.h"
+#include "utils/config_manager.h"
 #include "widgets/modern_table_view.h"
 #include "widgets/side_menu.h"
 #include "widgets/title_bar.h"
@@ -47,6 +49,8 @@ Q_DECLARE_METATYPE(std::vector<RecognitionResult>)
 // 定义 static constexpr 成员变量（C++17之前需要类外定义）
 constexpr int MainWindow::CONFIRM_THRESHOLD;
 constexpr int MainWindow::CONFIRM_TIMEOUT_MS;
+constexpr int MainWindow::AUDIO_COOLDOWN_MS;
+constexpr int MainWindow::STRANGER_AUDIO_COOLDOWN_MS;
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
@@ -78,6 +82,8 @@ MainWindow::MainWindow(QWidget* parent)
     , camera_id_(0)
     , is_dark_theme_(false)  // 默认使用浅色主题
     , last_recognition_{0, "", 0.0f, 0, std::chrono::steady_clock::now()}
+    , last_audio_play_time_(std::chrono::steady_clock::now() - std::chrono::seconds(10))
+    , last_stranger_audio_time_(std::chrono::steady_clock::now() - std::chrono::seconds(10))
 {
     // 注册 Qt 元类型（必须在使用前注册）
     qRegisterMetaType<cv::Mat>("cv::Mat");
@@ -129,6 +135,10 @@ bool MainWindow::initialize(const std::string& retinaface_model,
     config.device_number = std::to_string(camera_id);
     config.use_database = true;
     config.database_path = db_path;
+    
+    // 从配置文件加载识别阈值
+    config.facenet_threshold = ConfigManager::instance()->getRecognitionThreshold();
+    spdlog::info("Loaded recognition threshold from config: {:.2f}", config.facenet_threshold);
 
     if (recognition_app_->initialize(config) != 0) {
         QMessageBox::critical(this, "错误", "人脸识别系统初始化失败");
@@ -146,11 +156,68 @@ bool MainWindow::initialize(const std::string& retinaface_model,
     // 3. 设置考勤服务（用于检查是否已签到）
     recognition_app_->set_attendance_service(attendance_service_.get());
 
+    // 4. 初始化音频管理器（从配置文件加载）
+    AudioManager::instance()->setEnabled(ConfigManager::instance()->isAudioEnabled());
+    AudioManager::instance()->setVolume(ConfigManager::instance()->getAudioVolume());
+    QString audioDevice = ConfigManager::instance()->getAudioDevice();
+    if (!audioDevice.isEmpty()) {
+        AudioManager::instance()->setAudioDevice(audioDevice);
+    }
+    spdlog::info("AudioManager initialized from config");
+
     // 设置识别回调（带连续确认机制，防止误识别导致错误签到）
     recognition_app_->set_recognition_callback([this](const RecognitionResult& result) {
         auto now = std::chrono::steady_clock::now();
         auto time_diff = std::chrono::duration_cast<std::chrono::milliseconds>(
             now - last_recognition_.last_seen).count();
+        
+        // 检查是否是陌生人
+        bool is_stranger = (result.user_id == 0) || (result.user_name == "stranger");
+        
+        // 处理陌生人检测
+        if (is_stranger) {
+            // 检查是否是连续检测到陌生人
+            bool is_continuous_stranger = (last_recognition_.user_id == 0) && 
+                                         (time_diff <= CONFIRM_TIMEOUT_MS);
+            
+            if (!is_continuous_stranger) {
+                // 第一次检测到陌生人，开始计数
+                last_recognition_.user_id = 0;
+                last_recognition_.user_name = "stranger";
+                last_recognition_.similarity = 0.0f;
+                last_recognition_.confirm_count = 1;
+                last_recognition_.last_seen = now;
+                spdlog::debug("Stranger detection started (count: 1/{})", CONFIRM_THRESHOLD);
+                return;
+            }
+            
+            // 连续检测到陌生人，增加计数
+            last_recognition_.confirm_count++;
+            last_recognition_.last_seen = now;
+            
+            spdlog::debug("Stranger detection continued (count: {}/{})", 
+                         last_recognition_.confirm_count, CONFIRM_THRESHOLD);
+            
+            // 达到确认阈值，播放陌生人提示音
+            if (last_recognition_.confirm_count == CONFIRM_THRESHOLD) {
+                auto now_audio = std::chrono::steady_clock::now();
+                auto time_since_last_stranger_audio = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    now_audio - last_stranger_audio_time_).count();
+                
+                if (time_since_last_stranger_audio >= STRANGER_AUDIO_COOLDOWN_MS) {
+                    AudioManager::instance()->playSound(AudioType::StrangerDetected);
+                    last_stranger_audio_time_ = now_audio;
+                    spdlog::info("Stranger confirmed, played audio");
+                } else {
+                    spdlog::debug("Stranger audio cooldown active, skipped ({}ms remaining)",
+                                STRANGER_AUDIO_COOLDOWN_MS - time_since_last_stranger_audio);
+                }
+                
+                // 重置陌生人计数
+                last_recognition_.confirm_count = 0;
+            }
+            return;
+        }
         
         // 检查是否是同一个人的连续识别
         bool is_same_person = (result.user_id == last_recognition_.user_id) && 
@@ -170,8 +237,8 @@ bool MainWindow::initialize(const std::string& retinaface_model,
                                       result.similarity,
                                       false);  // 不是新签到
             
-            spdlog::debug("Recognition started: {} (count: 1/{})", 
-                         result.user_name, CONFIRM_THRESHOLD);
+            spdlog::debug("Recognition started: {} (similarity: {:.2f}, count: 1/{})", 
+                         result.user_name, result.similarity, CONFIRM_THRESHOLD);
             return;
         }
         
@@ -207,6 +274,9 @@ bool MainWindow::initialize(const std::string& retinaface_model,
 
             // 如果是新签到，显示提示
             if (is_new_attendance) {
+                // 播放签到成功音频（新签到总是播放）
+                AudioManager::instance()->playSound(AudioType::CheckInSuccess);
+                
                 QMetaObject::invokeMethod(this, [this, name = result.user_name]() {
                     if (!attendance_status_label_) {
                         return;
@@ -227,6 +297,20 @@ bool MainWindow::initialize(const std::string& retinaface_model,
                                           QString::fromStdString(result.user_name),
                                           last_recognition_.similarity,
                                           true);  // 标记为新签到
+            } else {
+                // 重复签到 - 使用冷却机制避免频繁播放
+                auto now_audio = std::chrono::steady_clock::now();
+                auto time_since_last_audio = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    now_audio - last_audio_play_time_).count();
+                
+                if (time_since_last_audio >= AUDIO_COOLDOWN_MS) {
+                    AudioManager::instance()->playSound(AudioType::AlreadyCheckedIn);
+                    last_audio_play_time_ = now_audio;
+                    spdlog::debug("Played duplicate check-in audio");
+                } else {
+                    spdlog::debug("Audio cooldown active, skipped duplicate audio ({}ms remaining)",
+                                AUDIO_COOLDOWN_MS - time_since_last_audio);
+                }
             }
             
             // 重置确认状态，避免重复签到
@@ -248,6 +332,13 @@ bool MainWindow::initialize(const std::string& retinaface_model,
     load_users();
 
     return true;
+}
+
+void MainWindow::apply_recognition_settings(float threshold) {
+    if (recognition_app_) {
+        recognition_app_->set_recognition_threshold(threshold);
+        spdlog::info("Applied recognition threshold: {:.2f}", threshold);
+    }
 }
 
 void MainWindow::load_users() {
@@ -417,6 +508,15 @@ void MainWindow::connect_page_signals() {
     if (settings_page_) {
         connect(settings_page_, &SettingsPage::themeToggleRequested,
                 this, &MainWindow::on_action_toggle_theme);
+        
+        // 连接设置变更信号，实时应用识别阈值
+        connect(settings_page_, &SettingsPage::settingsChanged,
+                this, [this]() {
+            if (settings_page_) {
+                float threshold = settings_page_->getRecognitionThreshold();
+                apply_recognition_settings(threshold);
+            }
+        });
     }
 }
 

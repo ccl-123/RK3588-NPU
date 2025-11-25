@@ -73,6 +73,9 @@ protected:
 public slots:
     // 数据刷新槽（公开，供子窗口调用）
     void load_users();
+    
+    // 应用设置（由 SettingsPage 调用）
+    void apply_recognition_settings(float threshold);
 
 private slots:
     void on_action_open_camera();
@@ -154,8 +157,16 @@ private:
         std::chrono::steady_clock::time_point last_seen;
     };
     RecognitionConfirmation last_recognition_;
-    static constexpr int CONFIRM_THRESHOLD = 3;  // 需要连续识别3次才确认
-    static constexpr int CONFIRM_TIMEOUT_MS = 2000;  // 确认超时时间（毫秒）
+    static constexpr int CONFIRM_THRESHOLD = 5;  // 需要连续识别5次才确认（提高准确性）
+    static constexpr int CONFIRM_TIMEOUT_MS = 3000;  // 确认超时时间（3秒，给更多时间确认）
+    
+    // 音频播放冷却机制（防止重复播放）
+    std::chrono::steady_clock::time_point last_audio_play_time_;
+    static constexpr int AUDIO_COOLDOWN_MS = 10000;  // 音频播放冷却时间（10秒）
+    
+    // 陌生人检测冷却机制
+    std::chrono::steady_clock::time_point last_stranger_audio_time_;
+    static constexpr int STRANGER_AUDIO_COOLDOWN_MS = 10000;  // 陌生人提示音冷却时间（10秒）
 
     // 配置
     std::string retinaface_model_;

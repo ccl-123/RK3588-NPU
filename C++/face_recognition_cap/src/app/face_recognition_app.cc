@@ -404,8 +404,8 @@ void FaceRecognitionApp::recognize_and_match(const cv::Mat& orig_img,
             results->push_back(result);
         }
 
-        // 触发识别回调（用于考勤等业务逻辑）
-        if (recognition_callback_ && name != "stranger") {
+        // 触发识别回调（用于考勤等业务逻辑，包括陌生人检测）
+        if (recognition_callback_) {
             recognition_callback_(result);
         }
 
@@ -866,4 +866,9 @@ bool FaceRecognitionApp::process_single_frame(cv::Mat& frame, std::vector<Recogn
 
 void FaceRecognitionApp::set_attendance_service(void* service) {
     attendance_service_ = service;
+}
+
+void FaceRecognitionApp::set_recognition_threshold(float threshold) {
+    config_.facenet_threshold = threshold;
+    spdlog::info("Recognition threshold updated to: {:.2f}", threshold);
 }

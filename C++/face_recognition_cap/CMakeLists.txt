@@ -45,7 +45,7 @@ find_package(SQLite3 REQUIRED)
 include_directories(${SQLite3_INCLUDE_DIRS})
 
 # Qt5 (可选，用于 GUI 版本)
-find_package(Qt5 COMPONENTS Core Gui Widgets Svg)
+find_package(Qt5 COMPONENTS Core Gui Widgets Svg Multimedia)
 if(Qt5_FOUND)
     message(STATUS "Qt5 found, GUI version will be built")
     message(STATUS "Qt5 version: ${Qt5_VERSION}")
@@ -117,6 +117,8 @@ if(Qt5_FOUND)
         gui/src/themes/theme_manager.cc
         gui/src/utils/svg_icon_manager.cc
         gui/src/utils/stack_router.cc
+        gui/src/utils/audio_manager.cc
+        gui/src/utils/config_manager.cc
         gui/src/widgets/card_widget.cc
         gui/src/widgets/icon_button.cc
         gui/src/widgets/search_input.cc
@@ -171,6 +173,8 @@ if(Qt5_FOUND)
         gui/include/themes/theme_manager.h
         gui/include/utils/svg_icon_manager.h
         gui/include/utils/stack_router.h
+        gui/include/utils/audio_manager.h
+        gui/include/utils/config_manager.h
         gui/include/widgets/card_widget.h
         gui/include/widgets/icon_button.h
         gui/include/widgets/search_input.h
@@ -213,6 +217,7 @@ if(Qt5_FOUND)
         Qt5::Gui
         Qt5::Widgets
         Qt5::Svg
+        Qt5::Multimedia
     )
 
     # 安装 GUI 版本

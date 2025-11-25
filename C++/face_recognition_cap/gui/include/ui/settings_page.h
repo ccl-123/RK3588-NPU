@@ -6,6 +6,9 @@
 #include <QCheckBox>
 #include <QLabel>
 #include <QTimeEdit>
+#include <QSlider>
+#include <QComboBox>
+#include <QPushButton>
 
 class SettingsPage : public QWidget {
     Q_OBJECT
@@ -41,6 +44,14 @@ private:
     QSpinBox* duplicate_check_interval_spin_;
     QSpinBox* recognition_confirm_count_spin_;
     
+public:
+    // 公开访问识别阈值（供 MainWindow 使用）
+    float getRecognitionThreshold() const {
+        return recognition_threshold_spin_ ? recognition_threshold_spin_->value() : 0.60f;
+    }
+    
+private:
+    
     // 考勤设置
     QTimeEdit* work_start_time_edit_;
     QTimeEdit* work_end_time_edit_;
@@ -49,5 +60,12 @@ private:
     QCheckBox* allow_multiple_checkin_check_;
     QCheckBox* checkin_sound_check_;
     QCheckBox* show_checkin_reminder_check_;
+    
+    // 音频设置
+    QCheckBox* audio_enabled_check_;
+    QSlider* audio_volume_slider_;
+    QLabel* audio_volume_label_;
+    QComboBox* audio_device_combo_;
+    QPushButton* test_audio_btn_;
 };
 

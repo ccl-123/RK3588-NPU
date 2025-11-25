@@ -9,6 +9,8 @@
 
 #include <QApplication>
 #include <QMessageBox>
+#include <QDir>
+#include <QFileInfo>
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/rotating_file_sink.h>
@@ -52,12 +54,26 @@ int main(int argc, char* argv[]) {
     spdlog::info("Application started");
     spdlog::info("Qt version: {}", qVersion());
     
+    // 获取可执行文件所在目录（应该是 install/face_recognition_cap）
+    QString appDir = QCoreApplication::applicationDirPath();
+    spdlog::info("Application directory: {}", appDir.toStdString());
+    
     // 解析命令行参数
-    std::string retinaface_model = "data/model/retinaface.rknn";
-    std::string facenet_model = "data/model/w600k_mbf.rknn";
+    // 使用相对于可执行文件的路径
+    std::string retinaface_model = (appDir + "/data/model/retinaface.rknn").toStdString();
+    std::string facenet_model = (appDir + "/data/model/w600k_mbf.rknn").toStdString();
     std::string camera_source = "usb";
     int camera_id = 21;
-    std::string db_path = "data/database/face_recognition.db";
+    
+    // 数据库使用相对于可执行文件的路径，确保唯一性
+    std::string db_path = (appDir + "/data/database/face_recognition.db").toStdString();
+    
+    // 确保数据库目录存在
+    QDir dbDir = QFileInfo(QString::fromStdString(db_path)).dir();
+    if (!dbDir.exists()) {
+        dbDir.mkpath(".");
+        spdlog::info("Created database directory: {}", dbDir.absolutePath().toStdString());
+    }
     
     if (argc >= 3) {
         retinaface_model = argv[1];
