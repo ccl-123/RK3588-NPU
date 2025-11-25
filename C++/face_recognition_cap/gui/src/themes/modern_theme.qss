@@ -804,3 +804,113 @@ QToolTip {
 #GhostButton:hover {
     background-color: #e6f7ff;
 }
+
+/* ========================================
+   信息栏（天气 + 考勤统计）
+   ======================================== */
+
+#InfoBar {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #e6f7ff, stop:0.5 #f0f5ff, stop:1 #e6f7ff);
+    border-bottom: 1px solid #d9d9d9;
+}
+
+#WeatherLabel {
+    color: #262626;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+#TempLabel {
+    color: #fa8c16;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+#InfoBarSeparator {
+    background-color: #d9d9d9;
+}
+
+#StatsTitle {
+    color: #595959;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+#StatsItemLabel {
+    color: #8c8c8c;
+    font-size: 12px;
+}
+
+#StatsItemValue {
+    font-size: 14px;
+    min-width: 24px;
+}
+
+#CheckModeLabel {
+    font-size: 13px;
+}
+
+/* ========================================
+   综合状态栏（视频与用户信息之间）
+   ======================================== */
+
+#DetectionStatusBar {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #f0f5ff, stop:0.5 #ffffff, stop:1 #f0f5ff);
+    border-top: 1px solid #e8e8e8;
+    border-bottom: 1px solid #e8e8e8;
+}
+
+#ClockLabel {
+    color: #262626;
+    font-size: 20px;
+    font-weight: 700;
+    font-family: "JetBrains Mono", "SF Mono", "Consolas", monospace;
+    letter-spacing: 1px;
+}
+
+#ClockIcon, #DateIcon, #FaceIcon {
+    font-size: 18px;
+}
+
+#DateLabel {
+    color: #595959;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+#StatusBarSeparator {
+    background-color: #d9d9d9;
+}
+
+#FaceCountLabel {
+    font-size: 14px;
+    font-weight: 500;
+}
+
+#FaceCountLabel[status="active"] {
+    color: #52c41a;
+}
+
+#FaceCountLabel[status="inactive"] {
+    color: #8c8c8c;
+}
+
+#DetectionStatusLabel {
+    color: #595959;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+#DetectionProgressBar {
+    background-color: #e8e8e8;
+    border: none;
+    border-radius: 3px;
+}
+
+#DetectionProgressBar::chunk {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #1890ff, stop:1 #52c41a);
+    border-radius: 3px;
+}

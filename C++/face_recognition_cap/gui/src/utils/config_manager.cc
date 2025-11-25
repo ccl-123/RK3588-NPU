@@ -65,6 +65,15 @@ void ConfigManager::setRecognitionConfirmCount(int count) {
     settings_->sync();
 }
 
+int ConfigManager::getUserConfirmDuration() const {
+    return settings_->value("recognition/user_confirm_duration_ms", 1000).toInt();
+}
+
+void ConfigManager::setUserConfirmDuration(int milliseconds) {
+    settings_->setValue("recognition/user_confirm_duration_ms", milliseconds);
+    settings_->sync();
+}
+
 // 音频设置
 bool ConfigManager::isAudioEnabled() const {
     return settings_->value("audio/enabled", true).toBool();

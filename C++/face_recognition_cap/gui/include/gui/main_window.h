@@ -81,6 +81,7 @@ public slots:
     
     // 应用设置（由 SettingsPage 调用）
     void apply_recognition_settings(float threshold);
+    void apply_user_confirm_duration(int duration_ms);
 
 private slots:
     void on_action_open_camera();
@@ -154,17 +155,19 @@ private:
     // 主题状态
     bool is_dark_theme_;
     
-    // 连续识别确认机制（防止误识别导致错误签到）
-    struct RecognitionConfirmation {
-        int user_id;
-        std::string user_name;
-        float similarity;
-        int confirm_count;  // 连续确认次数
-        std::chrono::steady_clock::time_point last_seen;
+    // 用户持续识别确认机制（基于时间而非帧数）
+    struct UserDetection {
+        bool is_detecting;                                      // 是否正在检测用户
+        int user_id;                                            // 当前检测的用户ID
+        std::string user_name;                                  // 用户名
+        float max_similarity;                                   // 检测期间最高相似度
+        std::chrono::steady_clock::time_point first_seen;       // 第一次检测到用户的时间
+        std::chrono::steady_clock::time_point last_seen;        // 最后一次检测到用户的时间
+        bool attendance_recorded;                               // 本次检测是否已记录考勤
     };
-    RecognitionConfirmation last_recognition_;
-    static constexpr int CONFIRM_THRESHOLD = 5;  // 需要连续识别5次才确认（已注册用户）
-    static constexpr int CONFIRM_TIMEOUT_MS = 1000;  // 确认超时时间（1秒，帧间隔）
+    UserDetection user_detection_;
+    int user_confirm_duration_ms_;                              // 用户确认时长（可配置，默认1秒）
+    static constexpr int USER_DETECTION_TIMEOUT_MS = 500;       // 用户检测超时（500ms，帧间隔容差）
     
     // 陌生人持续检测机制（基于时间而非帧数）
     struct StrangerDetection {

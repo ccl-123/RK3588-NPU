@@ -42,12 +42,18 @@ private:
     // 识别设置
     QDoubleSpinBox* recognition_threshold_spin_;
     QSpinBox* duplicate_check_interval_spin_;
-    QSpinBox* recognition_confirm_count_spin_;
+    QDoubleSpinBox* user_confirm_duration_spin_;  // 用户识别确认时间（秒）
     
 public:
     // 公开访问识别阈值（供 MainWindow 使用）
     float getRecognitionThreshold() const {
         return recognition_threshold_spin_ ? recognition_threshold_spin_->value() : 0.60f;
+    }
+    
+    // 获取用户识别确认时间（毫秒）
+    int getUserConfirmDuration() const {
+        return user_confirm_duration_spin_ ? 
+            static_cast<int>(user_confirm_duration_spin_->value() * 1000) : 1000;
     }
     
 private:

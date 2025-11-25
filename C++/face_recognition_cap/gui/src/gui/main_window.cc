@@ -43,8 +43,7 @@ Q_DECLARE_METATYPE(cv::Mat)
 Q_DECLARE_METATYPE(std::vector<RecognitionResult>)
 
 // 定义 static constexpr 成员变量（C++17之前需要类外定义）
-constexpr int MainWindow::CONFIRM_THRESHOLD;
-constexpr int MainWindow::CONFIRM_TIMEOUT_MS;
+constexpr int MainWindow::USER_DETECTION_TIMEOUT_MS;
 constexpr int MainWindow::DUPLICATE_CHECK_COOLDOWN_MS;
 constexpr int MainWindow::STRANGER_AUDIO_COOLDOWN_MS;
 constexpr int MainWindow::STRANGER_CONFIRM_DURATION_MS;
@@ -80,7 +79,8 @@ MainWindow::MainWindow(QWidget* parent)
     , fps_(0.0)
     , camera_id_(0)
     , is_dark_theme_(false)  // 默认使用浅色主题
-    , last_recognition_{0, "", 0.0f, 0, std::chrono::steady_clock::now()}
+    , user_detection_{false, 0, "", 0.0f, std::chrono::steady_clock::now(), std::chrono::steady_clock::now(), false}
+    , user_confirm_duration_ms_(1000)  // 默认1秒，从配置加载
     , stranger_detection_{false, std::chrono::steady_clock::now(), std::chrono::steady_clock::now()}
 {
     // 初始化音频冷却时间（设置为10秒前，确保首次播放不会被阻止）
@@ -183,14 +183,18 @@ bool MainWindow::initialize(const std::string& retinaface_model,
     // 设置识别回调（带连续确认机制，防止误识别导致错误签到）
     recognition_app_->set_recognition_callback([this](const RecognitionResult& result) {
         auto now = std::chrono::steady_clock::now();
-        auto time_diff = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now - last_recognition_.last_seen).count();
         
         // 检查是否是陌生人
         bool is_stranger = (result.user_id == 0) || (result.user_name == "stranger");
         
-        // ==================== 陌生人检测（基于持续时间） ====================
+        // ==================== 陌生人检测（基于持续时间 2秒） ====================
         if (is_stranger) {
+            // 重置用户检测状态
+            if (user_detection_.is_detecting) {
+                spdlog::debug("Switched from user to stranger, reset user detection");
+                user_detection_.is_detecting = false;
+            }
+            
             // 检查是否已经在检测陌生人
             if (stranger_detection_.is_detecting) {
                 // 检查距离上次检测是否超时
@@ -230,24 +234,12 @@ bool MainWindow::initialize(const std::string& retinaface_model,
                 stranger_detection_.is_detecting = true;
                 stranger_detection_.first_seen = now;
                 stranger_detection_.last_seen = now;
-                
-                // 检查是否刚从用户识别切换过来
-                if (last_recognition_.user_id > 0) {
-                    spdlog::debug("Switched from user to stranger, starting detection timer");
-                } else {
-                    spdlog::debug("Stranger detection started");
-                }
+                spdlog::debug("Stranger detection started");
             }
-            
-            // 更新 last_recognition_ 以跟踪状态
-            last_recognition_.user_id = 0;
-            last_recognition_.user_name = "stranger";
-            last_recognition_.similarity = 0.0f;
-            last_recognition_.last_seen = now;
             return;
         }
         
-        // ==================== 已注册用户识别（基于帧数确认） ====================
+        // ==================== 已注册用户识别（基于持续时间 1秒） ====================
         // 识别到已注册用户，重置陌生人检测状态
         if (stranger_detection_.is_detecting) {
             stranger_detection_.is_detecting = false;
@@ -257,16 +249,19 @@ bool MainWindow::initialize(const std::string& retinaface_model,
         }
         
         // 检查是否是同一个人的连续识别
-        bool is_same_person = (result.user_id == last_recognition_.user_id) && 
+        bool is_same_person = user_detection_.is_detecting && 
+                             (result.user_id == user_detection_.user_id) && 
                              (result.user_id > 0);
         
-        // 如果超时或者不是同一个人，重置计数器
-        if (time_diff > CONFIRM_TIMEOUT_MS || !is_same_person) {
-            last_recognition_.user_id = result.user_id;
-            last_recognition_.user_name = result.user_name;
-            last_recognition_.similarity = result.similarity;
-            last_recognition_.confirm_count = 1;
-            last_recognition_.last_seen = now;
+        if (!is_same_person) {
+            // 不是同一个人，开始新的检测
+            user_detection_.is_detecting = true;
+            user_detection_.user_id = result.user_id;
+            user_detection_.user_name = result.user_name;
+            user_detection_.max_similarity = result.similarity;
+            user_detection_.first_seen = now;
+            user_detection_.last_seen = now;
+            user_detection_.attendance_recorded = false;
             
             // 第一次识别时更新显示，但不签到
             QMetaObject::invokeMethod(this, "on_recognition_result", Qt::QueuedConnection,
@@ -276,29 +271,46 @@ bool MainWindow::initialize(const std::string& retinaface_model,
                                       Q_ARG(bool, false),
                                       Q_ARG(int, 1));
             
-            spdlog::debug("Recognition started: {} (similarity: {:.2f}, count: 1/{})", 
-                         result.user_name, result.similarity, CONFIRM_THRESHOLD);
+            spdlog::debug("User detection started: {} (similarity: {:.2f})", 
+                         result.user_name, result.similarity);
             return;
         }
         
-        // 是同一个人，增加确认计数
-        last_recognition_.confirm_count++;
-        last_recognition_.last_seen = now;
-        last_recognition_.similarity = std::max(last_recognition_.similarity, result.similarity);
+        // 是同一个人，检查是否超时
+        auto since_last = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - user_detection_.last_seen).count();
         
-        spdlog::debug("Recognition continued: {} (count: {}/{})", 
-                     result.user_name, last_recognition_.confirm_count, CONFIRM_THRESHOLD);
+        if (since_last > USER_DETECTION_TIMEOUT_MS) {
+            // 超时了，重新开始检测
+            user_detection_.first_seen = now;
+            user_detection_.last_seen = now;
+            user_detection_.max_similarity = result.similarity;
+            user_detection_.attendance_recorded = false;
+            spdlog::debug("User detection restarted (timeout after {}ms)", since_last);
+            // 继续执行下面的 UI 更新，不要 return
+        } else {
+            // 没超时，更新检测状态
+            user_detection_.last_seen = now;
+            user_detection_.max_similarity = std::max(user_detection_.max_similarity, result.similarity);
+        }
         
-        // 更新显示（不触发签到）
+        // 计算检测持续时间
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - user_detection_.first_seen).count();
+        
+        spdlog::debug("User detection continued: {} (duration: {}ms / {}ms)", 
+                     result.user_name, duration, user_confirm_duration_ms_);
+        
+        // 更新显示（使用实时相似度，不触发签到）
         QMetaObject::invokeMethod(this, "on_recognition_result", Qt::QueuedConnection,
                                   Q_ARG(int, result.user_id),
                                   Q_ARG(QString, QString::fromStdString(result.user_name)),
-                                  Q_ARG(float, result.similarity),
+                                  Q_ARG(float, result.similarity),  // 使用实时值
                                   Q_ARG(bool, false),
                                   Q_ARG(int, 1));
         
-        // 只有达到确认阈值才真正签到
-        if (last_recognition_.confirm_count == CONFIRM_THRESHOLD) {
+        // 只有达到确认时长且未记录过考勤才真正签到
+        if (duration >= user_confirm_duration_ms_ && !user_detection_.attendance_recorded) {
             bool is_new_attendance = false;
             
             // 重要：在 record_attendance 之前确定 check_type
@@ -312,13 +324,16 @@ bool MainWindow::initialize(const std::string& retinaface_model,
                 int record_id = attendance_service_->record_attendance(
                     result.user_id,
                     result.user_name,
-                    last_recognition_.similarity);
+                    user_detection_.max_similarity);
                 is_new_attendance = (record_id > 0);
             }
             
+            // 标记本次检测已记录考勤
+            user_detection_.attendance_recorded = true;
+            
             const char* type_str = (check_type == 2) ? "签退" : "签到";
-            spdlog::info("Recognition confirmed: {} (similarity: {:.2f}, type: {}, is_new: {})",
-                        result.user_name, last_recognition_.similarity, type_str, is_new_attendance);
+            spdlog::info("User confirmed after {}ms: {} (similarity: {:.2f}, type: {}, is_new: {})",
+                        duration, result.user_name, user_detection_.max_similarity, type_str, is_new_attendance);
 
             // 如果是新考勤记录（签到或签退），显示提示
             if (is_new_attendance) {
@@ -333,7 +348,7 @@ bool MainWindow::initialize(const std::string& retinaface_model,
                 QMetaObject::invokeMethod(this, "on_recognition_result", Qt::QueuedConnection,
                                           Q_ARG(int, result.user_id),
                                           Q_ARG(QString, QString::fromStdString(result.user_name)),
-                                          Q_ARG(float, last_recognition_.similarity),
+                                          Q_ARG(float, user_detection_.max_similarity),
                                           Q_ARG(bool, true),
                                           Q_ARG(int, check_type));
             } else {
@@ -350,11 +365,12 @@ bool MainWindow::initialize(const std::string& retinaface_model,
                     spdlog::debug("Played duplicate {} audio", type_str);
                 }
             }
-            
-            // 重置确认状态，避免重复签到
-            last_recognition_.confirm_count = 0;
         }
     });
+    
+    // 从配置加载用户识别确认时间
+    user_confirm_duration_ms_ = ConfigManager::instance()->getUserConfirmDuration();
+    spdlog::info("Loaded user confirm duration from config: {}ms", user_confirm_duration_ms_);
     
     spdlog::info("System initialized successfully");
 
@@ -371,6 +387,11 @@ bool MainWindow::initialize(const std::string& retinaface_model,
     
     // 8. 加载今日考勤记录到右侧表格
     load_today_attendance();
+    
+    // 9. 初始刷新天气
+    if (recognition_page_) {
+        recognition_page_->refreshWeather();
+    }
 
     return true;
 }
@@ -380,6 +401,13 @@ void MainWindow::apply_recognition_settings(float threshold) {
         recognition_app_->set_recognition_threshold(threshold);
         spdlog::info("Applied recognition threshold: {:.2f}", threshold);
     }
+}
+
+void MainWindow::apply_user_confirm_duration(int duration_ms) {
+    // 限制范围 100-2000 ms
+    user_confirm_duration_ms_ = std::max(100, std::min(2000, duration_ms));
+    spdlog::info("Applied user confirm duration: {}ms ({:.1f}s)", 
+                 user_confirm_duration_ms_, user_confirm_duration_ms_ / 1000.0);
 }
 
 bool MainWindow::checkAudioCooldown(AudioType audio_type, int cooldown_ms) {
@@ -625,6 +653,10 @@ void MainWindow::connect_page_signals() {
                 float threshold = settings_page_->getRecognitionThreshold();
                 apply_recognition_settings(threshold);
                 
+                // 应用用户识别确认时间
+                int confirm_duration = settings_page_->getUserConfirmDuration();
+                apply_user_confirm_duration(confirm_duration);
+                
                 // 应用考勤工作时间规则
                 if (attendance_service_) {
                     attendance_service_->set_work_schedule(
@@ -694,11 +726,17 @@ void MainWindow::stop_recognition() {
         recognition_thread_.join();
     }
     
-    // 重置识别确认状态
-    last_recognition_ = {0, "", 0.0f, 0, std::chrono::steady_clock::now()};
+    // 重置用户检测状态
+    user_detection_ = {false, 0, "", 0.0f, std::chrono::steady_clock::now(), std::chrono::steady_clock::now(), false};
     
     // 重置陌生人检测状态
     stranger_detection_ = {false, std::chrono::steady_clock::now(), std::chrono::steady_clock::now()};
+    
+    // 重置状态栏
+    if (recognition_page_) {
+        recognition_page_->updateFaceCount(0);
+        recognition_page_->updateDetectionStatus(tr("已停止"), -1);
+    }
 
     spdlog::info("Recognition stopped");
 }
@@ -735,7 +773,12 @@ void MainWindow::on_frame_ready(const cv::Mat& frame, const std::vector<Recognit
         face_results.push_back(fr);
     }
     if (video_widget_) {
-    video_widget_->set_face_results(face_results);
+        video_widget_->set_face_results(face_results);
+    }
+    
+    // 更新状态栏的人脸检测数量
+    if (recognition_page_) {
+        recognition_page_->updateFaceCount(static_cast<int>(results.size()));
     }
 
     frame_count_++;
@@ -755,7 +798,67 @@ void MainWindow::on_frame_ready(const cv::Mat& frame, const std::vector<Recognit
 
 void MainWindow::update_status() {
     if (fps_label_) {
-    fps_label_->setText(QString("FPS: %1").arg(fps_, 0, 'f', 1));
+        fps_label_->setText(QString("FPS: %1").arg(fps_, 0, 'f', 1));
+    }
+    
+    // 更新状态栏的时钟和日期
+    if (recognition_page_) {
+        QDateTime current_datetime = QDateTime::currentDateTime();
+        
+        // 更新时钟 (HH:mm:ss)
+        recognition_page_->updateClock(current_datetime.toString("HH:mm:ss"));
+        
+        // 更新日期 (yyyy年MM月dd日 周x)
+        QString weekday;
+        switch (current_datetime.date().dayOfWeek()) {
+            case 1: weekday = tr("周一"); break;
+            case 2: weekday = tr("周二"); break;
+            case 3: weekday = tr("周三"); break;
+            case 4: weekday = tr("周四"); break;
+            case 5: weekday = tr("周五"); break;
+            case 6: weekday = tr("周六"); break;
+            case 7: weekday = tr("周日"); break;
+        }
+        recognition_page_->updateDate(current_datetime.toString("yyyy年MM月dd日 ") + weekday);
+        
+        // 更新签到/签退模式（基于当前时间）
+        std::time_t current_time = std::time(nullptr);
+        bool is_checkout_mode = false;
+        if (attendance_service_) {
+            // 使用虚拟用户ID 0 来判断当前时段
+            int mode = attendance_service_->auto_determine_check_type(0, current_time);
+            is_checkout_mode = (mode == 2);
+        }
+        recognition_page_->updateCheckMode(is_checkout_mode);
+        
+        // 每10秒更新一次考勤统计（减少数据库查询）
+        static int stats_update_counter = 0;
+        if (++stats_update_counter >= 10) {
+            stats_update_counter = 0;
+            
+            if (attendance_service_) {
+                // 获取今天的日期
+                std::time_t now = std::time(nullptr);
+                std::tm* tm_now = std::localtime(&now);
+                char date_buf[16];
+                std::strftime(date_buf, sizeof(date_buf), "%Y-%m-%d", tm_now);
+                
+                auto stats = attendance_service_->get_statistics(std::string(date_buf));
+                recognition_page_->updateAttendanceStats(
+                    stats.check_in_count,
+                    stats.check_out_count,
+                    stats.late_count,
+                    stats.early_leave_count
+                );
+            }
+        }
+        
+        // 每10分钟刷新一次天气
+        static int weather_update_counter = 0;
+        if (++weather_update_counter >= 600) {  // 600秒 = 10分钟
+            weather_update_counter = 0;
+            recognition_page_->refreshWeather();
+        }
     }
 }
 
@@ -766,56 +869,64 @@ void MainWindow::on_recognition_result(int user_id, const QString& name, float s
     if (recognition_label_) {
         recognition_label_->setText(QString("识别: %1 (%2)").arg(name).arg(similarity, 0, 'f', 2));
     }
+    
+    // 更新状态栏的识别状态
+    if (recognition_page_) {
+        if (is_new_attendance) {
+            // 识别成功并完成签到/签退
+            QString status_text = (check_type == 2) ? tr("✓ 签退成功") : tr("✓ 签到成功");
+            recognition_page_->updateDetectionStatus(status_text, -1);  // -1 隐藏进度条
+        } else if (user_id > 0) {
+            // 正在识别用户中
+            if (user_detection_.is_detecting && user_detection_.user_id == user_id) {
+                auto now = std::chrono::steady_clock::now();
+                auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    now - user_detection_.first_seen).count();
+                int progress = std::min(100, static_cast<int>(duration * 100 / user_confirm_duration_ms_));
+                recognition_page_->updateDetectionStatus(tr("识别中: %1").arg(name), progress);
+            }
+        }
+    }
 
-    // 更新用户信息面板（现代化卡片布局）
+    // 更新用户信息面板（现代化卡片布局）- 轻量更新，只更新文字
     if (user_name_label_) {
-        // 直接显示用户名，大字体
         user_name_label_->setText(name);
     }
     
     if (user_similarity_label_) {
-        // 只显示百分比数值，配合下方标题
         user_similarity_label_->setText(QString("%1%").arg(QString::number(similarity * 100, 'f', 1)));
     }
     
-    // 更新打卡类型标签（显示当前应该的打卡类型）
+    // 更新打卡类型标签 - 使用传入的 check_type，避免每次查询数据库
     if (check_type_label_) {
-        // 判断当前时间应该是签到还是签退
-        std::time_t current_time = std::time(nullptr);
-        int expected_check_type = 1;  // 默认签到
-        if (attendance_service_ && user_id > 0) {
-            expected_check_type = attendance_service_->auto_determine_check_type(user_id, current_time);
-        }
-        
-        // 只显示类型文字
-        QString type_text = (expected_check_type == 2) ? tr("签退") : tr("签到");
+        QString type_text = (check_type == 2) ? tr("签退") : tr("签到");
         check_type_label_->setText(type_text);
         
         if (is_new_attendance) {
-            // 新打卡：绿色高亮
             check_type_label_->setStyleSheet("color: #52c41a; font-size: 18px; font-weight: bold; background: transparent;");
         } else {
-            // 非新打卡：普通显示
             check_type_label_->setStyleSheet("color: #8c8c8c; font-size: 18px; font-weight: 500; background: transparent;");
         }
     }
     
-    // 从数据库获取用户详细信息
-    if (user_service_ && user_id > 0) {
-        auto users = user_service_->get_all_users(-1);
-        for (const auto& user : users) {
-            if (user.user_id == user_id) {
+    // 只在用户ID变化时获取用户详细信息（减少数据库查询）
+    static int last_displayed_user_id = -1;
+    if (user_id > 0 && user_id != last_displayed_user_id) {
+        last_displayed_user_id = user_id;
+        
+        if (user_service_) {
+            db::UserInfo user_info;
+            if (user_service_->get_user(user_id, user_info)) {
                 if (user_id_label_) {
-                    user_id_label_->setText(QString("工号: %1").arg(QString::fromStdString(user.employee_id)));
+                    user_id_label_->setText(QString("工号: %1").arg(QString::fromStdString(user_info.employee_id)));
                 }
                 if (user_dept_label_) {
-                    user_dept_label_->setText(QString("部门: %1").arg(QString::fromStdString(user.department)));
+                    user_dept_label_->setText(QString("部门: %1").arg(QString::fromStdString(user_info.department)));
                 }
-                break;
             }
         }
-    } else {
-        // 未识别或无效用户
+    } else if (user_id <= 0) {
+        last_displayed_user_id = -1;
         if (user_id_label_) {
             user_id_label_->setText(tr("工号: --"));
         }

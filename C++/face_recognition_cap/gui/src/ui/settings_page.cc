@@ -28,7 +28,7 @@ SettingsPage::SettingsPage(QWidget* parent)
     , show_confidence_check_(nullptr)
     , duplicate_check_interval_spin_(nullptr)
     , recognition_threshold_spin_(nullptr)
-    , recognition_confirm_count_spin_(nullptr)
+    , user_confirm_duration_spin_(nullptr)
     , work_start_time_edit_(nullptr)
     , work_end_time_edit_(nullptr)
     , late_threshold_spin_(nullptr)
@@ -170,16 +170,18 @@ void SettingsPage::setup_ui() {
     recognition_layout->addWidget(new QLabel(tr("防重复签到:")), 0, 2, Qt::AlignRight);
     recognition_layout->addWidget(duplicate_check_interval_spin_, 0, 3);
     
-    // 第二行：连续确认次数（防误识别）
-    recognition_confirm_count_spin_ = new QSpinBox();
-    recognition_confirm_count_spin_->setRange(1, 10);
-    recognition_confirm_count_spin_->setValue(3);
-    recognition_confirm_count_spin_->setSuffix(" 次");
-    recognition_confirm_count_spin_->setToolTip(tr("连续识别到同一人多少次后才确认签到，可防止误识别"));
-    recognition_layout->addWidget(new QLabel(tr("确认次数:")), 1, 0, Qt::AlignRight);
-    recognition_layout->addWidget(recognition_confirm_count_spin_, 1, 1);
+    // 第二行：用户识别确认时间（防误识别）
+    user_confirm_duration_spin_ = new QDoubleSpinBox();
+    user_confirm_duration_spin_->setRange(0.1, 2.0);
+    user_confirm_duration_spin_->setSingleStep(0.1);
+    user_confirm_duration_spin_->setDecimals(1);
+    user_confirm_duration_spin_->setValue(1.0);
+    user_confirm_duration_spin_->setSuffix(" 秒");
+    user_confirm_duration_spin_->setToolTip(tr("持续识别到同一人多长时间后才确认签到，范围 0.1-2.0 秒"));
+    recognition_layout->addWidget(new QLabel(tr("确认时间:")), 1, 0, Qt::AlignRight);
+    recognition_layout->addWidget(user_confirm_duration_spin_, 1, 1);
     
-    auto confirm_hint = new QLabel(tr("(防止误识别导致错误签到)"));
+    auto confirm_hint = new QLabel(tr("(持续检测时间，防误识别)"));
     confirm_hint->setStyleSheet("color: #8c8c8c; font-size: 12px;");
     recognition_layout->addWidget(confirm_hint, 1, 2, 1, 2);
     
@@ -417,8 +419,9 @@ void SettingsPage::load_settings() {
     if (duplicate_check_interval_spin_) {
         duplicate_check_interval_spin_->setValue(config->getDuplicateCheckInterval());
     }
-    if (recognition_confirm_count_spin_) {
-        recognition_confirm_count_spin_->setValue(config->getRecognitionConfirmCount());
+    if (user_confirm_duration_spin_) {
+        // 毫秒转秒
+        user_confirm_duration_spin_->setValue(config->getUserConfirmDuration() / 1000.0);
     }
     
     // 加载考勤设置
@@ -586,8 +589,9 @@ void SettingsPage::save_settings() {
     if (duplicate_check_interval_spin_) {
         config->setDuplicateCheckInterval(duplicate_check_interval_spin_->value());
     }
-    if (recognition_confirm_count_spin_) {
-        config->setRecognitionConfirmCount(recognition_confirm_count_spin_->value());
+    if (user_confirm_duration_spin_) {
+        // 秒转毫秒
+        config->setUserConfirmDuration(static_cast<int>(user_confirm_duration_spin_->value() * 1000));
     }
     
     // 保存考勤设置
@@ -618,10 +622,10 @@ void SettingsPage::save_settings() {
     }
     
     spdlog::info("Settings saved:");
-    spdlog::info("  - Recognition: threshold={:.2f}, duplicate_interval={}s, confirm_count={}",
+    spdlog::info("  - Recognition: threshold={:.2f}, duplicate_interval={}s, confirm_duration={:.1f}s",
                  recognition_threshold_spin_ ? recognition_threshold_spin_->value() : 0.6,
                  duplicate_check_interval_spin_ ? duplicate_check_interval_spin_->value() : 300,
-                 recognition_confirm_count_spin_ ? recognition_confirm_count_spin_->value() : 3);
+                 user_confirm_duration_spin_ ? user_confirm_duration_spin_->value() : 1.0);
     
     spdlog::info("  - Attendance: work_time={}~{}, late_threshold={}min, early_leave={}min",
                  work_start_time_edit_ ? work_start_time_edit_->time().toString("HH:mm").toStdString() : "09:00",
@@ -677,7 +681,7 @@ void SettingsPage::on_reset_clicked() {
         // 识别设置
         if (recognition_threshold_spin_) recognition_threshold_spin_->setValue(0.60);
         if (duplicate_check_interval_spin_) duplicate_check_interval_spin_->setValue(300);
-        if (recognition_confirm_count_spin_) recognition_confirm_count_spin_->setValue(3);
+        if (user_confirm_duration_spin_) user_confirm_duration_spin_->setValue(1.0);  // 默认1秒
         
         // 考勤设置
         if (work_start_time_edit_) work_start_time_edit_->setTime(QTime(9, 0));
