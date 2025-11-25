@@ -38,6 +38,7 @@ AttendancePage::AttendancePage(QWidget* parent)
     , check_in_label_(nullptr)
     , check_out_label_(nullptr)
     , late_label_(nullptr)
+    , early_leave_label_(nullptr)
     , is_loading_(false) {
     setup_ui();
 }
@@ -216,6 +217,11 @@ CardWidget* AttendancePage::create_statistics_card() {
     auto late_stat = make_stat(tr("迟到次数"), ":/icons/status/alert-circle.svg", "#fa8c16");
     late_label_ = late_stat.second;
     stats_layout->addLayout(late_stat.first, 0, 3);
+
+    // Early Leave - Red (use x-circle icon)
+    auto early_leave_stat = make_stat(tr("早退次数"), ":/icons/status/x-circle.svg", "#f5222d");
+    early_leave_label_ = early_leave_stat.second;
+    stats_layout->addLayout(early_leave_stat.first, 0, 4);
 
     return stats_card;
 }
@@ -478,6 +484,7 @@ void AttendancePage::update_statistics() {
         if (check_in_label_) check_in_label_->setText("0");
         if (check_out_label_) check_out_label_->setText("0");
         if (late_label_) late_label_->setText("0");
+        if (early_leave_label_) early_leave_label_->setText("0");
         return;
     }
     
@@ -485,6 +492,7 @@ void AttendancePage::update_statistics() {
     int check_in_count = 0;
     int check_out_count = 0;
     int late_count = 0;
+    int early_leave_count = 0;
     
     for (const auto& record : filtered_records_) {
         if (record.check_type == 1) {
@@ -495,6 +503,8 @@ void AttendancePage::update_statistics() {
         
         if (record.status == 2) {  // Late
             late_count++;
+        } else if (record.status == 3) {  // Early Leave
+            early_leave_count++;
         }
     }
     
@@ -502,6 +512,7 @@ void AttendancePage::update_statistics() {
     if (check_in_label_) check_in_label_->setText(QString::number(check_in_count));
     if (check_out_label_) check_out_label_->setText(QString::number(check_out_count));
     if (late_label_) late_label_->setText(QString::number(late_count));
+    if (early_leave_label_) early_leave_label_->setText(QString::number(early_leave_count));
 }
 
 void AttendancePage::export_to_csv(const QString& filename) {

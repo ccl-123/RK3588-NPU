@@ -68,6 +68,7 @@ private:
     QLabel* check_in_label_;
     QLabel* check_out_label_;
     QLabel* late_label_;
+    QLabel* early_leave_label_;
     
     // Table
     ModernTableView* records_table_;

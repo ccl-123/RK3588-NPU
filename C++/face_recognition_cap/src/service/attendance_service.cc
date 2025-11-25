@@ -172,20 +172,26 @@ int AttendanceService::auto_determine_check_type(int user_id, std::time_t curren
     int work_end_minutes = work_end_hour_ * 60 + work_end_minute_;
     int midday_minutes = (work_start_minutes + work_end_minutes) / 2;
     
-    // 智能判断：
-    // 1. 如果今天还没签到 → 签到
-    // 2. 如果已签到 + 当前时间在下午（超过中点） + 未签退 → 签退
-    // 3. 如果已签到 + 已签退 + 允许多次签到 → 根据时间段判断
-    // 4. 如果已签到 + 当前时间在上午 → 重复签到
+    // 判断当前是上午时段还是下午时段
+    bool is_afternoon = (current_minutes >= midday_minutes);
     
-    if (!has_checked_in) {
-        return db::CheckType::CHECK_IN;  // 今天第一次打卡，签到
-    } else if (current_minutes >= midday_minutes && !has_checked_out) {
-        return db::CheckType::CHECK_OUT; // 已签到 + 下午 + 未签退 → 签退
-    } else if (current_minutes >= midday_minutes && has_checked_out) {
-        return db::CheckType::CHECK_OUT; // 下午时段 → 签退
+    // 智能判断（基于时间和打卡历史）：
+    // 
+    // 上午时段（中点之前）：
+    //   - 无论是否签到过 → 签到（重复签到，会被拦截）
+    // 
+    // 下午时段（中点之后）：
+    //   - 如果已签到 + 未签退 → 签退
+    //   - 如果已签到 + 已签退 → 签退（重复签退，会被拦截）
+    //   - 如果未签到（新用户/上午没来）→ 签退（直接下午打卡）
+    
+    if (is_afternoon) {
+        // 下午时段：统一返回签退
+        // 这样新注册用户下午首次打卡也会记录为签退
+        return db::CheckType::CHECK_OUT;
     } else {
-        return db::CheckType::CHECK_IN;  // 上午时段 → 签到
+        // 上午时段：统一返回签到
+        return db::CheckType::CHECK_IN;
     }
 }
 

@@ -301,6 +301,12 @@ bool MainWindow::initialize(const std::string& retinaface_model,
         if (last_recognition_.confirm_count == CONFIRM_THRESHOLD) {
             bool is_new_attendance = false;
             
+            // 重要：在 record_attendance 之前确定 check_type
+            // 因为 record_attendance 会在数据库中插入记录，导致之后 auto_determine_check_type 返回下一次的类型
+            std::time_t current_time = std::time(nullptr);
+            int check_type = attendance_service_ ? 
+                attendance_service_->auto_determine_check_type(result.user_id, current_time) : 1;
+            
             // 记录考勤
             if (attendance_service_) {
                 int record_id = attendance_service_->record_attendance(
@@ -310,16 +316,12 @@ bool MainWindow::initialize(const std::string& retinaface_model,
                 is_new_attendance = (record_id > 0);
             }
             
-            spdlog::info("Recognition confirmed: {} (similarity: {:.2f}, is_new: {})",
-                        result.user_name, last_recognition_.similarity, is_new_attendance);
+            const char* type_str = (check_type == 2) ? "签退" : "签到";
+            spdlog::info("Recognition confirmed: {} (similarity: {:.2f}, type: {}, is_new: {})",
+                        result.user_name, last_recognition_.similarity, type_str, is_new_attendance);
 
             // 如果是新考勤记录（签到或签退），显示提示
             if (is_new_attendance) {
-                // 判断是签到还是签退
-                std::time_t current_time = std::time(nullptr);
-                int check_type = attendance_service_ ? 
-                    attendance_service_->auto_determine_check_type(result.user_id, current_time) : 1;
-                
                 // 根据类型播放不同音频
                 if (check_type == 2) {  // CHECK_OUT
                     AudioManager::instance()->playSound(AudioType::CheckOutSuccess);
@@ -336,11 +338,6 @@ bool MainWindow::initialize(const std::string& retinaface_model,
                                           Q_ARG(int, check_type));
             } else {
                 // 重复打卡 - 使用独立的冷却机制避免频繁播放
-                // 判断当前应该是签到还是签退
-                std::time_t current_time = std::time(nullptr);
-                int check_type = attendance_service_ ? 
-                    attendance_service_->auto_determine_check_type(result.user_id, current_time) : 1;
-                
                 // 根据打卡类型选择对应的音频类型（签到和签退分别冷却）
                 AudioType audio_type = (check_type == 2) ? 
                     AudioType::AlreadyCheckedOut : AudioType::AlreadyCheckedIn;
@@ -350,7 +347,6 @@ bool MainWindow::initialize(const std::string& retinaface_model,
                     AudioManager::instance()->playSound(audio_type);
                     updateAudioPlayTime(audio_type);
                     
-                    const char* type_str = (check_type == 2) ? "check-out" : "check-in";
                     spdlog::debug("Played duplicate {} audio", type_str);
                 }
             }
