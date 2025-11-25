@@ -26,7 +26,7 @@ face_recognition_cap/
 │   │   │   ├── modern_table_view.h
 │   │   │   └── ...
 │   │   ├── themes/
-│   │   │   └── theme_manager_v2.h
+│   │   │   └── theme_manager.h
 │   │   └── utils/
 │   │       ├── ui_utils.h
 │   │       └── audio_manager.h
@@ -37,7 +37,7 @@ face_recognition_cap/
 │   │   ├── themes/
 │   │   │   ├── modern_theme.qss           ← 新主题
 │   │   │   ├── modern_theme_dark.qss      ← 暗色主题
-│   │   │   └── theme_manager_v2.cc
+│   │   │   └── theme_manager.cc
 │   │   └── utils/
 │   └── resources/
 │       ├── resources.qrc                   ← 统一资源文件
@@ -72,7 +72,7 @@ int main(int argc, char *argv[]) {
 ```cpp
 #include <QApplication>
 #include "gui/main_window.h"
-#include "themes/theme_manager_v2.h"
+#include "themes/theme_manager.h"
 
 int main(int argc, char *argv[]) {
     QApplication app(argc, argv);

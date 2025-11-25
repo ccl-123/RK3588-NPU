@@ -84,7 +84,7 @@
 ## 📦 相关资源
 
 - [图标规范](../../gui/resources/icons/ICONS_SPEC.md) - SVG 图标使用
-- [快速启动](../../QUICK_START_UI.md) - 3步上手新UI
+- [快速启动](./QUICK_START_UI.md) - 3步上手新UI
 - [主题文件](../../gui/src/themes/) - QSS 主题代码
 
 ---

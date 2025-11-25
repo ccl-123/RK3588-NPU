@@ -130,6 +130,7 @@ if(Qt5_FOUND)
         gui/src/ui/user_management_page.cc
         gui/src/ui/settings_page.cc
         gui/src/themes/ui_resources.qrc
+        gui/resources/resources.qrc
     )
 
     set(MAIN_GUI_SOURCES

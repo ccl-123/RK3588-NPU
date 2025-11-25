@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<RCC>
+    <!-- QSS 主题文件 -->
+    <qresource prefix="/themes">
+        <file alias="modern_theme.qss">../src/themes/modern_theme.qss</file>
+        <file alias="modern_theme_dark.qss">../src/themes/modern_theme_dark.qss</file>
+    </qresource>
+    
+    <!-- Navigation Icons -->
+    <qresource prefix="/icons/navigation">
+        <file alias="home.svg">icons/navigation/home.svg</file>
+        <file alias="users.svg">icons/navigation/users.svg</file>
+        <file alias="calendar.svg">icons/navigation/calendar.svg</file>
+        <file alias="settings.svg">icons/navigation/settings.svg</file>
+        <file alias="menu.svg">icons/navigation/menu.svg</file>
+        <file alias="arrow-left.svg">icons/navigation/arrow-left.svg</file>
+        <file alias="chevron-left.svg">icons/navigation/chevron-left.svg</file>
+        <file alias="chevron-right.svg">icons/navigation/chevron-right.svg</file>
+        <file alias="chevron-down.svg">icons/navigation/chevron-down.svg</file>
+        <file alias="chevron-up.svg">icons/navigation/chevron-up.svg</file>
+    </qresource>
+    
+    <!-- Action Icons -->
+    <qresource prefix="/icons/actions">
+        <file alias="plus.svg">icons/actions/plus.svg</file>
+        <file alias="edit.svg">icons/actions/edit.svg</file>
+        <file alias="delete.svg">icons/actions/delete.svg</file>
+        <file alias="save.svg">icons/actions/save.svg</file>
+        <file alias="search.svg">icons/actions/search.svg</file>
+        <file alias="filter.svg">icons/actions/filter.svg</file>
+        <file alias="refresh.svg">icons/actions/refresh.svg</file>
+        <file alias="download.svg">icons/actions/download.svg</file>
+        <file alias="upload.svg">icons/actions/upload.svg</file>
+        <file alias="camera.svg">icons/actions/camera.svg</file>
+        <file alias="camera-off.svg">icons/actions/camera-off.svg</file>
+        <file alias="play.svg">icons/actions/play.svg</file>
+        <file alias="pause.svg">icons/actions/pause.svg</file>
+        <file alias="stop.svg">icons/actions/stop.svg</file>
+        <file alias="check.svg">icons/actions/check.svg</file>
+        <file alias="close.svg">icons/actions/close.svg</file>
+        <file alias="eye.svg">icons/actions/eye.svg</file>
+        <file alias="eye-off.svg">icons/actions/eye-off.svg</file>
+        <file alias="copy.svg">icons/actions/copy.svg</file>
+    </qresource>
+    
+    <!-- Status Icons -->
+    <qresource prefix="/icons/status">
+        <file alias="check-circle.svg">icons/status/check-circle.svg</file>
+        <file alias="alert-circle.svg">icons/status/alert-circle.svg</file>
+        <file alias="x-circle.svg">icons/status/x-circle.svg</file>
+        <file alias="info.svg">icons/status/info.svg</file>
+        <file alias="clock.svg">icons/status/clock.svg</file>
+        <file alias="user.svg">icons/status/user.svg</file>
+        <file alias="user-check.svg">icons/status/user-check.svg</file>
+        <file alias="user-x.svg">icons/status/user-x.svg</file>
+        <file alias="wifi.svg">icons/status/wifi.svg</file>
+        <file alias="wifi-off.svg">icons/status/wifi-off.svg</file>
+    </qresource>
+    
+    <!-- UI Element Icons -->
+    <qresource prefix="/icons/ui">
+        <file alias="app-logo.svg">icons/ui/app-logo.svg</file>
+        <file alias="sun.svg">icons/ui/sun.svg</file>
+        <file alias="moon.svg">icons/ui/moon.svg</file>
+        <file alias="maximize.svg">icons/ui/maximize.svg</file>
+        <file alias="minimize.svg">icons/ui/minimize.svg</file>
+        <file alias="bell.svg">icons/ui/bell.svg</file>
+        <file alias="bell-off.svg">icons/ui/bell-off.svg</file>
+        <file alias="volume.svg">icons/ui/volume.svg</file>
+        <file alias="volume-off.svg">icons/ui/volume-off.svg</file>
+        <file alias="help-circle.svg">icons/ui/help-circle.svg</file>
+        <file alias="more-vertical.svg">icons/ui/more-vertical.svg</file>
+        <file alias="more-horizontal.svg">icons/ui/more-horizontal.svg</file>
+        <file alias="log-out.svg">icons/ui/log-out.svg</file>
+    </qresource>
+</RCC>

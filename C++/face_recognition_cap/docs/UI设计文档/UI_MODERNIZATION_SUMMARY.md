@@ -18,8 +18,8 @@
 |---------|------|------|
 | `gui/src/themes/modern_theme.qss` | 浅色主题（完整版） | ~15KB |
 | `gui/src/themes/modern_theme_dark.qss` | 暗色主题（完整版） | ~8KB |
-| `gui/include/themes/theme_manager_v2.h` | 主题管理器头文件 | ~2KB |
-| `gui/src/themes/theme_manager_v2.cc` | 主题管理器实现 | ~5KB |
+| `gui/include/themes/theme_manager.h` | 主题管理器头文件 | ~4KB |
+| `gui/src/themes/theme_manager.cc` | 主题管理器实现 | ~5KB |
 
 #### ✨ 主要特性
 - ✅ 完整的浅色/暗色主题
@@ -181,7 +181,7 @@ QIcon icon(":/icons/actions/plus.svg");
 
 ```cpp
 // main.cpp
-#include "themes/theme_manager_v2.h"
+#include "themes/theme_manager.h"
 
 int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
@@ -335,8 +335,8 @@ widget->move(100, 100);
 ```
 ✅ gui/src/themes/modern_theme.qss
 ✅ gui/src/themes/modern_theme_dark.qss
-✅ gui/include/themes/theme_manager_v2.h
-✅ gui/src/themes/theme_manager_v2.cc
+✅ gui/include/themes/theme_manager.h
+✅ gui/src/themes/theme_manager.cc
 ✅ gui/resources/resources.qrc
 ✅ gui/resources/icons/ICONS_SPEC.md
 ✅ docs/UI_DESIGN_SYSTEM.md
@@ -376,7 +376,7 @@ qt5_add_resources(QRC_SOURCES
 # 新的主题管理器源文件
 set(SOURCES
     ${SOURCES}
-    gui/src/themes/theme_manager_v2.cc
+    gui/src/themes/theme_manager.cc
 )
 ```
 

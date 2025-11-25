@@ -24,9 +24,10 @@ public:
     void setVariant(const QString& variant);
     QString variant() const;
 
-private:
-    void rebuildHeader();
+protected:
+    void paintEvent(QPaintEvent* event) override;
 
+private:
     QString variant_;
     QWidget* header_container_;
     QWidget* body_container_;

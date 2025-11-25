@@ -546,11 +546,12 @@ void MainWindow::setup_navigation() {
         return;
     }
 
+    // 使用新 SVG 图标系统
     QList<SideMenu::Item> items = {
-        {"recognition", tr("实时画面"), ""},
-        {"attendance", tr("考勤记录"), ""},
-        {"users", tr("用户管理"), ""},
-        {"settings", tr("系统设置"), ""}
+        {"recognition", tr("实时画面"), ":/icons/navigation/home.svg"},
+        {"attendance", tr("考勤记录"), ":/icons/navigation/calendar.svg"},
+        {"users", tr("用户管理"), ":/icons/navigation/users.svg"},
+        {"settings", tr("系统设置"), ":/icons/navigation/settings.svg"}
     };
     side_menu_->setItems(items);
 

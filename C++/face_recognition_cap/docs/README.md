@@ -74,11 +74,13 @@
 ## 🔗 其他资源
 
 ### 项目根目录文档
-- [QUICK_START_UI.md](../QUICK_START_UI.md) - UI快速启动指南（3步上手）
 - [README.md](../README.md) - 项目主说明文件
 
+### UI 快速启动
+- [QUICK_START_UI.md](./UI设计文档/QUICK_START_UI.md) - UI快速启动指南（3步上手）
+
 ### 代码内文档
-- `gui/resources/icons/ICONS_SPEC.md` - SVG图标使用规范
+- [ICONS_SPEC.md](../gui/resources/icons/ICONS_SPEC.md) - SVG图标使用规范
 
 ---
 

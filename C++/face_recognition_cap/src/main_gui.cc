@@ -17,6 +17,7 @@
 
 #include "gui/main_window.h"
 #include "utils/config_manager.h"
+#include "themes/theme_manager.h"
 
 void setup_logger() {
     try {
@@ -49,10 +50,17 @@ int main(int argc, char* argv[]) {
     // 创建 Qt 应用
     QApplication app(argc, argv);
     app.setApplicationName("人脸识别考勤系统");
-    app.setApplicationVersion("1.0.0");
+    app.setApplicationVersion("2.0.0");
     app.setOrganizationName("FaceRecognition");
     
     spdlog::info("Application started");
+    
+    // 初始化现代化主题系统
+    if (!ThemeManager::instance()->initialize()) {
+        spdlog::warn("Theme manager initialization failed, using default style");
+    } else {
+        spdlog::info("Theme manager initialized successfully");
+    }
     spdlog::info("Qt version: {}", qVersion());
     
     // 获取可执行文件所在目录（应该是 install/face_recognition_cap）

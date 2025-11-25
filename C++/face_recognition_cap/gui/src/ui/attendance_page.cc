@@ -2,6 +2,7 @@
 
 #include "widgets/card_widget.h"
 #include "widgets/modern_table_view.h"
+#include "utils/svg_icon_manager.h"
 
 #include <QLabel>
 #include <QPushButton>
@@ -166,17 +167,18 @@ CardWidget* AttendancePage::create_statistics_card() {
     stats_layout->setHorizontalSpacing(32);
     stats_layout->setVerticalSpacing(12);
 
-    // Helper function to create stat item with icon
-    auto make_stat = [](const QString& title, const QString& icon_text, const QString& color) {
+    // Helper function to create stat item with SVG icon
+    auto make_stat = [](const QString& title, const QString& icon_path, const QString& color) {
         auto wrapper = new QVBoxLayout();
         wrapper->setSpacing(8);
         
         auto header_row = new QHBoxLayout();
         header_row->setSpacing(8);
         
-        // Icon
-        auto icon = new QLabel(icon_text);
-        icon->setStyleSheet(QString("font-size: 20px; color: %1;").arg(color));
+        // SVG Icon
+        auto icon = new QLabel();
+        icon->setPixmap(SvgIconManager::icon(icon_path, QSize(20, 20), QColor(color)).pixmap(20, 20));
+        icon->setFixedSize(20, 20);
         header_row->addWidget(icon);
         
         // Caption
@@ -195,23 +197,23 @@ CardWidget* AttendancePage::create_statistics_card() {
         return std::make_pair(wrapper, value);
     };
 
-    // Total records - Blue
-    auto total_stat = make_stat(tr("总记录"), "📊", "#1677ff");
+    // Total records - Blue (use info icon)
+    auto total_stat = make_stat(tr("总记录"), ":/icons/status/info.svg", "#1677ff");
     total_label_ = total_stat.second;
     stats_layout->addLayout(total_stat.first, 0, 0);
 
-    // Check-in - Green
-    auto check_in_stat = make_stat(tr("签到次数"), "✅", "#52c41a");
+    // Check-in - Green (use check-circle icon)
+    auto check_in_stat = make_stat(tr("签到次数"), ":/icons/status/check-circle.svg", "#52c41a");
     check_in_label_ = check_in_stat.second;
     stats_layout->addLayout(check_in_stat.first, 0, 1);
 
-    // Check-out - Purple
-    auto check_out_stat = make_stat(tr("签退次数"), "👋", "#722ed1");
+    // Check-out - Purple (use user-check icon)
+    auto check_out_stat = make_stat(tr("签退次数"), ":/icons/status/user-check.svg", "#722ed1");
     check_out_label_ = check_out_stat.second;
     stats_layout->addLayout(check_out_stat.first, 0, 2);
 
-    // Late - Orange
-    auto late_stat = make_stat(tr("迟到次数"), "⚠️", "#fa8c16");
+    // Late - Orange (use alert-circle icon)
+    auto late_stat = make_stat(tr("迟到次数"), ":/icons/status/alert-circle.svg", "#fa8c16");
     late_label_ = late_stat.second;
     stats_layout->addLayout(late_stat.first, 0, 3);
 
@@ -378,27 +380,23 @@ void AttendancePage::filter_records() {
         time_item->setTextAlignment(Qt::AlignCenter);
         records_table_->setItem(row, 2, time_item);
 
-        // Check type - with icon and color
+        // Check type - with color styling (no emoji)
         QString type_text = get_check_type_text(record.check_type);
-        QString type_with_icon;
         QColor type_color;
         QColor type_bg_color;
         
         if (record.check_type == 1) {  // Check-in
-            type_with_icon = "✅ " + type_text;
             type_color = QColor("#237804");
             type_bg_color = QColor("#f6ffed");
         } else if (record.check_type == 2) {  // Check-out
-            type_with_icon = "👋 " + type_text;
             type_color = QColor("#531dab");
             type_bg_color = QColor("#f9f0ff");
         } else {
-            type_with_icon = type_text;
             type_color = QColor("#595959");
             type_bg_color = QColor("#fafafa");
         }
         
-        auto type_item = new QTableWidgetItem(type_with_icon);
+        auto type_item = new QTableWidgetItem(type_text);
         type_item->setTextAlignment(Qt::AlignCenter);
         
         QFont type_font = type_item->font();

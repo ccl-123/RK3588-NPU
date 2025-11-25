@@ -1,5 +1,11 @@
-#include "widgets/title_bar.h"
+/**
+ * @file title_bar.cc
+ * @brief 现代化标题栏
+ * @author CL
+ * @date 2025-11-25
+ */
 
+#include "widgets/title_bar.h"
 #include "utils/svg_icon_manager.h"
 #include "widgets/icon_button.h"
 
@@ -8,7 +14,7 @@
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
-#include <QSpacerItem>
+#include <QStyleOption>
 
 TitleBar::TitleBar(QWidget* parent)
     : QWidget(parent)
@@ -19,50 +25,60 @@ TitleBar::TitleBar(QWidget* parent)
     , minimize_button_(new IconButton(this))
     , close_button_(new IconButton(this)) {
     setObjectName("TitleBar");
-    setFixedHeight(64);
+    setFixedHeight(56);
+    setAttribute(Qt::WA_StyledBackground, true);
 
     auto layout = new QHBoxLayout(this);
-    layout->setContentsMargins(24, 0, 24, 0);
-    layout->setSpacing(16);
+    layout->setContentsMargins(0, 0, 16, 0);
+    layout->setSpacing(8);
 
-    title_label_->setText(tr("人脸识别考勤系统"));
-    title_label_->setStyleSheet("font-size: 20px; font-weight: 600;");
+    // 左侧占位区域（与侧边栏宽度对齐：220px）
+    auto left_spacer = new QWidget(this);
+    left_spacer->setFixedWidth(220);
+    left_spacer->setObjectName("TitleBarSpacer");
+    layout->addWidget(left_spacer);
 
+    // 面包屑导航（带左边距）
     breadcrumb_label_->setObjectName("Breadcrumb");
-    breadcrumb_label_->setStyleSheet("color: #8c8c8c;");
+    breadcrumb_label_->setContentsMargins(24, 0, 0, 0);
 
-    theme_button_->setSvg(":/icons/actions/theme.svg", QSize(20, 20));
-    theme_button_->setText(tr("主题"));
-    theme_button_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    theme_button_->setToolTip(tr("切换深色/浅色主题"));
+    // 主题切换按钮
+    theme_button_->setObjectName("ThemeButton");
+    theme_button_->setSvg(":/icons/ui/sun.svg", QSize(18, 18));
+    theme_button_->setToolTip(tr("切换主题"));
+    theme_button_->setFixedSize(36, 36);
 
-    user_button_->setSvg(":/icons/status/user.svg", QSize(20, 20));
-    user_button_->setText(tr("用户"));
-    user_button_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    // 用户菜单按钮
+    user_button_->setObjectName("UserButton");
+    user_button_->setSvg(":/icons/status/user.svg", QSize(18, 18));
     user_button_->setToolTip(tr("用户菜单"));
+    user_button_->setFixedSize(36, 36);
 
-    minimize_button_->setSvg(":/icons/actions/minimize.svg", QSize(16, 16));
-    minimize_button_->setText(tr("最小化"));
-    minimize_button_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    minimize_button_->setToolTip(tr("最小化窗口"));
-    
+    // 最小化按钮
+    minimize_button_->setObjectName("MinimizeButton");
+    minimize_button_->setSvg(":/icons/ui/minimize.svg", QSize(16, 16));
+    minimize_button_->setToolTip(tr("最小化"));
+    minimize_button_->setFixedSize(36, 36);
+
+    // 关闭按钮
+    close_button_->setObjectName("CloseButton");
     close_button_->setSvg(":/icons/actions/close.svg", QSize(16, 16));
-    close_button_->setText(tr("关闭"));
-    close_button_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    close_button_->setToolTip(tr("关闭程序"));
+    close_button_->setToolTip(tr("关闭"));
+    close_button_->setFixedSize(36, 36);
 
-    layout->addWidget(title_label_);
-    layout->addSpacing(12);
     layout->addWidget(breadcrumb_label_);
     layout->addStretch();
     layout->addWidget(theme_button_);
     layout->addWidget(user_button_);
+    layout->addSpacing(8);
     layout->addWidget(minimize_button_);
     layout->addWidget(close_button_);
 
     connect(theme_button_, &QToolButton::clicked, this, &TitleBar::requestToggleTheme);
     connect(minimize_button_, &QToolButton::clicked, this, &TitleBar::requestMinimize);
     connect(close_button_, &QToolButton::clicked, this, &TitleBar::requestClose);
+    
+    // 不使用内联样式，让全局 QSS 控制主题
 }
 
 void TitleBar::setTitle(const QString& title) {
@@ -70,13 +86,47 @@ void TitleBar::setTitle(const QString& title) {
 }
 
 void TitleBar::setBreadcrumb(const QStringList& crumbs) {
-    breadcrumb_label_->setText(crumbs.join(" / "));
+    QString html;
+    for (int i = 0; i < crumbs.size(); ++i) {
+        if (i > 0) {
+            html += " <span style='color:#bfbfbf;'>/</span> ";
+        }
+        if (i == crumbs.size() - 1) {
+            // 最后一项高亮
+            html += QString("<span style='color:#262626; font-weight:600;'>%1</span>").arg(crumbs[i]);
+        } else {
+            html += QString("<span style='color:#8c8c8c;'>%1</span>").arg(crumbs[i]);
+        }
+    }
+    breadcrumb_label_->setText(html);
 }
 
 void TitleBar::setUserMenu(QMenu* menu) {
     if (!menu) {
         return;
     }
+    // 设置菜单样式
+    menu->setStyleSheet(R"(
+        QMenu {
+            background-color: #ffffff;
+            border: 1px solid #e8e8e8;
+            border-radius: 8px;
+            padding: 4px;
+        }
+        QMenu::item {
+            padding: 8px 24px 8px 16px;
+            border-radius: 4px;
+            color: #262626;
+        }
+        QMenu::item:selected {
+            background-color: #f5f5f5;
+        }
+        QMenu::separator {
+            height: 1px;
+            background-color: #f0f0f0;
+            margin: 4px 8px;
+        }
+    )");
     user_button_->setMenu(menu);
     user_button_->setPopupMode(QToolButton::InstantPopup);
 }
@@ -95,3 +145,10 @@ void TitleBar::mouseMoveEvent(QMouseEvent* event) {
     }
 }
 
+void TitleBar::paintEvent(QPaintEvent* event) {
+    QStyleOption opt;
+    opt.init(this);
+    QPainter p(this);
+    style()->drawPrimitive(QStyle::PE_Widget, &opt, &p, this);
+    QWidget::paintEvent(event);
+}

@@ -1,7 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <RCC>
+    <!-- 主题样式表 -->
     <qresource prefix="/ui/themes">
-        <file>theme.qss</file>
-        <file>theme_dark.qss</file>
+        <!-- 新版现代化主题 -->
+        <file alias="theme.qss">modern_theme.qss</file>
+        <file alias="theme_dark.qss">modern_theme_dark.qss</file>
     </qresource>
 </RCC>
-
