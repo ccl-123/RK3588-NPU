@@ -63,6 +63,9 @@ RecognitionPage::RecognitionPage(QWidget* parent)
     , uv_manager_(nullptr)
     , aqi_label_(nullptr)
     , uv_label_(nullptr)
+    , sentence_manager_(nullptr)
+    , sentence_en_label_(nullptr)
+    , sentence_cn_label_(nullptr)
     , current_city_(tr("定位中..."))
     , current_lat_(23.0215)   // 默认佛山坐标
     , current_lon_(113.1214)
@@ -561,6 +564,52 @@ QString RecognitionPage::uvToLevel(double uv) {
     return tr("极高");
 }
 
+void RecognitionPage::refreshDailySentence() {
+    requestDailySentence();
+}
+
+void RecognitionPage::requestDailySentence() {
+    if (!sentence_manager_) {
+        sentence_manager_ = new QNetworkAccessManager(this);
+        connect(sentence_manager_, &QNetworkAccessManager::finished, 
+                this, &RecognitionPage::onDailySentenceReplyFinished);
+    }
+    
+    // 金山词霸每日一句 API
+    QUrl url("https://open.iciba.com/dsapi/");
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::UserAgentHeader, "FaceRecognitionApp/1.0");
+    sentence_manager_->get(request);
+    
+    spdlog::debug("Daily sentence request sent");
+}
+
+void RecognitionPage::onDailySentenceReplyFinished(QNetworkReply* reply) {
+    if (reply->error() == QNetworkReply::NoError) {
+        QByteArray data = reply->readAll();
+        QJsonDocument doc = QJsonDocument::fromJson(data);
+        
+        if (!doc.isNull() && doc.isObject()) {
+            QJsonObject root = doc.object();
+            
+            QString content = root["content"].toString();  // 英文
+            QString note = root["note"].toString();        // 中文翻译
+            
+            if (sentence_en_label_ && !content.isEmpty()) {
+                sentence_en_label_->setText(content);
+            }
+            if (sentence_cn_label_ && !note.isEmpty()) {
+                sentence_cn_label_->setText(note);
+            }
+            
+            spdlog::info("Daily sentence updated: {}", content.left(50).toStdString());
+        }
+    } else {
+        spdlog::warn("Daily sentence request failed: {}", reply->errorString().toStdString());
+    }
+    reply->deleteLater();
+}
+
 CardWidget* RecognitionPage::createVideoCard() {
     auto card = new CardWidget();
     card->setVariant("dark");
@@ -665,7 +714,29 @@ CardWidget* RecognitionPage::createVideoCard() {
     user_info_column->addLayout(detail_row);
     user_info_column->addStretch();
     
-    info_layout->addLayout(user_info_column, 1);
+    info_layout->addLayout(user_info_column);
+    
+    // ===== 中间：每日一句区域 =====
+    auto sentence_container = new QWidget(info_panel);
+    sentence_container->setObjectName("SentenceContainer");
+    sentence_container->setAttribute(Qt::WA_StyledBackground, true);
+    auto sentence_layout = new QVBoxLayout(sentence_container);
+    sentence_layout->setContentsMargins(16, 8, 16, 8);
+    sentence_layout->setSpacing(4);
+    sentence_layout->setAlignment(Qt::AlignCenter);
+    
+    sentence_en_label_ = new QLabel(tr("Loading..."), sentence_container);
+    sentence_en_label_->setObjectName("SentenceEnLabel");
+    sentence_en_label_->setAlignment(Qt::AlignCenter);
+    
+    sentence_cn_label_ = new QLabel(tr("加载中..."), sentence_container);
+    sentence_cn_label_->setObjectName("SentenceCnLabel");
+    sentence_cn_label_->setAlignment(Qt::AlignCenter);
+    
+    sentence_layout->addWidget(sentence_en_label_);
+    sentence_layout->addWidget(sentence_cn_label_);
+    
+    info_layout->addWidget(sentence_container, 1);  // stretch factor = 1, 占据中间空白
     
     // ===== 右侧：识别指标卡片 =====
     auto metrics_container = new QWidget(info_panel);

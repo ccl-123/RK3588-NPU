@@ -792,6 +792,25 @@ QCalendarWidget QMenu {
     background: transparent;
 }
 
+/* 每日一句容器 */
+#SentenceContainer {
+    background: transparent;
+}
+
+#SentenceEnLabel {
+    color: rgba(105, 192, 255, 0.95);
+    font-size: 16px;
+    font-style: italic;
+    font-family: "Georgia", "Times New Roman", serif;
+    background: transparent;
+}
+
+#SentenceCnLabel {
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 14px;
+    background: transparent;
+}
+
 /* 兼容旧标签 */
 #UserInfoLabel {
     color: rgba(255,255,255,0.7);

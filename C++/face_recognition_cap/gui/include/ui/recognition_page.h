@@ -55,6 +55,9 @@ public:
     // 刷新天气
     void refreshWeather();
     void resetLocationCache();  // 重置位置缓存（设置变更后需要调用）
+    
+    // 刷新每日一句
+    void refreshDailySentence();
 
 signals:
     void startRecognitionRequested();
@@ -66,12 +69,14 @@ private slots:
     void onWeatherReplyFinished(QNetworkReply* reply);
     void onAqiReplyFinished(QNetworkReply* reply);
     void onUvReplyFinished(QNetworkReply* reply);
+    void onDailySentenceReplyFinished(QNetworkReply* reply);
 
 private:
     void requestLocation();                 // 请求 IP 定位
     void requestWeather(double lat, double lon);  // 用经纬度请求天气
     void requestAqi(double lat, double lon);      // 请求空气质量
     void requestUv(double lat, double lon);       // 请求紫外线指数
+    void requestDailySentence();            // 请求每日一句
     QString weatherCodeToString(int code);  // 天气代码转中文
     QString aqiToLevel(int aqi);            // AQI 转等级描述
     QString uvToLevel(double uv);           // UV 转等级描述
@@ -121,6 +126,11 @@ private:
     // AQI 和 UV 显示标签
     QLabel* aqi_label_;
     QLabel* uv_label_;
+    
+    // 每日一句
+    QNetworkAccessManager* sentence_manager_;
+    QLabel* sentence_en_label_;   // 英文
+    QLabel* sentence_cn_label_;   // 中文
     
     // 位置信息缓存
     QString current_city_;      // 当前城市名

@@ -388,9 +388,10 @@ bool MainWindow::initialize(const std::string& retinaface_model,
     // 8. 加载今日考勤记录到右侧表格
     load_today_attendance();
     
-    // 9. 初始刷新天气
+    // 9. 初始刷新天气和每日一句
     if (recognition_page_) {
         recognition_page_->refreshWeather();
+        recognition_page_->refreshDailySentence();
     }
 
     return true;
@@ -869,6 +870,13 @@ void MainWindow::update_status() {
         if (++weather_update_counter >= 600) {  // 600秒 = 10分钟
             weather_update_counter = 0;
             recognition_page_->refreshWeather();
+        }
+        
+        // 每1分钟刷新一次每日一句
+        static int sentence_update_counter = 0;
+        if (++sentence_update_counter >= 60) {  // 60秒 = 1分钟
+            sentence_update_counter = 0;
+            recognition_page_->refreshDailySentence();
         }
     }
 }

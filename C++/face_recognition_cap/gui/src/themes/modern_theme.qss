@@ -756,6 +756,25 @@ QToolTip {
     background: transparent;
 }
 
+/* 每日一句容器 */
+#SentenceContainer {
+    background: transparent;
+}
+
+#SentenceEnLabel {
+    color: rgba(24, 144, 255, 0.95);
+    font-size: 16px;
+    font-style: italic;
+    font-family: "Georgia", "Times New Roman", serif;
+    background: transparent;
+}
+
+#SentenceCnLabel {
+    color: #8c8c8c;
+    font-size: 14px;
+    background: transparent;
+}
+
 /* 兼容旧标签 */
 #UserInfoLabel {
     color: #595959;
