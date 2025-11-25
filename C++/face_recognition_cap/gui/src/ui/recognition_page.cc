@@ -565,7 +565,7 @@ QString RecognitionPage::uvToLevel(double uv) {
 }
 
 void RecognitionPage::refreshDailySentence() {
-    requestDailySentence();
+    requestDailySentence();   // 一言（每次随机）
 }
 
 void RecognitionPage::requestDailySentence() {
@@ -575,13 +575,13 @@ void RecognitionPage::requestDailySentence() {
                 this, &RecognitionPage::onDailySentenceReplyFinished);
     }
     
-    // 金山词霸每日一句 API
-    QUrl url("https://open.iciba.com/dsapi/");
+    // 一言 API (hitokoto.cn) - 每次返回不同的随机句子
+    QUrl url("https://v1.hitokoto.cn/");
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::UserAgentHeader, "FaceRecognitionApp/1.0");
     sentence_manager_->get(request);
     
-    spdlog::debug("Daily sentence request sent");
+    spdlog::debug("Hitokoto sentence request sent");
 }
 
 void RecognitionPage::onDailySentenceReplyFinished(QNetworkReply* reply) {
@@ -592,20 +592,26 @@ void RecognitionPage::onDailySentenceReplyFinished(QNetworkReply* reply) {
         if (!doc.isNull() && doc.isObject()) {
             QJsonObject root = doc.object();
             
-            QString content = root["content"].toString();  // 英文
-            QString note = root["note"].toString();        // 中文翻译
+            // 一言 API 返回格式: { "hitokoto": "句子", "from": "来源" }
+            QString hitokoto = root["hitokoto"].toString();  // 句子内容
+            QString from = root["from"].toString();          // 来源
             
-            if (sentence_en_label_ && !content.isEmpty()) {
-                sentence_en_label_->setText(content);
+            if (sentence_en_label_ && !hitokoto.isEmpty()) {
+                sentence_en_label_->setText(hitokoto);
             }
-            if (sentence_cn_label_ && !note.isEmpty()) {
-                sentence_cn_label_->setText(note);
+            if (sentence_cn_label_) {
+                // 显示来源，格式: "—— 来源"
+                if (!from.isEmpty()) {
+                    sentence_cn_label_->setText(QString("—— %1").arg(from));
+                } else {
+                    sentence_cn_label_->setText("");
+                }
             }
             
-            spdlog::info("Daily sentence updated: {}", content.left(50).toStdString());
+            spdlog::info("Hitokoto updated: {}", hitokoto.left(50).toStdString());
         }
     } else {
-        spdlog::warn("Daily sentence request failed: {}", reply->errorString().toStdString());
+        spdlog::warn("Hitokoto request failed: {}", reply->errorString().toStdString());
     }
     reply->deleteLater();
 }
@@ -716,7 +722,7 @@ CardWidget* RecognitionPage::createVideoCard() {
     
     info_layout->addLayout(user_info_column);
     
-    // ===== 中间：每日一句区域 =====
+    // ===== 中间：一言区域 =====
     auto sentence_container = new QWidget(info_panel);
     sentence_container->setObjectName("SentenceContainer");
     sentence_container->setAttribute(Qt::WA_StyledBackground, true);
@@ -728,6 +734,7 @@ CardWidget* RecognitionPage::createVideoCard() {
     sentence_en_label_ = new QLabel(tr("Loading..."), sentence_container);
     sentence_en_label_->setObjectName("SentenceEnLabel");
     sentence_en_label_->setAlignment(Qt::AlignCenter);
+    sentence_en_label_->setWordWrap(false);
     
     sentence_cn_label_ = new QLabel(tr("加载中..."), sentence_container);
     sentence_cn_label_->setObjectName("SentenceCnLabel");

@@ -76,7 +76,7 @@ private:
     void requestWeather(double lat, double lon);  // 用经纬度请求天气
     void requestAqi(double lat, double lon);      // 请求空气质量
     void requestUv(double lat, double lon);       // 请求紫外线指数
-    void requestDailySentence();            // 请求每日一句
+    void requestDailySentence();            // 请求一言（随机）
     QString weatherCodeToString(int code);  // 天气代码转中文
     QString aqiToLevel(int aqi);            // AQI 转等级描述
     QString uvToLevel(double uv);           // UV 转等级描述
@@ -127,10 +127,10 @@ private:
     QLabel* aqi_label_;
     QLabel* uv_label_;
     
-    // 每日一句
+    // 一言（每次随机）
     QNetworkAccessManager* sentence_manager_;
-    QLabel* sentence_en_label_;   // 英文
-    QLabel* sentence_cn_label_;   // 中文
+    QLabel* sentence_en_label_;   // 一言句子
+    QLabel* sentence_cn_label_;   // 一言来源
     
     // 位置信息缓存
     QString current_city_;      // 当前城市名
