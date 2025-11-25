@@ -6,7 +6,7 @@
  */
 
 #include "service/user_service.h"
-#include <iostream>
+#include <spdlog/spdlog.h>
 
 namespace service {
 
@@ -55,7 +55,7 @@ RegistrationResult UserService::register_user(const std::string& user_name,
         result.success = true;
         result.user_id = user_id;
         result.message = "User registered successfully";
-        std::cout << "User registered: " << user_name << " (ID:" << user_id << ")" << std::endl;
+        spdlog::info("User registered: {} (ID: {})", user_name, user_id);
     } else {
         result.success = false;
         result.message = "Failed to insert user into database";
@@ -69,13 +69,13 @@ int UserService::add_face_feature(int user_id, const std::vector<float>& feature
     // 检查用户是否存在
     db::UserInfo user;
     if (!user_dao_->find_by_id(user_id, user)) {
-        std::cerr << "User not found: " << user_id << std::endl;
+        spdlog::error("User not found: {}", user_id);
         return -1;
     }
     
     // 检查特征向量维度
     if (feature_vector.size() != 512) {
-        std::cerr << "Invalid feature vector size: " << feature_vector.size() << std::endl;
+        spdlog::error("Invalid feature vector size: {}", feature_vector.size());
         return -1;
     }
     
@@ -92,8 +92,7 @@ int UserService::add_face_feature(int user_id, const std::vector<float>& feature
     if (feature_id > 0) {
         // 更新内存中的特征库
         feature_library_->add_feature(user_id, user.user_name, feature_vector.data());
-        std::cout << "Face feature added for user: " << user.user_name 
-                  << " (Feature ID:" << feature_id << ")" << std::endl;
+        spdlog::info("Face feature added for user: {} (Feature ID: {})", user.user_name, feature_id);
     }
     
     return feature_id;
@@ -102,17 +101,17 @@ int UserService::add_face_feature(int user_id, const std::vector<float>& feature
 bool UserService::delete_user(int user_id) {
     // 先删除用户的所有特征
     if (!delete_all_features(user_id)) {
-        std::cerr << "Failed to delete user features" << std::endl;
+        spdlog::error("Failed to delete user features for user_id: {}", user_id);
         return false;
     }
     
     // 删除用户
     if (!user_dao_->remove(user_id)) {
-        std::cerr << "Failed to delete user from database" << std::endl;
+        spdlog::error("Failed to delete user from database, user_id: {}", user_id);
         return false;
     }
     
-    std::cout << "User deleted: " << user_id << std::endl;
+    spdlog::info("User deleted: {}", user_id);
     return true;
 }
 

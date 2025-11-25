@@ -6,9 +6,9 @@
  */
 
 #include "service/attendance_service.h"
-#include <iostream>
 #include <sstream>
 #include <iomanip>
+#include <spdlog/spdlog.h>
 
 namespace service {
 
@@ -45,21 +45,21 @@ int AttendanceService::record_attendance(int user_id, const std::string& user_na
     if (allow_multiple_checkin_) {
         // 启用多次签到：只检查短时间内重复（300秒），防止误触
         if (is_duplicate_check(user_id, 300)) {
-            std::cout << "Duplicate check within 5 minutes, ignored." << std::endl;
+            spdlog::debug("Duplicate check within 5 minutes, user_id: {}", user_id);
             return -1;
         }
     } else {
         // 禁用多次签到：今天同类型只能打卡一次
         if (has_today_check_record(user_id, check_type)) {
             const char* type_str = (check_type == db::CheckType::CHECK_IN) ? "签到" : "签退";
-            std::cout << "Already " << type_str << " today, ignored (multiple check-in disabled)." << std::endl;
+            spdlog::debug("Already {} today, user_id: {} (multiple check-in disabled)", type_str, user_id);
             return -1;
         }
         
         // 同时也检查短时间内重复（双重保护）
-    if (is_duplicate_check(user_id, 300)) {
-        std::cout << "Duplicate check within 5 minutes, ignored." << std::endl;
-        return -1;
+        if (is_duplicate_check(user_id, 300)) {
+            spdlog::debug("Duplicate check within 5 minutes, user_id: {}", user_id);
+            return -1;
         }
     }
     
@@ -84,10 +84,8 @@ int AttendanceService::record_attendance(int user_id, const std::string& user_na
         const char* type_str = (check_type == db::CheckType::CHECK_IN) ? "签到" : "签退";
         const char* status_str = (record.status == db::AttendanceStatus::STATUS_NORMAL) ? "正常" :
                                 (record.status == db::AttendanceStatus::STATUS_LATE) ? "迟到" : "早退";
-        std::cout << "Attendance recorded: " << user_name 
-                  << " (ID:" << user_id << ") "
-                  << "Type:" << type_str
-                  << " Status:" << status_str << std::endl;
+        spdlog::info("Attendance recorded: {} (ID: {}, Type: {}, Status: {})", 
+                     user_name, user_id, type_str, status_str);
     }
     
     return record_id;
@@ -207,11 +205,9 @@ void AttendanceService::set_work_schedule(const std::string& work_start_time,
     early_leave_threshold_ = early_leave_threshold;
     allow_multiple_checkin_ = allow_multiple_checkin;
     
-    std::cout << "Work schedule updated: " 
-              << work_start_time << " - " << work_end_time
-              << " (late: " << late_threshold << "min, early_leave: " 
-              << early_leave_threshold << "min, multiple_checkin: " 
-              << (allow_multiple_checkin ? "yes" : "no") << ")" << std::endl;
+    spdlog::info("Work schedule updated: {} - {} (late: {}min, early_leave: {}min, multiple_checkin: {})", 
+                 work_start_time, work_end_time, late_threshold, early_leave_threshold,
+                 allow_multiple_checkin ? "yes" : "no");
 }
 
 std::vector<db::AttendanceRecord> AttendanceService::query_user_records(
