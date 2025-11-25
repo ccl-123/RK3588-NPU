@@ -17,11 +17,13 @@
 #include <QTimer>
 #include <memory>
 #include <thread>
+#include <map>
 
 #include "app/face_recognition_app.h"
 #include "database/database_manager.h"
 #include "service/user_service.h"
 #include "service/attendance_service.h"
+#include "utils/audio_manager.h"
 
 // 前向声明
 class VideoDisplayWidget;
@@ -165,12 +167,26 @@ private:
     static constexpr int CONFIRM_TIMEOUT_MS = 3000;  // 确认超时时间（3秒，给更多时间确认）
     
     // 音频播放冷却机制（防止重复播放）
-    std::chrono::steady_clock::time_point last_audio_play_time_;
-    static constexpr int AUDIO_COOLDOWN_MS = 10000;  // 音频播放冷却时间（10秒）
+    // 使用 map 为不同音频类型分别管理冷却时间，避免互相干扰
+    std::map<AudioType, std::chrono::steady_clock::time_point> last_audio_play_times_;
     
-    // 陌生人检测冷却机制
-    std::chrono::steady_clock::time_point last_stranger_audio_time_;
-    static constexpr int STRANGER_AUDIO_COOLDOWN_MS = 10000;  // 陌生人提示音冷却时间（10秒）
+    // 不同音频类型的冷却时间（毫秒）
+    static constexpr int DUPLICATE_CHECK_COOLDOWN_MS = 10000;   // 重复签到/签退冷却（10秒）
+    static constexpr int STRANGER_AUDIO_COOLDOWN_MS = 10000;    // 陌生人提示音冷却（10秒）
+    
+    /**
+     * @brief 检查音频冷却时间
+     * @param audio_type 音频类型
+     * @param cooldown_ms 冷却时间（毫秒）
+     * @return true=可以播放, false=冷却中
+     */
+    bool checkAudioCooldown(AudioType audio_type, int cooldown_ms);
+    
+    /**
+     * @brief 更新音频播放时间
+     * @param audio_type 音频类型
+     */
+    void updateAudioPlayTime(AudioType audio_type);
 
     // 配置
     std::string retinaface_model_;

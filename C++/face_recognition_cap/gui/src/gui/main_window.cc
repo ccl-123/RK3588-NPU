@@ -45,7 +45,7 @@ Q_DECLARE_METATYPE(std::vector<RecognitionResult>)
 // 定义 static constexpr 成员变量（C++17之前需要类外定义）
 constexpr int MainWindow::CONFIRM_THRESHOLD;
 constexpr int MainWindow::CONFIRM_TIMEOUT_MS;
-constexpr int MainWindow::AUDIO_COOLDOWN_MS;
+constexpr int MainWindow::DUPLICATE_CHECK_COOLDOWN_MS;
 constexpr int MainWindow::STRANGER_AUDIO_COOLDOWN_MS;
 
 MainWindow::MainWindow(QWidget* parent)
@@ -79,9 +79,12 @@ MainWindow::MainWindow(QWidget* parent)
     , camera_id_(0)
     , is_dark_theme_(false)  // 默认使用浅色主题
     , last_recognition_{0, "", 0.0f, 0, std::chrono::steady_clock::now()}
-    , last_audio_play_time_(std::chrono::steady_clock::now() - std::chrono::seconds(10))
-    , last_stranger_audio_time_(std::chrono::steady_clock::now() - std::chrono::seconds(10))
 {
+    // 初始化音频冷却时间（设置为10秒前，确保首次播放不会被阻止）
+    auto init_time = std::chrono::steady_clock::now() - std::chrono::seconds(10);
+    last_audio_play_times_[AudioType::AlreadyCheckedIn] = init_time;
+    last_audio_play_times_[AudioType::AlreadyCheckedOut] = init_time;
+    last_audio_play_times_[AudioType::StrangerDetected] = init_time;
     // 注册 Qt 元类型（必须在使用前注册）
     qRegisterMetaType<cv::Mat>("cv::Mat");
     qRegisterMetaType<std::vector<RecognitionResult>>("std::vector<RecognitionResult>");
@@ -214,17 +217,11 @@ bool MainWindow::initialize(const std::string& retinaface_model,
             
             // 达到确认阈值，播放陌生人提示音
             if (last_recognition_.confirm_count == CONFIRM_THRESHOLD) {
-                auto now_audio = std::chrono::steady_clock::now();
-                auto time_since_last_stranger_audio = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    now_audio - last_stranger_audio_time_).count();
-                
-                if (time_since_last_stranger_audio >= STRANGER_AUDIO_COOLDOWN_MS) {
+                // 使用独立的冷却机制
+                if (checkAudioCooldown(AudioType::StrangerDetected, STRANGER_AUDIO_COOLDOWN_MS)) {
                     AudioManager::instance()->playSound(AudioType::StrangerDetected);
-                    last_stranger_audio_time_ = now_audio;
+                    updateAudioPlayTime(AudioType::StrangerDetected);
                     spdlog::info("Stranger confirmed, played audio");
-                } else {
-                    spdlog::debug("Stranger audio cooldown active, skipped ({}ms remaining)",
-                                STRANGER_AUDIO_COOLDOWN_MS - time_since_last_stranger_audio);
                 }
                 
                 // 重置陌生人计数
@@ -241,7 +238,8 @@ bool MainWindow::initialize(const std::string& retinaface_model,
         if (time_diff > CONFIRM_TIMEOUT_MS || !is_same_person) {
             // 如果之前是陌生人，现在识别到用户，重置陌生人冷却时间
             if (last_recognition_.user_id == 0 && result.user_id > 0) {
-                last_stranger_audio_time_ = std::chrono::steady_clock::now() - std::chrono::seconds(20);
+                last_audio_play_times_[AudioType::StrangerDetected] = 
+                    std::chrono::steady_clock::now() - std::chrono::seconds(20);
                 spdlog::debug("Switched from stranger to user, reset stranger audio cooldown");
             }
             
@@ -318,29 +316,23 @@ bool MainWindow::initialize(const std::string& retinaface_model,
                                           Q_ARG(bool, true),
                                           Q_ARG(int, check_type));
             } else {
-                // 重复打卡 - 使用冷却机制避免频繁播放
-                auto now_audio = std::chrono::steady_clock::now();
-                auto time_since_last_audio = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    now_audio - last_audio_play_time_).count();
+                // 重复打卡 - 使用独立的冷却机制避免频繁播放
+                // 判断当前应该是签到还是签退
+                std::time_t current_time = std::time(nullptr);
+                int check_type = attendance_service_ ? 
+                    attendance_service_->auto_determine_check_type(result.user_id, current_time) : 1;
                 
-                if (time_since_last_audio >= AUDIO_COOLDOWN_MS) {
-                    // 判断当前应该是签到还是签退
-                    std::time_t current_time = std::time(nullptr);
-                    int check_type = attendance_service_ ? 
-                        attendance_service_->auto_determine_check_type(result.user_id, current_time) : 1;
+                // 根据打卡类型选择对应的音频类型（签到和签退分别冷却）
+                AudioType audio_type = (check_type == 2) ? 
+                    AudioType::AlreadyCheckedOut : AudioType::AlreadyCheckedIn;
+                
+                // 检查该类型音频的独立冷却时间
+                if (checkAudioCooldown(audio_type, DUPLICATE_CHECK_COOLDOWN_MS)) {
+                    AudioManager::instance()->playSound(audio_type);
+                    updateAudioPlayTime(audio_type);
                     
-                    // 根据打卡类型播放不同的重复提示音
-                    if (check_type == 2) {  // CHECK_OUT
-                        AudioManager::instance()->playSound(AudioType::AlreadyCheckedOut);
-                        spdlog::debug("Played duplicate check-out audio");
-                    } else {  // CHECK_IN
-                        AudioManager::instance()->playSound(AudioType::AlreadyCheckedIn);
-                        spdlog::debug("Played duplicate check-in audio");
-                    }
-                    last_audio_play_time_ = now_audio;
-                } else {
-                    spdlog::debug("Audio cooldown active, skipped duplicate audio ({}ms remaining)",
-                                AUDIO_COOLDOWN_MS - time_since_last_audio);
+                    const char* type_str = (check_type == 2) ? "check-out" : "check-in";
+                    spdlog::debug("Played duplicate {} audio", type_str);
                 }
             }
             
@@ -373,6 +365,32 @@ void MainWindow::apply_recognition_settings(float threshold) {
         recognition_app_->set_recognition_threshold(threshold);
         spdlog::info("Applied recognition threshold: {:.2f}", threshold);
     }
+}
+
+bool MainWindow::checkAudioCooldown(AudioType audio_type, int cooldown_ms) {
+    auto now = std::chrono::steady_clock::now();
+    
+    // 如果该音频类型从未播放过，可以播放
+    if (last_audio_play_times_.find(audio_type) == last_audio_play_times_.end()) {
+        return true;
+    }
+    
+    // 检查距离上次播放的时间
+    auto time_since_last = std::chrono::duration_cast<std::chrono::milliseconds>(
+        now - last_audio_play_times_[audio_type]).count();
+    
+    if (time_since_last >= cooldown_ms) {
+        return true;  // 冷却时间已过，可以播放
+    } else {
+        spdlog::debug("Audio cooldown active for type {}, {}ms remaining",
+                     static_cast<int>(audio_type), cooldown_ms - time_since_last);
+        return false;  // 还在冷却中
+    }
+}
+
+void MainWindow::updateAudioPlayTime(AudioType audio_type) {
+    last_audio_play_times_[audio_type] = std::chrono::steady_clock::now();
+    spdlog::debug("Updated audio play time for type {}", static_cast<int>(audio_type));
 }
 
 void MainWindow::load_today_attendance() {
