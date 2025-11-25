@@ -14,10 +14,13 @@ namespace service {
 
 AttendanceService::AttendanceService(db::DatabaseManager* db_manager)
     : db_manager_(db_manager)
-    , check_in_start_hour_(8)
-    , check_in_end_hour_(9)
-    , check_out_start_hour_(17)
-    , check_out_end_hour_(18)
+    , work_start_hour_(9)
+    , work_start_minute_(0)
+    , work_end_hour_(18)
+    , work_end_minute_(0)
+    , late_threshold_(30)
+    , early_leave_threshold_(30)
+    , allow_multiple_checkin_(false)
 {
     record_dao_ = new db::AttendanceRecordDAO(db_manager_);
     user_dao_ = new db::UserDAO(db_manager_);
@@ -31,17 +34,40 @@ AttendanceService::~AttendanceService() {
 int AttendanceService::record_attendance(int user_id, const std::string& user_name,
                                         float similarity, const std::string& face_image_path,
                                         int check_type) {
-    // 检查重复打卡
-    if (is_duplicate_check(user_id, 300)) {
-        std::cout << "Duplicate check within 5 minutes, ignored." << std::endl;
-        return -1;
+    std::time_t current_time = std::time(nullptr);
+    
+    // 如果 check_type 为默认值（1），自动判断是签到还是签退
+    if (check_type == db::CheckType::CHECK_IN) {
+        check_type = auto_determine_check_type(user_id, current_time);
+    }
+    
+    // 检查是否允许打卡（基于多次签到开关）
+    if (allow_multiple_checkin_) {
+        // 启用多次签到：只检查短时间内重复（300秒），防止误触
+        if (is_duplicate_check(user_id, 300)) {
+            std::cout << "Duplicate check within 5 minutes, ignored." << std::endl;
+            return -1;
+        }
+    } else {
+        // 禁用多次签到：今天同类型只能打卡一次
+        if (has_today_check_record(user_id, check_type)) {
+            const char* type_str = (check_type == db::CheckType::CHECK_IN) ? "签到" : "签退";
+            std::cout << "Already " << type_str << " today, ignored (multiple check-in disabled)." << std::endl;
+            return -1;
+        }
+        
+        // 同时也检查短时间内重复（双重保护）
+        if (is_duplicate_check(user_id, 300)) {
+            std::cout << "Duplicate check within 5 minutes, ignored." << std::endl;
+            return -1;
+        }
     }
     
     // 创建考勤记录
     db::AttendanceRecord record;
     record.user_id = user_id;
     record.user_name = user_name;
-    record.check_time = std::time(nullptr);
+    record.check_time = current_time;
     record.check_type = check_type;
     record.similarity = similarity;
     record.face_image = face_image_path;
@@ -55,10 +81,13 @@ int AttendanceService::record_attendance(int user_id, const std::string& user_na
     int record_id = record_dao_->insert(record);
     
     if (record_id > 0) {
+        const char* type_str = (check_type == db::CheckType::CHECK_IN) ? "签到" : "签退";
+        const char* status_str = (record.status == db::AttendanceStatus::STATUS_NORMAL) ? "正常" :
+                                (record.status == db::AttendanceStatus::STATUS_LATE) ? "迟到" : "早退";
         std::cout << "Attendance recorded: " << user_name 
                   << " (ID:" << user_id << ") "
-                  << "Type:" << check_type 
-                  << " Status:" << record.status << std::endl;
+                  << "Type:" << type_str
+                  << " Status:" << status_str << std::endl;
     }
     
     return record_id;
@@ -68,30 +97,121 @@ bool AttendanceService::is_duplicate_check(int user_id, int interval_seconds) {
     return record_dao_->has_recent_record(user_id, interval_seconds);
 }
 
+bool AttendanceService::has_today_check_record(int user_id, int check_type) {
+    // 查询今天的所有记录
+    std::string today = get_current_date();
+    auto today_records = record_dao_->find_by_date(today);
+    
+    // 检查该用户今天是否已有指定类型的打卡记录
+    for (const auto& record : today_records) {
+        if (record.user_id == user_id && record.check_type == check_type) {
+            return true;  // 今天已有该类型的打卡
+        }
+    }
+    
+    return false;  // 今天还没有该类型的打卡
+}
+
 int AttendanceService::determine_status(std::time_t check_time, int check_type) {
     std::tm* tm_info = std::localtime(&check_time);
     int hour = tm_info->tm_hour;
     int minute = tm_info->tm_min;
     
+    // 将打卡时间转换为分钟数（从 00:00 开始计算）
+    int check_minutes = hour * 60 + minute;
+    
     if (check_type == db::CheckType::CHECK_IN) {
-        // 签到逻辑
-        if (hour < check_in_start_hour_) {
-            return db::AttendanceStatus::STATUS_NORMAL;  // 早到也算正常
-        } else if (hour < check_in_end_hour_) {
-            return db::AttendanceStatus::STATUS_NORMAL;
+        // 签到逻辑：基于上班时间 + 迟到阈值
+        int work_start_minutes = work_start_hour_ * 60 + work_start_minute_;
+        int late_limit_minutes = work_start_minutes + late_threshold_;
+        
+        if (check_minutes <= late_limit_minutes) {
+            return db::AttendanceStatus::STATUS_NORMAL;  // 在迟到阈值内，正常
         } else {
-            return db::AttendanceStatus::STATUS_LATE;    // 迟到
+            return db::AttendanceStatus::STATUS_LATE;    // 超过迟到阈值，迟到
         }
     } else if (check_type == db::CheckType::CHECK_OUT) {
-        // 签退逻辑
-        if (hour < check_out_start_hour_) {
-            return db::AttendanceStatus::STATUS_EARLY_LEAVE;  // 早退
+        // 签退逻辑：基于下班时间 - 早退阈值
+        int work_end_minutes = work_end_hour_ * 60 + work_end_minute_;
+        int early_leave_limit_minutes = work_end_minutes - early_leave_threshold_;
+        
+        if (check_minutes < early_leave_limit_minutes) {
+            return db::AttendanceStatus::STATUS_EARLY_LEAVE;  // 提前太多，早退
         } else {
-            return db::AttendanceStatus::STATUS_NORMAL;
+            return db::AttendanceStatus::STATUS_NORMAL;       // 正常签退
         }
     }
     
     return db::AttendanceStatus::STATUS_NORMAL;
+}
+
+int AttendanceService::auto_determine_check_type(int user_id, std::time_t current_time) {
+    // 查询今天是否已有签到/签退记录
+    std::string today = get_current_date();
+    auto today_records = record_dao_->find_by_date(today);
+    
+    // 检查该用户今天的打卡情况
+    bool has_checked_in = false;
+    bool has_checked_out = false;
+    for (const auto& record : today_records) {
+        if (record.user_id == user_id) {
+            if (record.check_type == db::CheckType::CHECK_IN) {
+                has_checked_in = true;
+            } else if (record.check_type == db::CheckType::CHECK_OUT) {
+                has_checked_out = true;
+            }
+        }
+    }
+    
+    // 判断当前时间是上午还是下午
+    std::tm* tm_info = std::localtime(&current_time);
+    int hour = tm_info->tm_hour;
+    int minute = tm_info->tm_min;
+    int current_minutes = hour * 60 + minute;
+    
+    // 计算工作时间的中点
+    int work_start_minutes = work_start_hour_ * 60 + work_start_minute_;
+    int work_end_minutes = work_end_hour_ * 60 + work_end_minute_;
+    int midday_minutes = (work_start_minutes + work_end_minutes) / 2;
+    
+    // 智能判断：
+    // 1. 如果今天还没签到 → 签到
+    // 2. 如果已签到 + 当前时间在下午（超过中点） + 未签退 → 签退
+    // 3. 如果已签到 + 已签退 + 允许多次签到 → 根据时间段判断
+    // 4. 如果已签到 + 当前时间在上午 → 重复签到
+    
+    if (!has_checked_in) {
+        return db::CheckType::CHECK_IN;  // 今天第一次打卡，签到
+    } else if (current_minutes >= midday_minutes && !has_checked_out) {
+        return db::CheckType::CHECK_OUT; // 已签到 + 下午 + 未签退 → 签退
+    } else if (current_minutes >= midday_minutes && has_checked_out) {
+        return db::CheckType::CHECK_OUT; // 下午时段 → 签退
+    } else {
+        return db::CheckType::CHECK_IN;  // 上午时段 → 签到
+    }
+}
+
+void AttendanceService::set_work_schedule(const std::string& work_start_time,
+                                         const std::string& work_end_time,
+                                         int late_threshold,
+                                         int early_leave_threshold,
+                                         bool allow_multiple_checkin) {
+    // 解析上班时间（HH:mm 格式）
+    sscanf(work_start_time.c_str(), "%d:%d", &work_start_hour_, &work_start_minute_);
+    
+    // 解析下班时间（HH:mm 格式）
+    sscanf(work_end_time.c_str(), "%d:%d", &work_end_hour_, &work_end_minute_);
+    
+    // 设置阈值
+    late_threshold_ = late_threshold;
+    early_leave_threshold_ = early_leave_threshold;
+    allow_multiple_checkin_ = allow_multiple_checkin;
+    
+    std::cout << "Work schedule updated: " 
+              << work_start_time << " - " << work_end_time
+              << " (late: " << late_threshold << "min, early_leave: " 
+              << early_leave_threshold << "min, multiple_checkin: " 
+              << (allow_multiple_checkin ? "yes" : "no") << ")" << std::endl;
 }
 
 std::vector<db::AttendanceRecord> AttendanceService::query_user_records(

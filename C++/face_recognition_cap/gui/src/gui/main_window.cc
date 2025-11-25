@@ -164,6 +164,18 @@ bool MainWindow::initialize(const std::string& retinaface_model,
         AudioManager::instance()->setAudioDevice(audioDevice);
     }
     spdlog::info("AudioManager initialized from config");
+    
+    // 5. 配置考勤服务的工作时间规则（从配置文件加载）
+    if (attendance_service_) {
+        attendance_service_->set_work_schedule(
+            ConfigManager::instance()->getWorkStartTime().toStdString(),
+            ConfigManager::instance()->getWorkEndTime().toStdString(),
+            ConfigManager::instance()->getLateThreshold(),
+            ConfigManager::instance()->getEarlyLeaveThreshold(),
+            ConfigManager::instance()->isAllowMultipleCheckin()
+        );
+        spdlog::info("Attendance work schedule configured from settings");
+    }
 
     // 设置识别回调（带连续确认机制，防止误识别导致错误签到）
     recognition_app_->set_recognition_callback([this](const RecognitionResult& result) {
@@ -272,16 +284,28 @@ bool MainWindow::initialize(const std::string& retinaface_model,
             spdlog::info("Recognition confirmed: {} (similarity: {:.2f}, is_new: {})",
                         result.user_name, last_recognition_.similarity, is_new_attendance);
 
-            // 如果是新签到，显示提示
+            // 如果是新考勤记录（签到或签退），显示提示
             if (is_new_attendance) {
-                // 播放签到成功音频（新签到总是播放）
-                AudioManager::instance()->playSound(AudioType::CheckInSuccess);
+                // 判断是签到还是签退
+                std::time_t current_time = std::time(nullptr);
+                int check_type = attendance_service_ ? 
+                    attendance_service_->auto_determine_check_type(result.user_id, current_time) : 1;
                 
-                QMetaObject::invokeMethod(this, [this, name = result.user_name]() {
+                // 根据类型播放不同音频
+                if (check_type == 2) {  // CHECK_OUT
+                    AudioManager::instance()->playSound(AudioType::CheckOutSuccess);
+                } else {  // CHECK_IN
+                    AudioManager::instance()->playSound(AudioType::CheckInSuccess);
+                }
+                
+                QMetaObject::invokeMethod(this, [this, name = result.user_name, check_type]() {
                     if (!attendance_status_label_) {
                         return;
                     }
-                    attendance_status_label_->setText(QString("✓ %1 签到成功").arg(QString::fromStdString(name)));
+                    QString msg = (check_type == 2) ? 
+                        QString("✓ %1 签退成功").arg(QString::fromStdString(name)) :
+                        QString("✓ %1 签到成功").arg(QString::fromStdString(name));
+                    attendance_status_label_->setText(msg);
                     attendance_status_label_->setVisible(true);
 
                     // 3秒后隐藏提示
@@ -296,7 +320,7 @@ bool MainWindow::initialize(const std::string& retinaface_model,
                 emit on_recognition_result(result.user_id,
                                           QString::fromStdString(result.user_name),
                                           last_recognition_.similarity,
-                                          true);  // 标记为新签到
+                                          true);  // 标记为新考勤记录
             } else {
                 // 重复签到 - 使用冷却机制避免频繁播放
                 auto now_audio = std::chrono::steady_clock::now();
@@ -320,7 +344,7 @@ bool MainWindow::initialize(const std::string& retinaface_model,
     
     spdlog::info("System initialized successfully");
 
-    // 4. 设置页面服务
+    // 6. 设置页面服务
     if (attendance_page_) {
         attendance_page_->setAttendanceService(attendance_service_.get());
     }
@@ -328,7 +352,7 @@ bool MainWindow::initialize(const std::string& retinaface_model,
         user_page_->setUserService(user_service_.get());
     }
 
-    // 5. 初始加载用户列表
+    // 7. 初始加载用户列表
     load_users();
 
     return true;
@@ -509,12 +533,25 @@ void MainWindow::connect_page_signals() {
         connect(settings_page_, &SettingsPage::themeToggleRequested,
                 this, &MainWindow::on_action_toggle_theme);
         
-        // 连接设置变更信号，实时应用识别阈值
+        // 连接设置变更信号，实时应用识别阈值和考勤规则
         connect(settings_page_, &SettingsPage::settingsChanged,
                 this, [this]() {
             if (settings_page_) {
+                // 应用识别阈值
                 float threshold = settings_page_->getRecognitionThreshold();
                 apply_recognition_settings(threshold);
+                
+                // 应用考勤工作时间规则
+                if (attendance_service_) {
+                    attendance_service_->set_work_schedule(
+                        ConfigManager::instance()->getWorkStartTime().toStdString(),
+                        ConfigManager::instance()->getWorkEndTime().toStdString(),
+                        ConfigManager::instance()->getLateThreshold(),
+                        ConfigManager::instance()->getEarlyLeaveThreshold(),
+                        ConfigManager::instance()->isAllowMultipleCheckin()
+                    );
+                    spdlog::info("Attendance work schedule updated from settings");
+                }
             }
         });
     }
@@ -598,10 +635,14 @@ void MainWindow::on_frame_ready(const cv::Mat& frame, const std::vector<Recognit
         fr.similarity = result.similarity;
         fr.is_recognized = (result.user_id > 0);
 
-        // 检查是否已签到（5分钟内）
+        // 检查是否已打卡（5分钟内）并判断打卡类型
         fr.is_duplicate = false;
+        fr.check_type = 1;  // 默认签到
         if (attendance_service_ && result.user_id > 0) {
             fr.is_duplicate = attendance_service_->is_duplicate_check(result.user_id, 300);
+            // 自动判断打卡类型
+            std::time_t current_time = std::time(nullptr);
+            fr.check_type = attendance_service_->auto_determine_check_type(result.user_id, current_time);
         }
 
         face_results.push_back(fr);

@@ -52,12 +52,20 @@ public:
                          int check_type = 1);
     
     /**
-     * @brief 检查是否重复打卡
+     * @brief 检查是否重复打卡（短时间内）
      * @param user_id 用户ID
      * @param interval_seconds 时间间隔(秒)
      * @return true重复, false不重复
      */
     bool is_duplicate_check(int user_id, int interval_seconds = 300);
+    
+    /**
+     * @brief 检查今天是否已有指定类型的打卡记录
+     * @param user_id 用户ID
+     * @param check_type 打卡类型（1=签到, 2=签退）
+     * @return true已打卡, false未打卡
+     */
+    bool has_today_check_record(int user_id, int check_type);
     
     /**
      * @brief 判断考勤状态(正常/迟到/早退)
@@ -66,6 +74,28 @@ public:
      * @return 状态码(1=正常, 2=迟到, 3=早退)
      */
     int determine_status(std::time_t check_time, int check_type);
+    
+    /**
+     * @brief 自动判断打卡类型（签到/签退）
+     * @param user_id 用户ID
+     * @param current_time 当前时间
+     * @return 1=签到, 2=签退
+     */
+    int auto_determine_check_type(int user_id, std::time_t current_time);
+    
+    /**
+     * @brief 设置考勤时间规则（从配置读取）
+     * @param work_start_time 上班时间（HH:mm 格式）
+     * @param work_end_time 下班时间（HH:mm 格式）
+     * @param late_threshold 迟到阈值（分钟）
+     * @param early_leave_threshold 早退阈值（分钟）
+     * @param allow_multiple_checkin 是否允许一天多次签到
+     */
+    void set_work_schedule(const std::string& work_start_time,
+                          const std::string& work_end_time,
+                          int late_threshold,
+                          int early_leave_threshold,
+                          bool allow_multiple_checkin = false);
     
     /**
      * @brief 查询用户考勤记录
@@ -127,11 +157,14 @@ private:
     db::AttendanceRecordDAO* record_dao_;
     db::UserDAO* user_dao_;
     
-    // 考勤规则配置
-    int check_in_start_hour_;   // 签到开始时间(小时)
-    int check_in_end_hour_;     // 签到结束时间(小时)
-    int check_out_start_hour_;  // 签退开始时间(小时)
-    int check_out_end_hour_;    // 签退结束时间(小时)
+    // 考勤规则配置（支持分钟级精度）
+    int work_start_hour_;       // 上班时间（小时）
+    int work_start_minute_;     // 上班时间（分钟）
+    int work_end_hour_;         // 下班时间（小时）
+    int work_end_minute_;       // 下班时间（分钟）
+    int late_threshold_;        // 迟到阈值（分钟）
+    int early_leave_threshold_; // 早退阈值（分钟）
+    bool allow_multiple_checkin_; // 是否允许一天多次签到
 };
 
 } // namespace service

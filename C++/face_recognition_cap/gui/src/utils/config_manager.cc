@@ -39,11 +39,11 @@ ConfigManager* ConfigManager::instance() {
 
 // 识别设置
 float ConfigManager::getRecognitionThreshold() const {
-    return settings_->value("recognition/threshold", 0.60).toFloat();
+    return settings_->value("recognition/threshold", 0.60).toDouble();
 }
 
 void ConfigManager::setRecognitionThreshold(float threshold) {
-    settings_->setValue("recognition/threshold", threshold);
+    settings_->setValue("recognition/threshold", static_cast<double>(threshold));
     settings_->sync();
 }
 

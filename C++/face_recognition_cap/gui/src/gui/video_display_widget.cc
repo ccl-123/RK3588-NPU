@@ -151,12 +151,14 @@ void VideoDisplayWidget::draw_face_results(QPainter& painter) {
         // 注意：人脸框和名称已经由 OpenCV 在图像上绘制，这里不再重复绘制
         // 只绘制额外的提示信息（如"已签到"）
 
-        // 如果已签到，在人脸框上方显示"已签到"提示
+        // 如果已打卡，在人脸框上方显示状态提示
         if (result.is_recognized && result.is_duplicate) {
             painter.setFont(QFont("Arial", 12, QFont::Bold));
             painter.setPen(Qt::green);
 
-            QString status_text = QString::fromUtf8("已签到");
+            // 根据打卡类型显示不同文字
+            QString status_text = (result.check_type == 2) ? 
+                QString::fromUtf8("已签退") : QString::fromUtf8("已签到");
             QFontMetrics fm(painter.font());
             int text_width = fm.horizontalAdvance(status_text);
             int text_height = fm.height();

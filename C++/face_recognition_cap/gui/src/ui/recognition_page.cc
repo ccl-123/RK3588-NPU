@@ -115,7 +115,7 @@ CardWidget* RecognitionPage::createVideoCard() {
     info_panel->setStyleSheet(R"(
         QWidget#UserInfoPanel {
             background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                stop:0 rgba(0,0,0,0.9), stop:1 rgba(0,0,0,0.8));
+                stop:0 rgba(0,0,0,0.92), stop:1 rgba(0,0,0,0.85));
             border-top: 2px solid #1677ff;
         }
         QWidget#UserInfoPanel QLabel {
@@ -123,46 +123,70 @@ CardWidget* RecognitionPage::createVideoCard() {
         }
     )");
     
-    // 固定高度，不会被压缩
-    info_panel->setFixedHeight(95);
-    info_panel->setMinimumHeight(95);
+    // 增加高度以容纳更多信息
+    info_panel->setFixedHeight(140);
+    info_panel->setMinimumHeight(140);
     info_panel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     
     // 信息面板布局
     auto info_layout = new QVBoxLayout(info_panel);
-    info_layout->setContentsMargins(20, 12, 20, 12);
-    info_layout->setSpacing(10);
+    info_layout->setContentsMargins(24, 16, 24, 16);
+    info_layout->setSpacing(12);
     
-    // 第一行：用户名
+    // 第一行：用户名 + 考勤状态标签
     auto name_row = new QHBoxLayout();
-    name_row->setSpacing(8);
+    name_row->setSpacing(12);
     
     user_name_label_ = new QLabel(tr("等待识别..."), info_panel);
-    user_name_label_->setStyleSheet("color: #ffffff; font-size: 16px; font-weight: bold; background: transparent;");
+    user_name_label_->setStyleSheet("color: #ffffff; font-size: 18px; font-weight: bold; background: transparent;");
+    
+    attendance_status_label_ = new QLabel(info_panel);
+    attendance_status_label_->setObjectName("AttendanceStatusInline");
+    attendance_status_label_->setStyleSheet(
+        "background: #52c41a; color: white; padding: 4px 16px; "
+        "border-radius: 12px; font-size: 13px; font-weight: bold;");
+    attendance_status_label_->setVisible(false);
     
     name_row->addWidget(user_name_label_);
+    name_row->addWidget(attendance_status_label_);
     name_row->addStretch();
     
-    // 第二行：详细信息（工号、部门、相似度）
-    auto detail_row = new QHBoxLayout();
-    detail_row->setSpacing(32);
+    // 第二行：基本信息（工号、部门）
+    auto basic_row = new QHBoxLayout();
+    basic_row->setSpacing(40);
     
     user_id_label_ = new QLabel(tr("工号: --"), info_panel);
-    user_id_label_->setStyleSheet("color: #bfbfbf; font-size: 13px; background: transparent;");
+    user_id_label_->setStyleSheet("color: #d9d9d9; font-size: 14px; background: transparent;");
     
     user_dept_label_ = new QLabel(tr("部门: --"), info_panel);
-    user_dept_label_->setStyleSheet("color: #bfbfbf; font-size: 13px; background: transparent;");
+    user_dept_label_->setStyleSheet("color: #d9d9d9; font-size: 14px; background: transparent;");
+    
+    basic_row->addWidget(user_id_label_);
+    basic_row->addWidget(user_dept_label_);
+    basic_row->addStretch();
+    
+    // 第三行：识别信息（相似度、识别时间、打卡类型）
+    auto recog_row = new QHBoxLayout();
+    recog_row->setSpacing(40);
     
     user_similarity_label_ = new QLabel(tr("相似度: --"), info_panel);
     user_similarity_label_->setStyleSheet("color: #bfbfbf; font-size: 13px; background: transparent;");
     
-    detail_row->addWidget(user_id_label_);
-    detail_row->addWidget(user_dept_label_);
-    detail_row->addWidget(user_similarity_label_);
-    detail_row->addStretch();
+    recognition_label_ = new QLabel(tr("识别: 未识别"), info_panel);
+    recognition_label_->setStyleSheet("color: #bfbfbf; font-size: 13px; background: transparent;");
+    
+    auto check_type_label = new QLabel(tr("打卡类型: --"), info_panel);
+    check_type_label->setObjectName("CheckTypeLabel");
+    check_type_label->setStyleSheet("color: #bfbfbf; font-size: 13px; background: transparent;");
+    
+    recog_row->addWidget(user_similarity_label_);
+    recog_row->addWidget(recognition_label_);
+    recog_row->addWidget(check_type_label);
+    recog_row->addStretch();
     
     info_layout->addLayout(name_row);
-    info_layout->addLayout(detail_row);
+    info_layout->addLayout(basic_row);
+    info_layout->addLayout(recog_row);
     
     // 添加信息面板到主布局（拉伸因子为0，固定在底部）
     main_layout->addWidget(info_panel, 0);
@@ -178,16 +202,10 @@ CardWidget* RecognitionPage::createVideoCard() {
 
 CardWidget* RecognitionPage::createStatusCard() {
     auto card = new CardWidget();
-    card->setTitle(tr("识别状态"));
+    card->setTitle(tr("系统控制"));
 
     status_label_ = new QLabel(tr("就绪"));
-    recognition_label_ = new QLabel(tr("未识别"));
     fps_label_ = new QLabel(tr("FPS: 0"));
-    attendance_status_label_ = new QLabel();
-    attendance_status_label_->setObjectName("AttendanceStatus");
-    attendance_status_label_->setStyleSheet(
-        "background: #52c41a; color: white; padding: 6px 12px; border-radius: 12px;");
-    attendance_status_label_->setVisible(false);
 
     auto grid = new QGridLayout(card->bodyContainer());
     grid->setContentsMargins(0, 0, 0, 0);
@@ -196,12 +214,8 @@ CardWidget* RecognitionPage::createStatusCard() {
 
     grid->addWidget(new QLabel(tr("系统状态")), 0, 0);
     grid->addWidget(status_label_, 0, 1);
-    grid->addWidget(new QLabel(tr("识别结果")), 1, 0);
-    grid->addWidget(recognition_label_, 1, 1);
-    grid->addWidget(new QLabel(tr("帧率")), 2, 0);
-    grid->addWidget(fps_label_, 2, 1);
-    grid->addWidget(new QLabel(tr("提示")), 3, 0);
-    grid->addWidget(attendance_status_label_, 3, 1);
+    grid->addWidget(new QLabel(tr("帧率")), 1, 0);
+    grid->addWidget(fps_label_, 1, 1);
 
     auto button_row = new QHBoxLayout();
     button_row->setSpacing(12);
@@ -221,7 +235,7 @@ CardWidget* RecognitionPage::createStatusCard() {
     button_row->addWidget(register_btn);
     button_row->addStretch();
 
-    grid->addLayout(button_row, 4, 0, 1, 2);
+    grid->addLayout(button_row, 2, 0, 1, 2);
 
     return card;
 }
