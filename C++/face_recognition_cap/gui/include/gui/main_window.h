@@ -163,8 +163,18 @@ private:
         std::chrono::steady_clock::time_point last_seen;
     };
     RecognitionConfirmation last_recognition_;
-    static constexpr int CONFIRM_THRESHOLD = 5;  // 需要连续识别5次才确认（提高准确性）
-    static constexpr int CONFIRM_TIMEOUT_MS = 3000;  // 确认超时时间（3秒，给更多时间确认）
+    static constexpr int CONFIRM_THRESHOLD = 5;  // 需要连续识别5次才确认（已注册用户）
+    static constexpr int CONFIRM_TIMEOUT_MS = 1000;  // 确认超时时间（1秒，帧间隔）
+    
+    // 陌生人持续检测机制（基于时间而非帧数）
+    struct StrangerDetection {
+        bool is_detecting;                                      // 是否正在检测陌生人
+        std::chrono::steady_clock::time_point first_seen;       // 第一次检测到陌生人的时间
+        std::chrono::steady_clock::time_point last_seen;        // 最后一次检测到陌生人的时间
+    };
+    StrangerDetection stranger_detection_;
+    static constexpr int STRANGER_CONFIRM_DURATION_MS = 2000;   // 陌生人确认时长（2秒）
+    static constexpr int STRANGER_DETECTION_TIMEOUT_MS = 500;   // 陌生人检测超时（500ms，帧间隔容差）
     
     // 音频播放冷却机制（防止重复播放）
     // 使用 map 为不同音频类型分别管理冷却时间，避免互相干扰
