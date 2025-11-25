@@ -8,9 +8,7 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
-#include <QFormLayout>
 #include <QGridLayout>
-#include <QGroupBox>
 #include <QMessageBox>
 #include <QFileInfo>
 #include <QVariant>

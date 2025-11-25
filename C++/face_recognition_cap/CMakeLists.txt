@@ -112,7 +112,6 @@ if(Qt5_FOUND)
         gui/src/gui/attendance_query_widget.cc
         gui/src/gui/user_management_widget.cc
         gui/src/gui/about_dialog.cc
-        gui/src/gui/toast.cc
         gui/src/themes/theme_manager.cc
         gui/src/utils/svg_icon_manager.cc
         gui/src/utils/stack_router.cc
@@ -126,7 +125,6 @@ if(Qt5_FOUND)
         gui/src/widgets/title_bar.cc
         gui/src/widgets/side_menu.cc
         gui/src/widgets/toast_notification.cc
-        gui/src/ui/dashboard_page.cc
         gui/src/ui/recognition_page.cc
         gui/src/ui/attendance_page.cc
         gui/src/ui/user_management_page.cc
@@ -167,7 +165,6 @@ if(Qt5_FOUND)
         gui/include/gui/attendance_query_widget.h
         gui/include/gui/user_management_widget.h
         gui/include/gui/about_dialog.h
-        gui/include/gui/toast.h
         gui/include/themes/theme_manager.h
         gui/include/utils/svg_icon_manager.h
         gui/include/utils/stack_router.h
@@ -181,7 +178,6 @@ if(Qt5_FOUND)
         gui/include/widgets/title_bar.h
         gui/include/widgets/side_menu.h
         gui/include/widgets/toast_notification.h
-        gui/include/ui/dashboard_page.h
         gui/include/ui/recognition_page.h
         gui/include/ui/attendance_page.h
         gui/include/ui/user_management_page.h

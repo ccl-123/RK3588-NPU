@@ -24,7 +24,6 @@
 #include "widgets/title_bar.h"
 #include "widgets/toast_notification.h"
 
-#include <QApplication>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QMessageBox>
@@ -32,14 +31,10 @@
 #include <QTimer>
 #include <QThread>
 #include <QStackedWidget>
-#include <QAction>
-#include <QIcon>
 #include <QDateTime>
 #include <QDate>
 #include <QTableWidgetItem>
-#include <QList>
 #include <QMenu>
-#include <QStatusBar>
 #include <ctime>
 #include <spdlog/spdlog.h>
 
@@ -484,10 +479,6 @@ void MainWindow::setup_ui() {
     connect(title_bar_, &TitleBar::requestMinimize, this, &MainWindow::showMinimized);
     connect(title_bar_, &TitleBar::requestClose, this, &MainWindow::close);
     connect(title_bar_, &TitleBar::requestToggleTheme, this, &MainWindow::on_action_toggle_theme);
-
-    if (statusBar()) {
-        statusBar()->hide();
-    }
 }
 
 void MainWindow::setup_pages() {
