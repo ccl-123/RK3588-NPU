@@ -77,6 +77,19 @@ public:
     int getCameraId() const;
     void setCameraId(int id);
 
+    // 天气/城市设置
+    bool isAutoLocationEnabled() const;
+    void setAutoLocationEnabled(bool enabled);
+    
+    QString getManualCity() const;
+    void setManualCity(const QString& city);
+    
+    double getManualLatitude() const;
+    void setManualLatitude(double lat);
+    
+    double getManualLongitude() const;
+    void setManualLongitude(double lon);
+
 private:
     ConfigManager();
     ~ConfigManager();

@@ -42,7 +42,12 @@ SettingsPage::SettingsPage(QWidget* parent)
     , audio_device_combo_(nullptr)
     , test_audio_btn_(nullptr)
     , camera_device_combo_(nullptr)
-    , refresh_camera_btn_(nullptr) {
+    , refresh_camera_btn_(nullptr)
+    , auto_location_check_(nullptr)
+    , city_preset_combo_(nullptr)
+    , manual_city_edit_(nullptr)
+    , manual_lat_spin_(nullptr)
+    , manual_lon_spin_(nullptr) {
     setup_ui();
     load_settings();
 }
@@ -354,6 +359,88 @@ void SettingsPage::setup_ui() {
         scan_usb_cameras();
     });
     
+    // ========== 天气/城市设置 ==========
+    auto weather_card = new CardWidget(content);
+    weather_card->setTitle(tr("天气/城市设置"));
+    
+    auto weather_layout = new QGridLayout(weather_card->bodyContainer());
+    weather_layout->setContentsMargins(0, 0, 0, 0);
+    weather_layout->setHorizontalSpacing(16);
+    weather_layout->setVerticalSpacing(12);
+    
+    // 自动定位开关
+    auto_location_check_ = new QCheckBox(tr("使用 IP 自动定位"));
+    weather_layout->addWidget(auto_location_check_, 0, 0, 1, 2);
+    
+    auto auto_loc_hint = new QLabel(tr("(关闭后使用下方手动设置的城市)"));
+    auto_loc_hint->setStyleSheet("color: #8c8c8c; font-size: 12px;");
+    weather_layout->addWidget(auto_loc_hint, 0, 2, 1, 2);
+    
+    // 快捷城市选择
+    weather_layout->addWidget(new QLabel(tr("快捷选择:")), 1, 0);
+    city_preset_combo_ = new QComboBox();
+    city_preset_combo_->addItem(tr("-- 选择城市 --"), QVariant());
+    city_preset_combo_->addItem(tr("佛山"), QVariant::fromValue(QVector<double>{23.0215, 113.1214}));
+    city_preset_combo_->addItem(tr("广州"), QVariant::fromValue(QVector<double>{23.1291, 113.2644}));
+    city_preset_combo_->addItem(tr("深圳"), QVariant::fromValue(QVector<double>{22.5431, 114.0579}));
+    city_preset_combo_->addItem(tr("东莞"), QVariant::fromValue(QVector<double>{23.0430, 113.7633}));
+    city_preset_combo_->addItem(tr("珠海"), QVariant::fromValue(QVector<double>{22.2710, 113.5767}));
+    city_preset_combo_->addItem(tr("中山"), QVariant::fromValue(QVector<double>{22.5176, 113.3926}));
+    city_preset_combo_->addItem(tr("惠州"), QVariant::fromValue(QVector<double>{23.1115, 114.4152}));
+    city_preset_combo_->addItem(tr("江门"), QVariant::fromValue(QVector<double>{22.5789, 113.0815}));
+    city_preset_combo_->addItem(tr("肇庆"), QVariant::fromValue(QVector<double>{23.0469, 112.4654}));
+    city_preset_combo_->addItem(tr("北京"), QVariant::fromValue(QVector<double>{39.9042, 116.4074}));
+    city_preset_combo_->addItem(tr("上海"), QVariant::fromValue(QVector<double>{31.2304, 121.4737}));
+    city_preset_combo_->addItem(tr("杭州"), QVariant::fromValue(QVector<double>{30.2741, 120.1551}));
+    city_preset_combo_->addItem(tr("成都"), QVariant::fromValue(QVector<double>{30.5728, 104.0668}));
+    city_preset_combo_->addItem(tr("武汉"), QVariant::fromValue(QVector<double>{30.5928, 114.3055}));
+    city_preset_combo_->addItem(tr("南京"), QVariant::fromValue(QVector<double>{32.0603, 118.7969}));
+    city_preset_combo_->addItem(tr("西安"), QVariant::fromValue(QVector<double>{34.3416, 108.9398}));
+    city_preset_combo_->addItem(tr("重庆"), QVariant::fromValue(QVector<double>{29.5630, 106.5516}));
+    city_preset_combo_->addItem(tr("长沙"), QVariant::fromValue(QVector<double>{28.2282, 112.9388}));
+    city_preset_combo_->addItem(tr("厦门"), QVariant::fromValue(QVector<double>{24.4798, 118.0894}));
+    weather_layout->addWidget(city_preset_combo_, 1, 1, 1, 3);
+    
+    // 手动城市设置
+    weather_layout->addWidget(new QLabel(tr("城市名称:")), 2, 0);
+    manual_city_edit_ = new QLineEdit();
+    manual_city_edit_->setPlaceholderText(tr("自定义城市名"));
+    weather_layout->addWidget(manual_city_edit_, 2, 1);
+    
+    weather_layout->addWidget(new QLabel(tr("纬度:")), 2, 2);
+    manual_lat_spin_ = new QDoubleSpinBox();
+    manual_lat_spin_->setRange(-90.0, 90.0);
+    manual_lat_spin_->setDecimals(4);
+    manual_lat_spin_->setSingleStep(0.01);
+    weather_layout->addWidget(manual_lat_spin_, 2, 3);
+    
+    weather_layout->addWidget(new QLabel(tr("经度:")), 3, 2);
+    manual_lon_spin_ = new QDoubleSpinBox();
+    manual_lon_spin_->setRange(-180.0, 180.0);
+    manual_lon_spin_->setDecimals(4);
+    manual_lon_spin_->setSingleStep(0.01);
+    weather_layout->addWidget(manual_lon_spin_, 3, 3);
+    
+    // 连接自动定位开关
+    connect(auto_location_check_, &QCheckBox::toggled, this, &SettingsPage::on_auto_location_changed);
+    
+    // 连接快捷城市选择
+    connect(city_preset_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
+        if (index <= 0) return;  // 忽略 "-- 选择城市 --"
+        
+        QString cityName = city_preset_combo_->currentText();
+        QVariant data = city_preset_combo_->currentData();
+        
+        if (data.isValid() && data.canConvert<QVector<double>>()) {
+            QVector<double> coords = data.value<QVector<double>>();
+            if (coords.size() >= 2) {
+                manual_city_edit_->setText(cityName);
+                manual_lat_spin_->setValue(coords[0]);
+                manual_lon_spin_->setValue(coords[1]);
+            }
+        }
+    });
+    
     // 添加所有卡片
     layout->addWidget(info_card);
     layout->addWidget(camera_card);
@@ -361,6 +448,7 @@ void SettingsPage::setup_ui() {
     layout->addWidget(recognition_card);
     layout->addWidget(system_card);
     layout->addWidget(audio_card);
+    layout->addWidget(weather_card);
     layout->addLayout(button_layout);
     layout->addStretch();
 }
@@ -474,6 +562,22 @@ void SettingsPage::load_settings() {
             }
         }
     }
+    
+    // 加载天气/城市设置
+    if (auto_location_check_) {
+        auto_location_check_->setChecked(config->isAutoLocationEnabled());
+    }
+    if (manual_city_edit_) {
+        manual_city_edit_->setText(config->getManualCity());
+    }
+    if (manual_lat_spin_) {
+        manual_lat_spin_->setValue(config->getManualLatitude());
+    }
+    if (manual_lon_spin_) {
+        manual_lon_spin_->setValue(config->getManualLongitude());
+    }
+    // 根据自动定位状态更新控件启用状态
+    on_auto_location_changed(config->isAutoLocationEnabled());
     
     spdlog::info("Settings loaded");
 }
@@ -621,6 +725,23 @@ void SettingsPage::save_settings() {
         }
     }
     
+    // 保存天气/城市设置
+    if (auto_location_check_) {
+        config->setAutoLocationEnabled(auto_location_check_->isChecked());
+    }
+    if (manual_city_edit_) {
+        config->setManualCity(manual_city_edit_->text());
+    }
+    if (manual_lat_spin_) {
+        config->setManualLatitude(manual_lat_spin_->value());
+    }
+    if (manual_lon_spin_) {
+        config->setManualLongitude(manual_lon_spin_->value());
+    }
+    
+    // 通知天气设置已更改，需要刷新天气
+    emit weatherSettingsChanged();
+    
     spdlog::info("Settings saved:");
     spdlog::info("  - Recognition: threshold={:.2f}, duplicate_interval={}s, confirm_duration={:.1f}s",
                  recognition_threshold_spin_ ? recognition_threshold_spin_->value() : 0.6,
@@ -713,6 +834,13 @@ void SettingsPage::on_reset_clicked() {
             }
         }
         
+        // 天气/城市设置（默认：手动设置佛山）
+        if (auto_location_check_) auto_location_check_->setChecked(false);
+        if (manual_city_edit_) manual_city_edit_->setText(QString::fromUtf8("佛山"));
+        if (manual_lat_spin_) manual_lat_spin_->setValue(23.0215);
+        if (manual_lon_spin_) manual_lon_spin_->setValue(113.1214);
+        on_auto_location_changed(false);
+        
         QMessageBox::information(this, tr("成功"), tr("已恢复默认设置"));
         spdlog::info("Settings reset to defaults");
     }
@@ -732,4 +860,16 @@ void SettingsPage::on_clear_cache_clicked() {
     }
 }
 
+void SettingsPage::on_auto_location_changed(bool checked) {
+    // 根据自动定位状态启用/禁用手动设置控件
+    if (manual_city_edit_) {
+        manual_city_edit_->setEnabled(!checked);
+    }
+    if (manual_lat_spin_) {
+        manual_lat_spin_->setEnabled(!checked);
+    }
+    if (manual_lon_spin_) {
+        manual_lon_spin_->setEnabled(!checked);
+    }
+}
 

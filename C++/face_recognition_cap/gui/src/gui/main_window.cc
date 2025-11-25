@@ -670,6 +670,17 @@ void MainWindow::connect_page_signals() {
                 }
             }
         });
+        
+        // 连接天气设置变更信号，刷新天气
+        connect(settings_page_, &SettingsPage::weatherSettingsChanged,
+                this, [this]() {
+            if (recognition_page_) {
+                spdlog::info("Weather settings changed, refreshing weather...");
+                // 重置位置缓存，让它重新获取
+                recognition_page_->resetLocationCache();
+                recognition_page_->refreshWeather();
+            }
+        });
     }
 }
 

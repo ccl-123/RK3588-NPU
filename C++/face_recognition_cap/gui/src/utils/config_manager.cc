@@ -204,3 +204,40 @@ void ConfigManager::setCameraId(int id) {
     settings_->sync();
 }
 
+// 天气/城市设置
+bool ConfigManager::isAutoLocationEnabled() const {
+    return settings_->value("weather/auto_location", false).toBool();  // 默认关闭自动定位
+}
+
+void ConfigManager::setAutoLocationEnabled(bool enabled) {
+    settings_->setValue("weather/auto_location", enabled);
+    settings_->sync();
+}
+
+QString ConfigManager::getManualCity() const {
+    return settings_->value("weather/manual_city", QString::fromUtf8("佛山")).toString();
+}
+
+void ConfigManager::setManualCity(const QString& city) {
+    settings_->setValue("weather/manual_city", city);
+    settings_->sync();
+}
+
+double ConfigManager::getManualLatitude() const {
+    return settings_->value("weather/manual_lat", 23.0215).toDouble();  // 佛山默认纬度
+}
+
+void ConfigManager::setManualLatitude(double lat) {
+    settings_->setValue("weather/manual_lat", lat);
+    settings_->sync();
+}
+
+double ConfigManager::getManualLongitude() const {
+    return settings_->value("weather/manual_lon", 113.1214).toDouble();  // 佛山默认经度
+}
+
+void ConfigManager::setManualLongitude(double lon) {
+    settings_->setValue("weather/manual_lon", lon);
+    settings_->sync();
+}
+

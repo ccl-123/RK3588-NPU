@@ -836,7 +836,7 @@ QToolTip {
         stop:0 rgba(24, 144, 255, 0.15), stop:1 rgba(114, 46, 209, 0.1));
     border-radius: 16px;
     border: 1px solid rgba(24, 144, 255, 0.2);
-    min-width: 180px;
+    min-width: 300px;
 }
 
 #WeatherTempBig {

@@ -30,6 +30,7 @@
 #include <QJsonArray>
 #include <QUrl>
 #include <spdlog/spdlog.h>
+#include "utils/config_manager.h"
 
 RecognitionPage::RecognitionPage(QWidget* parent)
     : QWidget(parent)
@@ -58,6 +59,10 @@ RecognitionPage::RecognitionPage(QWidget* parent)
     , check_mode_label_(nullptr)
     , network_manager_(nullptr)
     , location_manager_(nullptr)
+    , aqi_manager_(nullptr)
+    , uv_manager_(nullptr)
+    , aqi_label_(nullptr)
+    , uv_label_(nullptr)
     , current_city_(tr("定位中..."))
     , current_lat_(23.0215)   // 默认佛山坐标
     , current_lon_(113.1214)
@@ -236,12 +241,33 @@ void RecognitionPage::updateCheckMode(bool is_checkout_mode) {
     }
 }
 
+void RecognitionPage::resetLocationCache() {
+    location_fetched_ = false;
+    current_city_ = tr("定位中...");
+    spdlog::info("Location cache reset");
+}
+
 void RecognitionPage::refreshWeather() {
-    // 如果还没获取过位置，先获取位置
-    if (!location_fetched_) {
-        requestLocation();
+    auto config = ConfigManager::instance();
+    
+    // 检查是否使用自动定位
+    if (config->isAutoLocationEnabled()) {
+        // 使用 IP 自动定位
+        if (!location_fetched_) {
+            requestLocation();
+        } else {
+            requestWeather(current_lat_, current_lon_);
+        }
     } else {
-        // 已有位置信息，直接请求天气
+        // 使用手动配置的城市
+        current_city_ = config->getManualCity();
+        current_lat_ = config->getManualLatitude();
+        current_lon_ = config->getManualLongitude();
+        location_fetched_ = true;
+        
+        spdlog::debug("Using manual location: {} (lat: {}, lon: {})", 
+            current_city_.toStdString(), current_lat_, current_lon_);
+        
         requestWeather(current_lat_, current_lon_);
     }
 }
@@ -324,6 +350,44 @@ void RecognitionPage::requestWeather(double lat, double lon) {
     
     spdlog::debug("Weather request sent to Open-Meteo for {} (lat: {}, lon: {})", 
         current_city_.toStdString(), lat, lon);
+    
+    // 同时请求 AQI 和 UV
+    requestAqi(lat, lon);
+    requestUv(lat, lon);
+}
+
+void RecognitionPage::requestAqi(double lat, double lon) {
+    if (!aqi_manager_) {
+        aqi_manager_ = new QNetworkAccessManager(this);
+        connect(aqi_manager_, &QNetworkAccessManager::finished, 
+                this, &RecognitionPage::onAqiReplyFinished);
+    }
+    
+    // Open-Meteo Air Quality API
+    QString urlStr = QString("https://air-quality-api.open-meteo.com/v1/air-quality?latitude=%1&longitude=%2&current=us_aqi,pm2_5")
+                        .arg(lat, 0, 'f', 4)
+                        .arg(lon, 0, 'f', 4);
+    QUrl url(urlStr);
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::UserAgentHeader, "FaceRecognitionApp/1.0");
+    aqi_manager_->get(request);
+}
+
+void RecognitionPage::requestUv(double lat, double lon) {
+    if (!uv_manager_) {
+        uv_manager_ = new QNetworkAccessManager(this);
+        connect(uv_manager_, &QNetworkAccessManager::finished, 
+                this, &RecognitionPage::onUvReplyFinished);
+    }
+    
+    // Open-Meteo UV Index API
+    QString urlStr = QString("https://api.open-meteo.com/v1/forecast?latitude=%1&longitude=%2&hourly=uv_index&forecast_days=1")
+                        .arg(lat, 0, 'f', 4)
+                        .arg(lon, 0, 'f', 4);
+    QUrl url(urlStr);
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::UserAgentHeader, "FaceRecognitionApp/1.0");
+    uv_manager_->get(request);
 }
 
 void RecognitionPage::onWeatherReplyFinished(QNetworkReply* reply) {
@@ -395,6 +459,106 @@ QString RecognitionPage::weatherCodeToString(int code) {
         case 99: return tr("冰雹");
         default: return tr("未知");
     }
+}
+
+void RecognitionPage::onAqiReplyFinished(QNetworkReply* reply) {
+    if (reply->error() == QNetworkReply::NoError) {
+        QByteArray data = reply->readAll();
+        QJsonDocument doc = QJsonDocument::fromJson(data);
+        
+        if (!doc.isNull() && doc.isObject()) {
+            QJsonObject root = doc.object();
+            QJsonObject current = root["current"].toObject();
+            
+            int aqi = current["us_aqi"].toInt();
+            QString level = aqiToLevel(aqi);
+            
+            if (aqi_label_) {
+                aqi_label_->setText(QString("空气 %1 %2").arg(aqi).arg(level));
+                // 根据 AQI 值设置颜色
+                if (aqi <= 50) {
+                    aqi_label_->setStyleSheet("color: #52c41a;");  // 优
+                } else if (aqi <= 100) {
+                    aqi_label_->setStyleSheet("color: #faad14;");  // 良
+                } else if (aqi <= 150) {
+                    aqi_label_->setStyleSheet("color: #fa8c16;");  // 轻度
+                } else if (aqi <= 200) {
+                    aqi_label_->setStyleSheet("color: #f5222d;");  // 中度
+                } else {
+                    aqi_label_->setStyleSheet("color: #722ed1;");  // 重度
+                }
+            }
+            spdlog::debug("AQI updated: {} ({})", aqi, level.toStdString());
+        }
+    } else {
+        if (aqi_label_) {
+            aqi_label_->setText(tr("空气 --"));
+        }
+    }
+    reply->deleteLater();
+}
+
+void RecognitionPage::onUvReplyFinished(QNetworkReply* reply) {
+    if (reply->error() == QNetworkReply::NoError) {
+        QByteArray data = reply->readAll();
+        QJsonDocument doc = QJsonDocument::fromJson(data);
+        
+        if (!doc.isNull() && doc.isObject()) {
+            QJsonObject root = doc.object();
+            QJsonObject hourly = root["hourly"].toObject();
+            QJsonArray uvArray = hourly["uv_index"].toArray();
+            
+            // 获取当前小时的 UV 值（取第一个非空值）
+            double uv = 0;
+            for (int i = 0; i < uvArray.size() && i < 24; i++) {
+                if (!uvArray[i].isNull()) {
+                    uv = uvArray[i].toDouble();
+                    break;
+                }
+            }
+            
+            QString level = uvToLevel(uv);
+            
+            if (uv_label_) {
+                uv_label_->setText(QString("紫外线 %1 %2").arg(uv, 0, 'f', 0).arg(level));
+                // 根据 UV 值设置颜色
+                if (uv <= 2) {
+                    uv_label_->setStyleSheet("color: #52c41a;");  // 低
+                } else if (uv <= 5) {
+                    uv_label_->setStyleSheet("color: #faad14;");  // 中等
+                } else if (uv <= 7) {
+                    uv_label_->setStyleSheet("color: #fa8c16;");  // 高
+                } else if (uv <= 10) {
+                    uv_label_->setStyleSheet("color: #f5222d;");  // 很高
+                } else {
+                    uv_label_->setStyleSheet("color: #722ed1;");  // 极高
+                }
+            }
+            spdlog::debug("UV updated: {} ({})", uv, level.toStdString());
+        }
+    } else {
+        if (uv_label_) {
+            uv_label_->setText(tr("紫外线 --"));
+        }
+    }
+    reply->deleteLater();
+}
+
+QString RecognitionPage::aqiToLevel(int aqi) {
+    if (aqi <= 50) return tr("优");
+    if (aqi <= 100) return tr("良");
+    if (aqi <= 150) return tr("轻度");
+    if (aqi <= 200) return tr("中度");
+    if (aqi <= 300) return tr("重度");
+    return tr("严重");
+}
+
+QString RecognitionPage::uvToLevel(double uv) {
+    if (uv <= 2) return tr("低");
+    if (uv <= 5) return tr("中等");
+    if (uv <= 7) return tr("高");
+    if (uv <= 10) return tr("很高");
+    return tr("极高");
 }
 
 CardWidget* RecognitionPage::createVideoCard() {
@@ -576,7 +740,7 @@ QWidget* RecognitionPage::createInfoBar() {
     
     weather_main_layout->addWidget(temp_label_);
     
-    // 右侧：城市 + 天气描述
+    // 中间：城市 + 天气描述
     auto weather_info = new QWidget(weather_card);
     auto weather_info_layout = new QVBoxLayout(weather_info);
     weather_info_layout->setContentsMargins(0, 0, 0, 0);
@@ -593,6 +757,25 @@ QWidget* RecognitionPage::createInfoBar() {
     weather_info_layout->addWidget(weather_desc);
     
     weather_main_layout->addWidget(weather_info);
+    
+    // 右侧：AQI + UV 指标
+    auto env_info = new QWidget(weather_card);
+    auto env_layout = new QVBoxLayout(env_info);
+    env_layout->setContentsMargins(0, 0, 0, 0);
+    env_layout->setSpacing(4);
+    
+    aqi_label_ = new QLabel(tr("空气 --"), env_info);
+    aqi_label_->setObjectName("EnvLabel");
+    aqi_label_->setStyleSheet("font-size: 12px; font-weight: 600;");
+    
+    uv_label_ = new QLabel(tr("紫外线 --"), env_info);
+    uv_label_->setObjectName("EnvLabel");
+    uv_label_->setStyleSheet("font-size: 12px; font-weight: 600;");
+    
+    env_layout->addWidget(aqi_label_);
+    env_layout->addWidget(uv_label_);
+    
+    weather_main_layout->addWidget(env_info);
     weather_main_layout->addStretch();
     
     layout->addWidget(weather_card);

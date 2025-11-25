@@ -54,6 +54,7 @@ public:
     
     // 刷新天气
     void refreshWeather();
+    void resetLocationCache();  // 重置位置缓存（设置变更后需要调用）
 
 signals:
     void startRecognitionRequested();
@@ -63,11 +64,17 @@ signals:
 private slots:
     void onLocationReplyFinished(QNetworkReply* reply);
     void onWeatherReplyFinished(QNetworkReply* reply);
+    void onAqiReplyFinished(QNetworkReply* reply);
+    void onUvReplyFinished(QNetworkReply* reply);
 
 private:
     void requestLocation();                 // 请求 IP 定位
     void requestWeather(double lat, double lon);  // 用经纬度请求天气
+    void requestAqi(double lat, double lon);      // 请求空气质量
+    void requestUv(double lat, double lon);       // 请求紫外线指数
     QString weatherCodeToString(int code);  // 天气代码转中文
+    QString aqiToLevel(int aqi);            // AQI 转等级描述
+    QString uvToLevel(double uv);           // UV 转等级描述
     
     CardWidget* createVideoCard();
     QWidget* createInfoBar();       // 新增：信息栏（天气 + 考勤统计）
@@ -105,9 +112,15 @@ private:
     QLabel* late_count_label_;
     QLabel* check_mode_label_;
     
-    // 网络请求（IP定位 + 天气）
+    // 网络请求（IP定位 + 天气 + AQI + UV）
     QNetworkAccessManager* network_manager_;
     QNetworkAccessManager* location_manager_;
+    QNetworkAccessManager* aqi_manager_;
+    QNetworkAccessManager* uv_manager_;
+    
+    // AQI 和 UV 显示标签
+    QLabel* aqi_label_;
+    QLabel* uv_label_;
     
     // 位置信息缓存
     QString current_city_;      // 当前城市名

@@ -872,7 +872,7 @@ QCalendarWidget QMenu {
         stop:0 rgba(23, 125, 220, 0.2), stop:1 rgba(138, 43, 226, 0.15));
     border-radius: 16px;
     border: 1px solid rgba(105, 192, 255, 0.25);
-    min-width: 180px;
+    min-width: 300px;
 }
 
 #WeatherTempBig {

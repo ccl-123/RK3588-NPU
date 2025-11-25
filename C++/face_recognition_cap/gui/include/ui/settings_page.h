@@ -9,6 +9,7 @@
 #include <QSlider>
 #include <QComboBox>
 #include <QPushButton>
+#include <QLineEdit>
 
 class SettingsPage : public QWidget {
     Q_OBJECT
@@ -18,6 +19,7 @@ public:
 signals:
     void themeToggleRequested();
     void settingsChanged();
+    void weatherSettingsChanged();  // 天气设置变更，需要刷新天气
 
 private slots:
     void on_theme_toggle_clicked();
@@ -78,7 +80,15 @@ private:
     QComboBox* camera_device_combo_;
     QPushButton* refresh_camera_btn_;
     
+    // 天气/城市设置
+    QCheckBox* auto_location_check_;
+    QComboBox* city_preset_combo_;
+    QLineEdit* manual_city_edit_;
+    QDoubleSpinBox* manual_lat_spin_;
+    QDoubleSpinBox* manual_lon_spin_;
+    
 private:
     void scan_usb_cameras();
+    void on_auto_location_changed(bool checked);
 };
 
