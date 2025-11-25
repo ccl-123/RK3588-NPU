@@ -853,6 +853,10 @@ void MainWindow::on_action_register_face() {
 
         // 等待线程完全停止（确保摄像头资源释放）
         QThread::msleep(200);
+        
+        // 清空音频队列，避免注册时还在播放陌生人提示音
+        AudioManager::instance()->clearQueue();
+        spdlog::debug("Cleared audio queue before face registration");
     }
 
     // 创建并显示注册对话框
@@ -866,6 +870,11 @@ void MainWindow::on_action_register_face() {
     // 如果之前识别线程在运行，恢复运行
     if (was_running) {
         spdlog::info("Resuming recognition after face registration");
+
+        // 清空音频队列，避免注册音频影响后续识别播报
+        // （用户已通过对话框知道注册结果，不需要等待音频播放完毕）
+        AudioManager::instance()->clearQueue();
+        spdlog::debug("Cleared audio queue before resuming recognition");
 
         // 短暂延迟，确保对话框资源完全释放
         QThread::msleep(200);
