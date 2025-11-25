@@ -318,15 +318,26 @@ bool MainWindow::initialize(const std::string& retinaface_model,
                                           Q_ARG(bool, true),
                                           Q_ARG(int, check_type));
             } else {
-                // 重复签到 - 使用冷却机制避免频繁播放
+                // 重复打卡 - 使用冷却机制避免频繁播放
                 auto now_audio = std::chrono::steady_clock::now();
                 auto time_since_last_audio = std::chrono::duration_cast<std::chrono::milliseconds>(
                     now_audio - last_audio_play_time_).count();
                 
                 if (time_since_last_audio >= AUDIO_COOLDOWN_MS) {
-                    AudioManager::instance()->playSound(AudioType::AlreadyCheckedIn);
+                    // 判断当前应该是签到还是签退
+                    std::time_t current_time = std::time(nullptr);
+                    int check_type = attendance_service_ ? 
+                        attendance_service_->auto_determine_check_type(result.user_id, current_time) : 1;
+                    
+                    // 根据打卡类型播放不同的重复提示音
+                    if (check_type == 2) {  // CHECK_OUT
+                        AudioManager::instance()->playSound(AudioType::AlreadyCheckedOut);
+                        spdlog::debug("Played duplicate check-out audio");
+                    } else {  // CHECK_IN
+                        AudioManager::instance()->playSound(AudioType::AlreadyCheckedIn);
+                        spdlog::debug("Played duplicate check-in audio");
+                    }
                     last_audio_play_time_ = now_audio;
-                    spdlog::debug("Played duplicate check-in audio");
                 } else {
                     spdlog::debug("Audio cooldown active, skipped duplicate audio ({}ms remaining)",
                                 AUDIO_COOLDOWN_MS - time_since_last_audio);

@@ -144,6 +144,9 @@ QString AudioManager::audioPath(AudioType type) {
         case AudioType::CheckOutSuccess:
             fileName = "check_out_success.wav";
             break;
+        case AudioType::AlreadyCheckedOut:
+            fileName = "already_checked_out.wav";
+            break;
         case AudioType::RegistrationSuccess:
             fileName = "registration_success.wav";
             break;

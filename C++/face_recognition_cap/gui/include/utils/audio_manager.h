@@ -30,6 +30,7 @@ enum class AudioType {
     CheckInSuccess,        // 签到成功
     AlreadyCheckedIn,      // 已签到（重复签到）
     CheckOutSuccess,       // 签退成功
+    AlreadyCheckedOut,     // 已签退（重复签退）
     RegistrationSuccess,   // 注册成功
     RegisteringFace,       // 正在注册人脸
     LowLight,              // 光线太暗
