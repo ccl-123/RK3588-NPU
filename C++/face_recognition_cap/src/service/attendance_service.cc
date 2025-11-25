@@ -57,9 +57,9 @@ int AttendanceService::record_attendance(int user_id, const std::string& user_na
         }
         
         // 同时也检查短时间内重复（双重保护）
-        if (is_duplicate_check(user_id, 300)) {
-            std::cout << "Duplicate check within 5 minutes, ignored." << std::endl;
-            return -1;
+    if (is_duplicate_check(user_id, 300)) {
+        std::cout << "Duplicate check within 5 minutes, ignored." << std::endl;
+        return -1;
         }
     }
     

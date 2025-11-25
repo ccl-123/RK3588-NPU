@@ -25,7 +25,8 @@ RecognitionPage::RecognitionPage(QWidget* parent)
     , user_name_label_(nullptr)
     , user_id_label_(nullptr)
     , user_dept_label_(nullptr)
-    , user_similarity_label_(nullptr) {
+    , user_similarity_label_(nullptr)
+    , check_type_label_(nullptr) {
     auto layout = new QHBoxLayout(this);
     layout->setContentsMargins(32, 24, 32, 24);
     layout->setSpacing(24);
@@ -81,6 +82,10 @@ QLabel* RecognitionPage::userDeptLabel() const {
 
 QLabel* RecognitionPage::userSimilarityLabel() const {
     return user_similarity_label_;
+}
+
+QLabel* RecognitionPage::checkTypeLabel() const {
+    return check_type_label_;
 }
 
 CardWidget* RecognitionPage::createVideoCard() {
@@ -175,13 +180,13 @@ CardWidget* RecognitionPage::createVideoCard() {
     recognition_label_ = new QLabel(tr("识别: 未识别"), info_panel);
     recognition_label_->setStyleSheet("color: #bfbfbf; font-size: 13px; background: transparent;");
     
-    auto check_type_label = new QLabel(tr("打卡类型: --"), info_panel);
-    check_type_label->setObjectName("CheckTypeLabel");
-    check_type_label->setStyleSheet("color: #bfbfbf; font-size: 13px; background: transparent;");
+    check_type_label_ = new QLabel(tr("打卡类型: --"), info_panel);
+    check_type_label_->setObjectName("CheckTypeLabel");
+    check_type_label_->setStyleSheet("color: #bfbfbf; font-size: 13px; background: transparent;");
     
     recog_row->addWidget(user_similarity_label_);
     recog_row->addWidget(recognition_label_);
-    recog_row->addWidget(check_type_label);
+    recog_row->addWidget(check_type_label_);
     recog_row->addStretch();
     
     info_layout->addLayout(name_row);

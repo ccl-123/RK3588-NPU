@@ -69,6 +69,10 @@ public:
     bool isShowCheckinReminder() const;
     void setShowCheckinReminder(bool show);
 
+    // 摄像头设置（固定 USB + 异步）
+    int getCameraId() const;
+    void setCameraId(int id);
+
 private:
     ConfigManager();
     ~ConfigManager();

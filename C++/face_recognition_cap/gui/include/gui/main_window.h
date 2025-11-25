@@ -74,6 +74,9 @@ public slots:
     // 数据刷新槽（公开，供子窗口调用）
     void load_users();
     
+    // 加载今日考勤记录
+    void load_today_attendance();
+    
     // 应用设置（由 SettingsPage 调用）
     void apply_recognition_settings(float threshold);
 
@@ -89,7 +92,7 @@ private slots:
     void on_action_toggle_theme();
     void update_status();
     void on_frame_ready(const cv::Mat& frame, const std::vector<RecognitionResult>& results);
-    void on_recognition_result(int user_id, const QString& name, float similarity, bool is_new_attendance);
+    void on_recognition_result(int user_id, const QString& name, float similarity, bool is_new_attendance, int check_type = 1);
 
 private:
     void setup_ui();
@@ -128,6 +131,7 @@ private:
     QLabel* user_id_label_;
     QLabel* user_dept_label_;
     QLabel* user_similarity_label_;
+    QLabel* check_type_label_;
     
     // 定时器
     QTimer* status_timer_;

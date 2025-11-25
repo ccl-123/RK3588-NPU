@@ -185,3 +185,13 @@ void ConfigManager::setShowCheckinReminder(bool show) {
     settings_->sync();
 }
 
+// 摄像头设置（简化：固定 USB + 异步）
+int ConfigManager::getCameraId() const {
+    return settings_->value("camera/id", 21).toInt();
+}
+
+void ConfigManager::setCameraId(int id) {
+    settings_->setValue("camera/id", id);
+    settings_->sync();
+}
+

@@ -17,6 +17,8 @@
 #include <QTime>
 #include <QScrollArea>
 #include <QStringList>
+#include <QDir>
+#include <QFile>
 #include <spdlog/spdlog.h>
 
 SettingsPage::SettingsPage(QWidget* parent)
@@ -40,7 +42,9 @@ SettingsPage::SettingsPage(QWidget* parent)
     , audio_volume_slider_(nullptr)
     , audio_volume_label_(nullptr)
     , audio_device_combo_(nullptr)
-    , test_audio_btn_(nullptr) {
+    , test_audio_btn_(nullptr)
+    , camera_device_combo_(nullptr)
+    , refresh_camera_btn_(nullptr) {
     setup_ui();
     load_settings();
 }
@@ -320,8 +324,39 @@ void SettingsPage::setup_ui() {
     connect(save_btn, &QPushButton::clicked, this, &SettingsPage::on_save_clicked);
     button_layout->addWidget(save_btn);
 
+    // ========== 摄像头设置 ==========
+    auto camera_card = new CardWidget(content);
+    camera_card->setTitle(tr("摄像头设置"));
+    
+    auto camera_layout = new QHBoxLayout(camera_card->bodyContainer());
+    camera_layout->setContentsMargins(0, 0, 0, 0);
+    camera_layout->setSpacing(12);
+    
+    camera_layout->addWidget(new QLabel(tr("USB 摄像头:")));
+    
+    camera_device_combo_ = new QComboBox();
+    camera_device_combo_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    camera_layout->addWidget(camera_device_combo_);
+    
+    refresh_camera_btn_ = new QPushButton(tr("刷新"));
+    refresh_camera_btn_->setMaximumWidth(80);
+    camera_layout->addWidget(refresh_camera_btn_);
+    
+    auto camera_hint = new QLabel(tr("(需要重启识别生效)"));
+    camera_hint->setStyleSheet("color: #8c8c8c; font-size: 12px;");
+    camera_layout->addWidget(camera_hint);
+    
+    // 扫描 USB 摄像头
+    scan_usb_cameras();
+    
+    // 连接刷新按钮
+    connect(refresh_camera_btn_, &QPushButton::clicked, this, [this]() {
+        scan_usb_cameras();
+    });
+    
     // 添加所有卡片
     layout->addWidget(info_card);
+    layout->addWidget(camera_card);
     layout->addWidget(attendance_card);
     layout->addWidget(recognition_card);
     layout->addWidget(system_card);
@@ -406,6 +441,7 @@ void SettingsPage::load_settings() {
     if (show_confidence_check_) show_confidence_check_->setChecked(config->isShowConfidence());
     if (auto_start_check_) auto_start_check_->setChecked(config->isAutoStart());
     
+    
     // 加载音频设置
     if (audio_enabled_check_) {
         audio_enabled_check_->setChecked(config->isAudioEnabled());
@@ -426,7 +462,119 @@ void SettingsPage::load_settings() {
         }
     }
     
+    // 加载摄像头设置
+    if (camera_device_combo_) {
+        int cameraId = config->getCameraId();
+        // 查找对应的设备
+        for (int i = 0; i < camera_device_combo_->count(); i++) {
+            if (camera_device_combo_->itemData(i).toInt() == cameraId) {
+                camera_device_combo_->setCurrentIndex(i);
+                break;
+            }
+        }
+    }
+    
     spdlog::info("Settings loaded");
+}
+
+void SettingsPage::scan_usb_cameras() {
+    if (!camera_device_combo_) {
+        return;
+    }
+    
+    // 保存当前选择
+    int current_id = camera_device_combo_->currentData().toInt();
+    
+    // 清空列表
+    camera_device_combo_->clear();
+    
+    // 扫描 /sys/class/video4linux/ 目录
+    QDir v4lDir("/sys/class/video4linux");
+    if (!v4lDir.exists()) {
+        camera_device_combo_->addItem(tr("未找到视频设备目录"), -1);
+        spdlog::error("Directory /sys/class/video4linux not found");
+        return;
+    }
+    
+    QStringList filters;
+    filters << "video*";
+    v4lDir.setNameFilters(filters);
+    v4lDir.setFilter(QDir::Dirs | QDir::NoDotAndDotDot);
+    
+    QFileInfoList devices = v4lDir.entryInfoList();
+    
+    int found_count = 0;
+    for (const QFileInfo& deviceInfo : devices) {
+        QString deviceName = deviceInfo.fileName();  // 如 "video21"
+        
+        // 提取设备编号
+        QString numStr = deviceName.mid(5);  // "video21" -> "21"
+        bool ok;
+        int deviceId = numStr.toInt(&ok);
+        
+        if (!ok) continue;
+        
+        // 读取设备名称
+        QString nameFilePath = QString("/sys/class/video4linux/%1/name").arg(deviceName);
+        QFile nameFile(nameFilePath);
+        QString cameraName = "Unknown";
+        
+        if (nameFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            cameraName = QString::fromUtf8(nameFile.readAll()).trimmed();
+            nameFile.close();
+        }
+        
+        // 智能过滤：只保留真正的 USB 摄像头
+        // 排除系统内部设备（rkcif、rkisp、stream_、v4l2loopback 等）
+        if (cameraName.contains("rkcif", Qt::CaseInsensitive) ||
+            cameraName.contains("rkisp", Qt::CaseInsensitive) ||
+            cameraName.contains("stream_", Qt::CaseInsensitive) ||
+            cameraName.contains("hdmirx", Qt::CaseInsensitive) ||
+            cameraName.contains("v4l2loopback", Qt::CaseInsensitive) ||
+            cameraName.contains("subdev", Qt::CaseInsensitive)) {
+            spdlog::debug("Skipped system device: {} ({})", deviceName.toStdString(), cameraName.toStdString());
+            continue;
+        }
+        
+        // 检查符号链接路径是否包含 "usb"（更可靠的判断方式）
+        QFileInfo symlinkInfo(QString("/sys/class/video4linux/%1").arg(deviceName));
+        QString realPath = symlinkInfo.canonicalFilePath();
+        
+        if (!realPath.contains("usb", Qt::CaseInsensitive)) {
+            spdlog::debug("Skipped non-USB device: {} (path: {})", deviceName.toStdString(), realPath.toStdString());
+            continue;
+        }
+        
+        // 检查设备文件是否可访问
+        QString devicePath = QString("/dev/%1").arg(deviceName);
+        QFile device(devicePath);
+        if (!device.exists()) {
+            continue;
+        }
+        
+        // 这是真正的 USB 摄像头！
+        QString displayName = QString("%1 (/dev/video%2)").arg(cameraName).arg(deviceId);
+        camera_device_combo_->addItem(displayName, deviceId);
+        found_count++;
+        
+        spdlog::info("Found USB camera: {} -> {}", deviceName.toStdString(), cameraName.toStdString());
+    }
+    
+    if (found_count == 0) {
+        camera_device_combo_->addItem(tr("未找到 USB 摄像头"), -1);
+        spdlog::warn("No USB cameras found");
+    } else {
+        spdlog::info("Total {} USB camera(s) found", found_count);
+        
+        // 恢复之前的选择
+        for (int i = 0; i < camera_device_combo_->count(); i++) {
+            if (camera_device_combo_->itemData(i).toInt() == current_id) {
+                camera_device_combo_->setCurrentIndex(i);
+                spdlog::debug("Restored camera selection: ID {}", current_id);
+                break;
+            }
+        }
+    }
 }
 
 void SettingsPage::save_settings() {
@@ -461,6 +609,15 @@ void SettingsPage::save_settings() {
     if (show_fps_check_) config->setShowFPS(show_fps_check_->isChecked());
     if (show_confidence_check_) config->setShowConfidence(show_confidence_check_->isChecked());
     if (auto_start_check_) config->setAutoStart(auto_start_check_->isChecked());
+    
+    // 保存摄像头设置
+    if (camera_device_combo_ && camera_device_combo_->currentIndex() >= 0) {
+        int deviceId = camera_device_combo_->currentData().toInt();
+        if (deviceId >= 0) {
+            config->setCameraId(deviceId);
+            spdlog::info("Camera ID saved: {}", deviceId);
+        }
+    }
     
     spdlog::info("Settings saved:");
     spdlog::info("  - Recognition: threshold={:.2f}, duplicate_interval={}s, confirm_count={}",
@@ -542,7 +699,17 @@ void SettingsPage::on_reset_clicked() {
         if (audio_enabled_check_) audio_enabled_check_->setChecked(true);
         if (audio_volume_slider_) audio_volume_slider_->setValue(70);
         if (audio_volume_label_) audio_volume_label_->setText("70%");
-        // 音频设备保持当前设置不变
+        
+        // 摄像头设置
+        if (camera_device_combo_) {
+            // 查找设备 ID 21
+            for (int i = 0; i < camera_device_combo_->count(); i++) {
+                if (camera_device_combo_->itemData(i).toInt() == 21) {
+                    camera_device_combo_->setCurrentIndex(i);
+                    break;
+                }
+            }
+        }
         
         QMessageBox::information(this, tr("成功"), tr("已恢复默认设置"));
         spdlog::info("Settings reset to defaults");

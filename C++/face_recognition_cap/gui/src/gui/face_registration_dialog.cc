@@ -240,11 +240,6 @@ void FaceRegistrationDialog::on_capture_clicked() {
         return;
     }
 
-    // 播放正在注册人脸的提示音
-    if (captured_faces_.empty()) {
-        AudioManager::instance()->playSound(AudioType::RegisteringFace);
-    }
-
     // 检测人脸
     std::vector<cv::Rect> face_boxes;
     std::vector<std::vector<cv::Point2f>> landmarks;
@@ -295,6 +290,12 @@ void FaceRegistrationDialog::on_capture_clicked() {
     // 保存人脸和特征
     captured_faces_.push_back(face_img);
     captured_features_.push_back(feature);
+    
+    // 播放提示音（采集成功后播放）
+    if (captured_faces_.size() == 1) {
+        // 第一次采集成功，播放"正在注册人脸"提示
+        AudioManager::instance()->playSound(AudioType::RegisteringFace);
+    }
 
     // 更新列表
     QString item_text = QString("人脸 %1 (质量: %2)").arg(captured_faces_.size()).arg(QString::fromStdString(hint));

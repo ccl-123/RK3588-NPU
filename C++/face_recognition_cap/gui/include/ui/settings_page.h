@@ -67,5 +67,12 @@ private:
     QLabel* audio_volume_label_;
     QComboBox* audio_device_combo_;
     QPushButton* test_audio_btn_;
+    
+    // 摄像头设置
+    QComboBox* camera_device_combo_;
+    QPushButton* refresh_camera_btn_;
+    
+private:
+    void scan_usb_cameras();
 };
 

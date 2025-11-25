@@ -111,7 +111,6 @@ if(Qt5_FOUND)
         gui/src/gui/user_edit_dialog.cc
         gui/src/gui/attendance_query_widget.cc
         gui/src/gui/user_management_widget.cc
-        gui/src/gui/settings_dialog.cc
         gui/src/gui/about_dialog.cc
         gui/src/gui/toast.cc
         gui/src/themes/theme_manager.cc
@@ -167,7 +166,6 @@ if(Qt5_FOUND)
         gui/include/gui/user_edit_dialog.h
         gui/include/gui/attendance_query_widget.h
         gui/include/gui/user_management_widget.h
-        gui/include/gui/settings_dialog.h
         gui/include/gui/about_dialog.h
         gui/include/gui/toast.h
         gui/include/themes/theme_manager.h

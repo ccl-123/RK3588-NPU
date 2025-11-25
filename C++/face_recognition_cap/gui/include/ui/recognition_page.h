@@ -28,6 +28,7 @@ public:
     QLabel* userIdLabel() const;
     QLabel* userDeptLabel() const;
     QLabel* userSimilarityLabel() const;
+    QLabel* checkTypeLabel() const;
 
 signals:
     void startRecognitionRequested();
@@ -51,5 +52,6 @@ private:
     QLabel* user_id_label_;
     QLabel* user_dept_label_;
     QLabel* user_similarity_label_;
+    QLabel* check_type_label_;
 };
 

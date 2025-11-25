@@ -16,6 +16,7 @@
 #include <spdlog/sinks/rotating_file_sink.h>
 
 #include "gui/main_window.h"
+#include "utils/config_manager.h"
 
 void setup_logger() {
     try {
@@ -62,8 +63,10 @@ int main(int argc, char* argv[]) {
     // 使用相对于可执行文件的路径
     std::string retinaface_model = (appDir + "/data/model/retinaface.rknn").toStdString();
     std::string facenet_model = (appDir + "/data/model/w600k_mbf.rknn").toStdString();
+    
+    // 从配置文件加载摄像头设置（固定 USB + 异步）
     std::string camera_source = "usb";
-    int camera_id = 21;
+    int camera_id = ConfigManager::instance()->getCameraId();
     
     // 数据库使用相对于可执行文件的路径，确保唯一性
     std::string db_path = (appDir + "/data/database/face_recognition.db").toStdString();
