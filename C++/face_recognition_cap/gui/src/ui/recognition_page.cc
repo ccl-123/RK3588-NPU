@@ -126,19 +126,40 @@ CardWidget* RecognitionPage::createVideoCard() {
     
     main_layout->addWidget(video_widget_, 1);
     
-    // ========== 用户信息面板 ==========
+    // ========== 用户信息面板（现代化设计） ==========
     auto info_panel = new QWidget(container);
     info_panel->setObjectName("UserInfoPanel");
     info_panel->setAttribute(Qt::WA_StyledBackground, true);
-    info_panel->setFixedHeight(130);
+    info_panel->setFixedHeight(100);
 
-    auto info_layout = new QVBoxLayout(info_panel);
-    info_layout->setContentsMargins(24, 16, 24, 16);
-    info_layout->setSpacing(10);
+    auto info_layout = new QHBoxLayout(info_panel);
+    info_layout->setContentsMargins(20, 16, 20, 16);
+    info_layout->setSpacing(20);
     
-    // 第一行：用户名 + 状态标签
+    // ===== 左侧：用户头像占位符 =====
+    auto avatar_container = new QWidget(info_panel);
+    avatar_container->setObjectName("AvatarContainer");
+    avatar_container->setAttribute(Qt::WA_StyledBackground, true);
+    avatar_container->setFixedSize(68, 68);
+    
+    auto avatar_layout = new QVBoxLayout(avatar_container);
+    avatar_layout->setContentsMargins(0, 0, 0, 0);
+    avatar_layout->setAlignment(Qt::AlignCenter);
+    
+    auto avatar_icon = new QLabel("👤", avatar_container);
+    avatar_icon->setObjectName("AvatarIcon");
+    avatar_icon->setAlignment(Qt::AlignCenter);
+    avatar_layout->addWidget(avatar_icon);
+    
+    info_layout->addWidget(avatar_container);
+    
+    // ===== 中间：用户基本信息 =====
+    auto user_info_column = new QVBoxLayout();
+    user_info_column->setSpacing(6);
+    
+    // 用户名 + 状态标签
     auto name_row = new QHBoxLayout();
-    name_row->setSpacing(12);
+    name_row->setSpacing(10);
     
     user_name_label_ = new QLabel(tr("等待识别..."), info_panel);
     user_name_label_->setObjectName("UserNameLabel");
@@ -151,41 +172,92 @@ CardWidget* RecognitionPage::createVideoCard() {
     name_row->addWidget(attendance_status_label_);
     name_row->addStretch();
     
-    // 第二行：工号、部门
-    auto basic_row = new QHBoxLayout();
-    basic_row->setSpacing(32);
+    // 工号 | 部门
+    auto detail_row = new QHBoxLayout();
+    detail_row->setSpacing(0);
     
     user_id_label_ = new QLabel(tr("工号: --"), info_panel);
-    user_id_label_->setObjectName("UserInfoLabel");
+    user_id_label_->setObjectName("UserMetaLabel");
+    
+    auto separator1 = new QLabel("  •  ", info_panel);
+    separator1->setObjectName("MetaSeparator");
     
     user_dept_label_ = new QLabel(tr("部门: --"), info_panel);
-    user_dept_label_->setObjectName("UserInfoLabel");
+    user_dept_label_->setObjectName("UserMetaLabel");
     
-    basic_row->addWidget(user_id_label_);
-    basic_row->addWidget(user_dept_label_);
-    basic_row->addStretch();
+    detail_row->addWidget(user_id_label_);
+    detail_row->addWidget(separator1);
+    detail_row->addWidget(user_dept_label_);
+    detail_row->addStretch();
     
-    // 第三行：相似度、识别状态、打卡类型
-    auto recog_row = new QHBoxLayout();
-    recog_row->setSpacing(32);
-    
-    user_similarity_label_ = new QLabel(tr("相似度: --"), info_panel);
-    user_similarity_label_->setObjectName("UserDetailLabel");
-    
+    // 识别状态（隐藏，内部使用）
     recognition_label_ = new QLabel(tr("状态: 未识别"), info_panel);
     recognition_label_->setObjectName("UserDetailLabel");
+    recognition_label_->setVisible(false);
     
-    check_type_label_ = new QLabel(tr("类型: --"), info_panel);
-    check_type_label_->setObjectName("UserDetailLabel");
+    user_info_column->addLayout(name_row);
+    user_info_column->addLayout(detail_row);
+    user_info_column->addStretch();
     
-    recog_row->addWidget(user_similarity_label_);
-    recog_row->addWidget(recognition_label_);
-    recog_row->addWidget(check_type_label_);
-    recog_row->addStretch();
+    info_layout->addLayout(user_info_column, 1);
     
-    info_layout->addLayout(name_row);
-    info_layout->addLayout(basic_row);
-    info_layout->addLayout(recog_row);
+    // ===== 右侧：识别指标卡片 =====
+    auto metrics_container = new QWidget(info_panel);
+    metrics_container->setObjectName("MetricsContainer");
+    metrics_container->setAttribute(Qt::WA_StyledBackground, true);
+    
+    auto metrics_layout = new QHBoxLayout(metrics_container);
+    metrics_layout->setContentsMargins(0, 0, 0, 0);
+    metrics_layout->setSpacing(16);
+    
+    // 相似度指标
+    auto similarity_card = new QWidget(metrics_container);
+    similarity_card->setObjectName("MetricCard");
+    similarity_card->setAttribute(Qt::WA_StyledBackground, true);
+    similarity_card->setFixedWidth(90);
+    
+    auto sim_layout = new QVBoxLayout(similarity_card);
+    sim_layout->setContentsMargins(12, 8, 12, 8);
+    sim_layout->setSpacing(2);
+    sim_layout->setAlignment(Qt::AlignCenter);
+    
+    user_similarity_label_ = new QLabel(tr("--"), similarity_card);
+    user_similarity_label_->setObjectName("MetricValue");
+    user_similarity_label_->setAlignment(Qt::AlignCenter);
+    
+    auto sim_title = new QLabel(tr("相似度"), similarity_card);
+    sim_title->setObjectName("MetricTitle");
+    sim_title->setAlignment(Qt::AlignCenter);
+    
+    sim_layout->addWidget(user_similarity_label_);
+    sim_layout->addWidget(sim_title);
+    
+    // 打卡类型指标
+    auto type_card = new QWidget(metrics_container);
+    type_card->setObjectName("MetricCard");
+    type_card->setAttribute(Qt::WA_StyledBackground, true);
+    type_card->setFixedWidth(90);
+    
+    auto type_layout = new QVBoxLayout(type_card);
+    type_layout->setContentsMargins(12, 8, 12, 8);
+    type_layout->setSpacing(2);
+    type_layout->setAlignment(Qt::AlignCenter);
+    
+    check_type_label_ = new QLabel(tr("--"), type_card);
+    check_type_label_->setObjectName("MetricValue");
+    check_type_label_->setAlignment(Qt::AlignCenter);
+    
+    auto type_title = new QLabel(tr("打卡类型"), type_card);
+    type_title->setObjectName("MetricTitle");
+    type_title->setAlignment(Qt::AlignCenter);
+    
+    type_layout->addWidget(check_type_label_);
+    type_layout->addWidget(type_title);
+    
+    metrics_layout->addWidget(similarity_card);
+    metrics_layout->addWidget(type_card);
+    
+    info_layout->addWidget(metrics_container);
     
     main_layout->addWidget(info_panel, 0);
     

@@ -771,16 +771,18 @@ void MainWindow::on_recognition_result(int user_id, const QString& name, float s
         recognition_label_->setText(QString("识别: %1 (%2)").arg(name).arg(similarity, 0, 'f', 2));
     }
 
-    // 更新用户信息面板
+    // 更新用户信息面板（现代化卡片布局）
     if (user_name_label_) {
-        user_name_label_->setText(QString("最近识别：%1").arg(name));
+        // 直接显示用户名，大字体
+        user_name_label_->setText(name);
     }
     
     if (user_similarity_label_) {
-        user_similarity_label_->setText(QString("相似度: %1%").arg(QString::number(similarity * 100, 'f', 1)));
+        // 只显示百分比数值，配合下方标题
+        user_similarity_label_->setText(QString("%1%").arg(QString::number(similarity * 100, 'f', 1)));
     }
     
-    // 更新打卡类型标签（始终显示当前应该的打卡类型）
+    // 更新打卡类型标签（显示当前应该的打卡类型）
     if (check_type_label_) {
         // 判断当前时间应该是签到还是签退
         std::time_t current_time = std::time(nullptr);
@@ -789,16 +791,16 @@ void MainWindow::on_recognition_result(int user_id, const QString& name, float s
             expected_check_type = attendance_service_->auto_determine_check_type(user_id, current_time);
         }
         
-        QString type_text = (expected_check_type == 2) ? tr("打卡类型: 签退") : tr("打卡类型: 签到");
+        // 只显示类型文字
+        QString type_text = (expected_check_type == 2) ? tr("签退") : tr("签到");
+        check_type_label_->setText(type_text);
         
         if (is_new_attendance) {
             // 新打卡：绿色高亮
-            check_type_label_->setText(type_text);
-            check_type_label_->setStyleSheet("color: #52c41a; font-size: 13px; font-weight: bold; background: transparent;");
+            check_type_label_->setStyleSheet("color: #52c41a; font-size: 18px; font-weight: bold; background: transparent;");
         } else {
-            // 非新打卡：普通显示（但仍然显示应该的类型）
-            check_type_label_->setText(type_text);
-            check_type_label_->setStyleSheet("color: #bfbfbf; font-size: 13px; background: transparent;");
+            // 非新打卡：普通显示
+            check_type_label_->setStyleSheet("color: #8c8c8c; font-size: 18px; font-weight: 500; background: transparent;");
         }
     }
     
