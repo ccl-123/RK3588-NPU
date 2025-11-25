@@ -34,7 +34,7 @@ QIcon SvgIconManager::icon(const QString& resource_path,
         spdlog::warn("SvgIconManager: Cannot open file: {}", resource_path.toStdString());
         return {};
     }
-    
+
     QByteArray svg_data = resource.readAll();
     resource.close();
     

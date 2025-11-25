@@ -213,18 +213,18 @@ bool MainWindow::initialize(const std::string& retinaface_model,
                     // 检查是否已经持续检测了 2 秒
                     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
                         now - stranger_detection_.first_seen).count();
-                    
+            
                     spdlog::debug("Stranger detection continued (duration: {}ms / {}ms)", 
                                  duration, STRANGER_CONFIRM_DURATION_MS);
-                    
+            
                     if (duration >= STRANGER_CONFIRM_DURATION_MS) {
                         // 持续检测到陌生人超过 2 秒，播放提示音
-                        if (checkAudioCooldown(AudioType::StrangerDetected, STRANGER_AUDIO_COOLDOWN_MS)) {
-                            AudioManager::instance()->playSound(AudioType::StrangerDetected);
-                            updateAudioPlayTime(AudioType::StrangerDetected);
+                if (checkAudioCooldown(AudioType::StrangerDetected, STRANGER_AUDIO_COOLDOWN_MS)) {
+                    AudioManager::instance()->playSound(AudioType::StrangerDetected);
+                    updateAudioPlayTime(AudioType::StrangerDetected);
                             spdlog::info("Stranger confirmed after {}ms, played audio", duration);
-                        }
-                        
+                }
+                
                         // 重置陌生人检测状态
                         stranger_detection_.is_detecting = false;
                     }
@@ -243,11 +243,11 @@ bool MainWindow::initialize(const std::string& retinaface_model,
         // 识别到已注册用户，重置陌生人检测状态
         if (stranger_detection_.is_detecting) {
             stranger_detection_.is_detecting = false;
-            last_audio_play_times_[AudioType::StrangerDetected] = 
-                std::chrono::steady_clock::now() - std::chrono::seconds(20);
+                last_audio_play_times_[AudioType::StrangerDetected] = 
+                    std::chrono::steady_clock::now() - std::chrono::seconds(20);
             spdlog::debug("Switched from stranger to user, reset stranger detection");
-        }
-        
+            }
+            
         // 检查是否是同一个人的连续识别
         bool is_same_person = user_detection_.is_detecting && 
                              (result.user_id == user_detection_.user_id) && 
@@ -773,7 +773,7 @@ void MainWindow::on_frame_ready(const cv::Mat& frame, const std::vector<Recognit
         face_results.push_back(fr);
     }
     if (video_widget_) {
-        video_widget_->set_face_results(face_results);
+    video_widget_->set_face_results(face_results);
     }
     
     // 更新状态栏的人脸检测数量
@@ -798,7 +798,7 @@ void MainWindow::on_frame_ready(const cv::Mat& frame, const std::vector<Recognit
 
 void MainWindow::update_status() {
     if (fps_label_) {
-        fps_label_->setText(QString("FPS: %1").arg(fps_, 0, 'f', 1));
+    fps_label_->setText(QString("FPS: %1").arg(fps_, 0, 'f', 1));
     }
     
     // 更新状态栏的时钟和日期
@@ -869,7 +869,7 @@ void MainWindow::on_recognition_result(int user_id, const QString& name, float s
     if (recognition_label_) {
         recognition_label_->setText(QString("识别: %1 (%2)").arg(name).arg(similarity, 0, 'f', 2));
     }
-    
+
     // 更新状态栏的识别状态
     if (recognition_page_) {
         if (is_new_attendance) {

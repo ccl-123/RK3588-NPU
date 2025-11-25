@@ -47,7 +47,8 @@ public:
     void updateDetectionStatus(const QString& status, int progress = -1);
     
     // 信息栏更新方法（天气 + 考勤统计）
-    void updateWeather(const QString& weather, const QString& temp);
+    void updateWeather(const QString& city, const QString& temp);
+    void updateWeatherDesc(const QString& desc);
     void updateAttendanceStats(int checkin_count, int checkout_count, int late_count, int early_leave_count);
     void updateCheckMode(bool is_checkout_mode);
     
@@ -60,9 +61,12 @@ signals:
     void registerFaceRequested();
 
 private slots:
+    void onLocationReplyFinished(QNetworkReply* reply);
     void onWeatherReplyFinished(QNetworkReply* reply);
 
 private:
+    void requestLocation();                 // 请求 IP 定位
+    void requestWeather(double lat, double lon);  // 用经纬度请求天气
     QString weatherCodeToString(int code);  // 天气代码转中文
     
     CardWidget* createVideoCard();
@@ -93,14 +97,22 @@ private:
     QProgressBar* detection_progress_bar_;
     
     // 信息栏组件（天气 + 考勤统计）
-    QLabel* weather_label_;
-    QLabel* temp_label_;
+    QLabel* weather_label_;      // 城市名
+    QLabel* temp_label_;         // 温度
+    QLabel* weather_desc_;       // 天气描述
     QLabel* checkin_count_label_;
     QLabel* checkout_count_label_;
     QLabel* late_count_label_;
     QLabel* check_mode_label_;
     
-    // 网络请求（天气）
+    // 网络请求（IP定位 + 天气）
     QNetworkAccessManager* network_manager_;
+    QNetworkAccessManager* location_manager_;
+    
+    // 位置信息缓存
+    QString current_city_;      // 当前城市名
+    double current_lat_;        // 纬度
+    double current_lon_;        // 经度
+    bool location_fetched_;     // 是否已获取位置
 };
 

@@ -26,7 +26,7 @@ public:
 
     int getRecognitionConfirmCount() const;
     void setRecognitionConfirmCount(int count);
-    
+
     // 用户识别确认时间（毫秒）
     int getUserConfirmDuration() const;
     void setUserConfirmDuration(int milliseconds);

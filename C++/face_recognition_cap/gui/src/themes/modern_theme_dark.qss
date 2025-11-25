@@ -843,111 +843,218 @@ QCalendarWidget QMenu {
 }
 
 /* ========================================
-   信息栏（天气 + 考勤统计）- 暗色主题
+   信息栏（天气 + 考勤统计）- 暗色主题增强版
    ======================================== */
 
 #InfoBar {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 #1a2a3a, stop:0.5 #1f2f3f, stop:1 #1a2a3a);
-    border-bottom: 1px solid #303640;
+        stop:0 rgba(20, 30, 45, 0.95), stop:0.5 rgba(25, 35, 50, 0.95), stop:1 rgba(20, 30, 45, 0.95));
+    border-bottom: 1px solid rgba(23, 125, 220, 0.2);
 }
 
-#WeatherLabel {
-    color: #e0e0e0;
+#InfoBarCard {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+#InfoBarCardTitle {
+    color: #6b6b6b;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    background: transparent;
+}
+
+/* 天气卡片 - 暗色主题特殊样式 */
+#WeatherCard {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 rgba(23, 125, 220, 0.2), stop:1 rgba(138, 43, 226, 0.15));
+    border-radius: 16px;
+    border: 1px solid rgba(105, 192, 255, 0.25);
+    min-width: 180px;
+}
+
+#WeatherTempBig {
+    color: #69c0ff;
+    font-size: 42px;
+    font-weight: 700;
+    font-family: "DIN Alternate", "SF Pro Display", "Segoe UI", sans-serif;
+    background: transparent;
+    min-width: 80px;
+}
+
+#WeatherCityLabel {
+    color: #e8e8e8;
+    font-size: 16px;
+    font-weight: 600;
+    background: transparent;
+}
+
+#WeatherDescLabel {
+    color: #8c8c8c;
     font-size: 14px;
     font-weight: 500;
-}
-
-#TempLabel {
-    color: #ffc53d;
-    font-size: 14px;
-    font-weight: 600;
+    background: transparent;
 }
 
 #InfoBarSeparator {
-    background-color: #404550;
-}
-
-#StatsTitle {
-    color: #a0a0a0;
-    font-size: 13px;
-    font-weight: 500;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 transparent, stop:0.2 #404550, stop:0.8 #404550, stop:1 transparent);
 }
 
 #StatsItemLabel {
     color: #6b6b6b;
-    font-size: 12px;
+    font-size: 13px;
+    font-weight: 500;
+    background: transparent;
 }
 
-#StatsItemValue {
-    font-size: 14px;
-    min-width: 24px;
+#StatsCheckinValue {
+    color: #73d13d;
+    font-size: 24px;
+    font-weight: 700;
+    font-family: "DIN Alternate", "SF Pro Display", "Segoe UI", sans-serif;
+    background: transparent;
+}
+
+#StatsCheckoutValue {
+    color: #69c0ff;
+    font-size: 24px;
+    font-weight: 700;
+    font-family: "DIN Alternate", "SF Pro Display", "Segoe UI", sans-serif;
+    background: transparent;
+}
+
+#StatsAbnormalValue {
+    color: #6b6b6b;
+    font-size: 24px;
+    font-weight: 700;
+    font-family: "DIN Alternate", "SF Pro Display", "Segoe UI", sans-serif;
+    background: transparent;
+}
+
+#StatsAbnormalValue[hasAlert="true"] {
+    color: #ff7875;
+}
+
+#ModeCard {
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 16px;
+    border: 2px solid rgba(115, 209, 61, 0.3);
+    min-width: 100px;
+}
+
+#ModeTitle {
+    color: #6b6b6b;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    background: transparent;
 }
 
 #CheckModeLabel {
-    font-size: 13px;
+    font-size: 22px;
+    font-weight: 700;
+    color: #73d13d;
+    background: transparent;
+}
+
+#CheckModeLabel[mode="checkout"] {
+    color: #ffc53d;
 }
 
 /* ========================================
-   综合状态栏（视频与用户信息之间）- 暗色主题
+   综合状态栏（时钟 + 检测状态）- 暗色主题增强版
    ======================================== */
 
 #DetectionStatusBar {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 #1a1f2c, stop:0.5 #242935, stop:1 #1a1f2c);
-    border-top: 1px solid #303640;
-    border-bottom: 1px solid #303640;
+        stop:0 rgba(20, 25, 35, 0.95), stop:0.5 rgba(30, 35, 45, 0.95), stop:1 rgba(20, 25, 35, 0.95));
+    border-top: 1px solid rgba(23, 125, 220, 0.15);
+    border-bottom: 1px solid rgba(23, 125, 220, 0.2);
+}
+
+#ClockCard {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    min-width: 200px;
 }
 
 #ClockLabel {
-    color: #e8e8e8;
-    font-size: 20px;
+    color: #69c0ff;
+    font-size: 32px;
     font-weight: 700;
-    font-family: "JetBrains Mono", "SF Mono", "Consolas", monospace;
-    letter-spacing: 1px;
-}
-
-#ClockIcon, #DateIcon, #FaceIcon {
-    font-size: 18px;
+    font-family: "JetBrains Mono", "SF Mono", "Fira Code", "Consolas", monospace;
+    letter-spacing: 2px;
+    background: transparent;
 }
 
 #DateLabel {
-    color: #a0a0a0;
-    font-size: 14px;
+    color: #6b6b6b;
+    font-size: 13px;
     font-weight: 500;
+    letter-spacing: 0.5px;
+    background: transparent;
 }
 
 #StatusBarSeparator {
-    background-color: #404550;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 transparent, stop:0.2 #404550, stop:0.8 #404550, stop:1 transparent);
 }
 
-#FaceCountLabel {
-    font-size: 14px;
+#FaceDetectionCard {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+#FaceCardTitle {
+    color: #6b6b6b;
+    font-size: 12px;
     font-weight: 500;
+    letter-spacing: 0.5px;
+    background: transparent;
 }
 
-#FaceCountLabel[status="active"] {
+#FaceCountValue {
+    font-size: 28px;
+    font-weight: 700;
+    font-family: "DIN Alternate", "SF Pro Display", "Segoe UI", sans-serif;
+    background: transparent;
+}
+
+#FaceCountValue[status="active"] {
     color: #73d13d;
 }
 
-#FaceCountLabel[status="inactive"] {
-    color: #6b6b6b;
+#FaceCountValue[status="inactive"] {
+    color: #4a4a4a;
+}
+
+#ProgressCard {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    min-width: 200px;
 }
 
 #DetectionStatusLabel {
     color: #a0a0a0;
-    font-size: 13px;
-    font-weight: 500;
+    font-size: 14px;
+    font-weight: 600;
+    background: transparent;
 }
 
 #DetectionProgressBar {
-    background-color: #303640;
+    background-color: rgba(255, 255, 255, 0.08);
     border: none;
-    border-radius: 3px;
+    border-radius: 4px;
 }
 
 #DetectionProgressBar::chunk {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 #177ddc, stop:1 #73d13d);
-    border-radius: 3px;
+        stop:0 #177ddc, stop:0.5 #36cfc9, stop:1 #73d13d);
+    border-radius: 4px;
 }

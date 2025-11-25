@@ -51,11 +51,17 @@ RecognitionPage::RecognitionPage(QWidget* parent)
     , detection_progress_bar_(nullptr)
     , weather_label_(nullptr)
     , temp_label_(nullptr)
+    , weather_desc_(nullptr)
     , checkin_count_label_(nullptr)
     , checkout_count_label_(nullptr)
     , late_count_label_(nullptr)
     , check_mode_label_(nullptr)
-    , network_manager_(nullptr) {
+    , network_manager_(nullptr)
+    , location_manager_(nullptr)
+    , current_city_(tr("定位中..."))
+    , current_lat_(23.0215)   // 默认佛山坐标
+    , current_lon_(113.1214)
+    , location_fetched_(false) {
     
     setObjectName("RecognitionPage");
     setAttribute(Qt::WA_StyledBackground, true);
@@ -161,8 +167,8 @@ void RecognitionPage::updateDate(const QString& date) {
 
 void RecognitionPage::updateFaceCount(int count) {
     if (face_count_label_) {
-        // 使用固定格式文字，避免长度变化导致布局抖动
-        face_count_label_->setText(tr("人脸: %1").arg(count));
+        // 只显示数字，标题已在卡片上方
+        face_count_label_->setText(QString::number(count));
         face_count_label_->setProperty("status", count > 0 ? "active" : "inactive");
         face_count_label_->style()->unpolish(face_count_label_);
         face_count_label_->style()->polish(face_count_label_);
@@ -183,12 +189,18 @@ void RecognitionPage::updateDetectionStatus(const QString& status, int progress)
     }
 }
 
-void RecognitionPage::updateWeather(const QString& weather, const QString& temp) {
+void RecognitionPage::updateWeather(const QString& city, const QString& temp) {
     if (weather_label_) {
-        weather_label_->setText(weather);
+        weather_label_->setText(city);
     }
     if (temp_label_) {
         temp_label_->setText(temp);
+    }
+}
+
+void RecognitionPage::updateWeatherDesc(const QString& desc) {
+    if (weather_desc_) {
+        weather_desc_->setText(desc);
     }
 }
 
@@ -200,11 +212,11 @@ void RecognitionPage::updateAttendanceStats(int checkin_count, int checkout_coun
         checkout_count_label_->setText(QString::number(checkout_count));
     }
     if (late_count_label_) {
-        // 迟到 + 早退
+        // 迟到 + 早退 = 异常总数
         int abnormal = late_count + early_leave_count;
         late_count_label_->setText(QString::number(abnormal));
-        // 有异常时变红
-        late_count_label_->setProperty("hasAlert", abnormal > 0);
+        // 有异常时变红，使用 hasAlert 属性控制样式
+        late_count_label_->setProperty("hasAlert", abnormal > 0 ? "true" : "false");
         late_count_label_->style()->unpolish(late_count_label_);
         late_count_label_->style()->polish(late_count_label_);
     }
@@ -213,16 +225,88 @@ void RecognitionPage::updateAttendanceStats(int checkin_count, int checkout_coun
 void RecognitionPage::updateCheckMode(bool is_checkout_mode) {
     if (check_mode_label_) {
         if (is_checkout_mode) {
-            check_mode_label_->setText(tr("签退模式"));
-            check_mode_label_->setStyleSheet("color: #fa8c16; font-weight: 600; background: rgba(250,140,22,0.1); padding: 4px 12px; border-radius: 12px;");
+            check_mode_label_->setText(tr("签退"));
+            check_mode_label_->setProperty("mode", "checkout");
         } else {
-            check_mode_label_->setText(tr("签到模式"));
-            check_mode_label_->setStyleSheet("color: #52c41a; font-weight: 600; background: rgba(82,196,26,0.1); padding: 4px 12px; border-radius: 12px;");
+            check_mode_label_->setText(tr("签到"));
+            check_mode_label_->setProperty("mode", "checkin");
         }
+        check_mode_label_->style()->unpolish(check_mode_label_);
+        check_mode_label_->style()->polish(check_mode_label_);
     }
 }
 
 void RecognitionPage::refreshWeather() {
+    // 如果还没获取过位置，先获取位置
+    if (!location_fetched_) {
+        requestLocation();
+    } else {
+        // 已有位置信息，直接请求天气
+        requestWeather(current_lat_, current_lon_);
+    }
+}
+
+void RecognitionPage::requestLocation() {
+    if (!location_manager_) {
+        location_manager_ = new QNetworkAccessManager(this);
+        connect(location_manager_, &QNetworkAccessManager::finished, 
+                this, &RecognitionPage::onLocationReplyFinished);
+    }
+    
+    // 使用 ip-api.com 获取设备位置（免费，无需 Key）
+    QUrl url("http://ip-api.com/json/?lang=zh-CN");
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::UserAgentHeader, "FaceRecognitionApp/1.0");
+    location_manager_->get(request);
+    
+    spdlog::debug("Location request sent to ip-api.com");
+}
+
+void RecognitionPage::onLocationReplyFinished(QNetworkReply* reply) {
+    if (reply->error() == QNetworkReply::NoError) {
+        QByteArray data = reply->readAll();
+        QJsonDocument doc = QJsonDocument::fromJson(data);
+        
+        if (!doc.isNull() && doc.isObject()) {
+            QJsonObject root = doc.object();
+            
+            // 获取位置信息
+            QString status = root["status"].toString();
+            if (status == "success") {
+                current_city_ = root["city"].toString();
+                current_lat_ = root["lat"].toDouble();
+                current_lon_ = root["lon"].toDouble();
+                location_fetched_ = true;
+                
+                spdlog::info("Location detected: {} (lat: {}, lon: {})", 
+                    current_city_.toStdString(), current_lat_, current_lon_);
+                
+                // 获取位置成功后，请求天气
+                requestWeather(current_lat_, current_lon_);
+            } else {
+                spdlog::warn("Location API returned status: {}", status.toStdString());
+                // 使用默认位置（佛山）
+                current_city_ = tr("佛山");
+                location_fetched_ = true;
+                requestWeather(current_lat_, current_lon_);
+            }
+        } else {
+            spdlog::warn("Location JSON parse failed");
+            current_city_ = tr("佛山");
+            location_fetched_ = true;
+            requestWeather(current_lat_, current_lon_);
+        }
+    } else {
+        spdlog::warn("Location request failed: {}", reply->errorString().toStdString());
+        // 网络失败，使用默认位置
+        current_city_ = tr("佛山");
+        location_fetched_ = true;
+        requestWeather(current_lat_, current_lon_);
+    }
+    reply->deleteLater();
+}
+
+void RecognitionPage::requestWeather(double lat, double lon) {
     if (!network_manager_) {
         network_manager_ = new QNetworkAccessManager(this);
         connect(network_manager_, &QNetworkAccessManager::finished, 
@@ -230,13 +314,16 @@ void RecognitionPage::refreshWeather() {
     }
     
     // 使用 Open-Meteo API（完全免费，无需 API Key）
-    // 佛山坐标：纬度 23.0215，经度 113.1214
-    QUrl url("https://api.open-meteo.com/v1/forecast?latitude=23.0215&longitude=113.1214&current_weather=true");
+    QString urlStr = QString("https://api.open-meteo.com/v1/forecast?latitude=%1&longitude=%2&current_weather=true")
+                        .arg(lat, 0, 'f', 4)
+                        .arg(lon, 0, 'f', 4);
+    QUrl url(urlStr);
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::UserAgentHeader, "FaceRecognitionApp/1.0");
     network_manager_->get(request);
     
-    spdlog::debug("Weather request sent to Open-Meteo for Foshan");
+    spdlog::debug("Weather request sent to Open-Meteo for {} (lat: {}, lon: {})", 
+        current_city_.toStdString(), lat, lon);
 }
 
 void RecognitionPage::onWeatherReplyFinished(QNetworkReply* reply) {
@@ -253,17 +340,23 @@ void RecognitionPage::onWeatherReplyFinished(QNetworkReply* reply) {
             
             // 将天气代码转换为中文描述
             QString weatherDesc = weatherCodeToString(weatherCode);
-            QString tempStr = QString("%1°C").arg(temp, 0, 'f', 0);
+            QString tempStr = QString("%1°").arg(temp, 0, 'f', 0);
             
-            updateWeather(weatherDesc, tempStr);
-            spdlog::info("Weather updated: {} {}", weatherDesc.toStdString(), tempStr.toStdString());
+            // 分别更新城市名、温度、天气描述
+            updateWeather(current_city_, tempStr);
+            updateWeatherDesc(weatherDesc);
+            
+            spdlog::info("Weather updated: {} {} {}", 
+                current_city_.toStdString(), weatherDesc.toStdString(), tempStr.toStdString());
         } else {
             spdlog::warn("Weather JSON parse failed");
-            updateWeather(tr("--"), tr("--"));
+            updateWeather(current_city_, tr("--°"));
+            updateWeatherDesc(tr("获取失败"));
         }
     } else {
         spdlog::warn("Weather request failed: {}", reply->errorString().toStdString());
-        updateWeather(tr("--"), tr("--"));
+        updateWeather(current_city_, tr("--°"));
+        updateWeatherDesc(tr("网络错误"));
     }
     reply->deleteLater();
 }
@@ -441,32 +534,12 @@ CardWidget* RecognitionPage::createVideoCard() {
     sim_layout->addWidget(user_similarity_label_);
     sim_layout->addWidget(sim_title);
     
-    // 打卡类型指标
-    auto type_card = new QWidget(metrics_container);
-    type_card->setObjectName("MetricCard");
-    type_card->setAttribute(Qt::WA_StyledBackground, true);
-    type_card->setFixedWidth(90);
-    
-    auto type_layout = new QVBoxLayout(type_card);
-    type_layout->setContentsMargins(12, 8, 12, 8);
-    type_layout->setSpacing(2);
-    type_layout->setAlignment(Qt::AlignCenter);
-    
-    check_type_label_ = new QLabel(tr("--"), type_card);
-    check_type_label_->setObjectName("MetricValue");
-    check_type_label_->setAlignment(Qt::AlignCenter);
-    
-    auto type_title = new QLabel(tr("打卡类型"), type_card);
-    type_title->setObjectName("MetricTitle");
-    type_title->setAlignment(Qt::AlignCenter);
-    
-    type_layout->addWidget(check_type_label_);
-    type_layout->addWidget(type_title);
-    
     metrics_layout->addWidget(similarity_card);
-    metrics_layout->addWidget(type_card);
     
     info_layout->addWidget(metrics_container);
+    
+    // check_type_label_ 不再显示（已在信息栏的"当前模式"中显示）
+    check_type_label_ = nullptr;
     
     main_layout->addWidget(info_panel, 0);
     
@@ -482,91 +555,139 @@ QWidget* RecognitionPage::createInfoBar() {
     auto info_bar = new QWidget();
     info_bar->setObjectName("InfoBar");
     info_bar->setAttribute(Qt::WA_StyledBackground, true);
-    info_bar->setFixedHeight(56);  // 增加高度
+    info_bar->setFixedHeight(100);  // 与用户信息栏同高
     
     auto layout = new QHBoxLayout(info_bar);
-    layout->setContentsMargins(20, 12, 20, 12);  // 增加上下内边距
-    layout->setSpacing(20);
+    layout->setContentsMargins(24, 16, 24, 16);
+    layout->setSpacing(32);
     
-    // ===== 左侧：天气信息 =====
-    auto weather_container = new QWidget(info_bar);
-    weather_container->setObjectName("WeatherContainer");
-    auto weather_layout = new QHBoxLayout(weather_container);
-    weather_layout->setContentsMargins(0, 0, 0, 0);
-    weather_layout->setSpacing(6);
+    // ===== 左侧：天气信息卡片 =====
+    auto weather_card = new QWidget(info_bar);
+    weather_card->setObjectName("WeatherCard");
+    weather_card->setAttribute(Qt::WA_StyledBackground, true);
+    auto weather_main_layout = new QHBoxLayout(weather_card);
+    weather_main_layout->setContentsMargins(20, 12, 20, 12);
+    weather_main_layout->setSpacing(16);
     
-    auto weather_icon = new QLabel("☀", weather_container);
-    weather_icon->setObjectName("WeatherIcon");
-    weather_icon->setStyleSheet("font-size: 18px;");
+    // 左侧：温度大数字
+    temp_label_ = new QLabel(tr("--°"), weather_card);
+    temp_label_->setObjectName("WeatherTempBig");
+    temp_label_->setAlignment(Qt::AlignCenter);
     
-    weather_label_ = new QLabel(tr("--"), weather_container);
-    weather_label_->setObjectName("WeatherLabel");
+    weather_main_layout->addWidget(temp_label_);
     
-    temp_label_ = new QLabel(tr("--"), weather_container);
-    temp_label_->setObjectName("TempLabel");
+    // 右侧：城市 + 天气描述
+    auto weather_info = new QWidget(weather_card);
+    auto weather_info_layout = new QVBoxLayout(weather_info);
+    weather_info_layout->setContentsMargins(0, 0, 0, 0);
+    weather_info_layout->setSpacing(2);
     
-    weather_layout->addWidget(weather_icon);
-    weather_layout->addWidget(weather_label_);
-    weather_layout->addWidget(temp_label_);
+    weather_label_ = new QLabel(tr("定位中..."), weather_info);
+    weather_label_->setObjectName("WeatherCityLabel");
     
-    layout->addWidget(weather_container);
+    auto weather_desc = new QLabel(tr("获取天气"), weather_info);
+    weather_desc->setObjectName("WeatherDescLabel");
+    weather_desc_ = weather_desc;
+    
+    weather_info_layout->addWidget(weather_label_);
+    weather_info_layout->addWidget(weather_desc);
+    
+    weather_main_layout->addWidget(weather_info);
+    weather_main_layout->addStretch();
+    
+    layout->addWidget(weather_card);
     
     // ===== 分隔符 =====
     auto sep1 = new QWidget(info_bar);
     sep1->setObjectName("InfoBarSeparator");
     sep1->setFixedWidth(1);
-    sep1->setMinimumHeight(20);
+    sep1->setMinimumHeight(50);
     layout->addWidget(sep1);
     
-    // ===== 中间：今日考勤统计 =====
-    auto stats_container = new QWidget(info_bar);
-    stats_container->setObjectName("StatsContainer");
-    auto stats_layout = new QHBoxLayout(stats_container);
-    stats_layout->setContentsMargins(0, 0, 0, 0);
-    stats_layout->setSpacing(16);
+    // ===== 中间：今日考勤统计卡片 =====
+    auto stats_card = new QWidget(info_bar);
+    stats_card->setObjectName("InfoBarCard");
+    stats_card->setAttribute(Qt::WA_StyledBackground, true);
+    auto stats_layout = new QVBoxLayout(stats_card);
+    stats_layout->setContentsMargins(16, 12, 16, 12);
+    stats_layout->setSpacing(8);
     
-    auto stats_title = new QLabel(tr("今日:"), stats_container);
-    stats_title->setObjectName("StatsTitle");
+    // 统计标题
+    auto stats_title = new QLabel(tr("今日考勤统计"), stats_card);
+    stats_title->setObjectName("InfoBarCardTitle");
     
-    // 签到人数
-    auto checkin_label = new QLabel(tr("签到"), stats_container);
+    // 统计数据行
+    auto stats_data_row = new QHBoxLayout();
+    stats_data_row->setSpacing(24);
+    
+    // 签到
+    auto checkin_box = new QWidget(stats_card);
+    auto checkin_layout = new QHBoxLayout(checkin_box);
+    checkin_layout->setContentsMargins(0, 0, 0, 0);
+    checkin_layout->setSpacing(6);
+    auto checkin_label = new QLabel(tr("签到"), checkin_box);
     checkin_label->setObjectName("StatsItemLabel");
-    checkin_count_label_ = new QLabel("0", stats_container);
-    checkin_count_label_->setObjectName("StatsItemValue");
-    checkin_count_label_->setStyleSheet("color: #52c41a; font-weight: 600;");
+    checkin_count_label_ = new QLabel("0", checkin_box);
+    checkin_count_label_->setObjectName("StatsCheckinValue");
+    checkin_layout->addWidget(checkin_label);
+    checkin_layout->addWidget(checkin_count_label_);
     
-    // 签退人数
-    auto checkout_label = new QLabel(tr("签退"), stats_container);
+    // 签退
+    auto checkout_box = new QWidget(stats_card);
+    auto checkout_layout = new QHBoxLayout(checkout_box);
+    checkout_layout->setContentsMargins(0, 0, 0, 0);
+    checkout_layout->setSpacing(6);
+    auto checkout_label = new QLabel(tr("签退"), checkout_box);
     checkout_label->setObjectName("StatsItemLabel");
-    checkout_count_label_ = new QLabel("0", stats_container);
-    checkout_count_label_->setObjectName("StatsItemValue");
-    checkout_count_label_->setStyleSheet("color: #1890ff; font-weight: 600;");
+    checkout_count_label_ = new QLabel("0", checkout_box);
+    checkout_count_label_->setObjectName("StatsCheckoutValue");
+    checkout_layout->addWidget(checkout_label);
+    checkout_layout->addWidget(checkout_count_label_);
     
-    // 异常（迟到+早退）
-    auto late_label = new QLabel(tr("异常"), stats_container);
+    // 异常
+    auto late_box = new QWidget(stats_card);
+    auto late_layout = new QHBoxLayout(late_box);
+    late_layout->setContentsMargins(0, 0, 0, 0);
+    late_layout->setSpacing(6);
+    auto late_label = new QLabel(tr("异常"), late_box);
     late_label->setObjectName("StatsItemLabel");
-    late_count_label_ = new QLabel("0", stats_container);
-    late_count_label_->setObjectName("StatsItemValue");
-    late_count_label_->setStyleSheet("color: #8c8c8c; font-weight: 600;");
+    late_count_label_ = new QLabel("0", late_box);
+    late_count_label_->setObjectName("StatsAbnormalValue");
+    late_layout->addWidget(late_label);
+    late_layout->addWidget(late_count_label_);
+    
+    stats_data_row->addWidget(checkin_box);
+    stats_data_row->addWidget(checkout_box);
+    stats_data_row->addWidget(late_box);
     
     stats_layout->addWidget(stats_title);
-    stats_layout->addWidget(checkin_label);
-    stats_layout->addWidget(checkin_count_label_);
-    stats_layout->addWidget(checkout_label);
-    stats_layout->addWidget(checkout_count_label_);
-    stats_layout->addWidget(late_label);
-    stats_layout->addWidget(late_count_label_);
+    stats_layout->addLayout(stats_data_row);
     
-    layout->addWidget(stats_container);
+    layout->addWidget(stats_card);
     
     layout->addStretch();
     
-    // ===== 右侧：当前模式 =====
-    check_mode_label_ = new QLabel(tr("签到模式"), info_bar);
-    check_mode_label_->setObjectName("CheckModeLabel");
-    check_mode_label_->setStyleSheet("color: #52c41a; font-weight: 600; background: rgba(82,196,26,0.1); padding: 4px 12px; border-radius: 12px;");
+    // ===== 右侧：当前模式标签 =====
+    auto mode_card = new QWidget(info_bar);
+    mode_card->setObjectName("ModeCard");
+    mode_card->setAttribute(Qt::WA_StyledBackground, true);
+    auto mode_layout = new QVBoxLayout(mode_card);
+    mode_layout->setContentsMargins(20, 12, 20, 12);
+    mode_layout->setSpacing(4);
+    mode_layout->setAlignment(Qt::AlignCenter);
     
-    layout->addWidget(check_mode_label_);
+    auto mode_title = new QLabel(tr("当前模式"), mode_card);
+    mode_title->setObjectName("ModeTitle");
+    mode_title->setAlignment(Qt::AlignCenter);
+    
+    check_mode_label_ = new QLabel(tr("签到"), mode_card);
+    check_mode_label_->setObjectName("CheckModeLabel");
+    check_mode_label_->setAlignment(Qt::AlignCenter);
+    
+    mode_layout->addWidget(mode_title);
+    mode_layout->addWidget(check_mode_label_);
+    
+    layout->addWidget(mode_card);
     
     return info_bar;
 }
@@ -575,99 +696,92 @@ QWidget* RecognitionPage::createStatusBar() {
     auto status_bar = new QWidget();
     status_bar->setObjectName("DetectionStatusBar");
     status_bar->setAttribute(Qt::WA_StyledBackground, true);
-    status_bar->setFixedHeight(56);
+    status_bar->setFixedHeight(100);  // 与用户信息栏同高
     
     auto layout = new QHBoxLayout(status_bar);
-    layout->setContentsMargins(20, 10, 20, 10);
-    layout->setSpacing(24);
+    layout->setContentsMargins(24, 16, 24, 16);
+    layout->setSpacing(32);
     
-    // ===== 左侧：实时时钟 =====
-    auto clock_container = new QWidget(status_bar);
-    clock_container->setObjectName("ClockContainer");
-    auto clock_layout = new QHBoxLayout(clock_container);
-    clock_layout->setContentsMargins(0, 0, 0, 0);
-    clock_layout->setSpacing(8);
+    // ===== 左侧：时钟卡片 =====
+    auto clock_card = new QWidget(status_bar);
+    clock_card->setObjectName("ClockCard");
+    clock_card->setAttribute(Qt::WA_StyledBackground, true);
+    auto clock_card_layout = new QVBoxLayout(clock_card);
+    clock_card_layout->setContentsMargins(16, 12, 16, 12);
+    clock_card_layout->setSpacing(2);
+    clock_card_layout->setAlignment(Qt::AlignCenter);
     
-    auto clock_icon = new QLabel("⏱", clock_container);  // 使用简单字符
-    clock_icon->setObjectName("ClockIcon");
-    
-    clock_label_ = new QLabel("--:--:--", clock_container);
+    clock_label_ = new QLabel("--:--:--", clock_card);
     clock_label_->setObjectName("ClockLabel");
+    clock_label_->setAlignment(Qt::AlignCenter);
     
-    clock_layout->addWidget(clock_icon);
-    clock_layout->addWidget(clock_label_);
+    date_label_ = new QLabel("----年--月--日 星期-", clock_card);
+    date_label_->setObjectName("DateLabel");
+    date_label_->setAlignment(Qt::AlignCenter);
     
-    layout->addWidget(clock_container);
+    clock_card_layout->addWidget(clock_label_);
+    clock_card_layout->addWidget(date_label_);
+    
+    layout->addWidget(clock_card);
     
     // ===== 分隔符 =====
     auto separator1 = new QWidget(status_bar);
     separator1->setObjectName("StatusBarSeparator");
     separator1->setFixedWidth(1);
-    separator1->setMinimumHeight(24);
+    separator1->setMinimumHeight(50);
     layout->addWidget(separator1);
     
-    // ===== 日期 =====
-    auto date_container = new QWidget(status_bar);
-    date_container->setObjectName("DateContainer");
-    auto date_layout = new QHBoxLayout(date_container);
-    date_layout->setContentsMargins(0, 0, 0, 0);
-    date_layout->setSpacing(8);
+    // ===== 人脸检测状态卡片 =====
+    auto face_card = new QWidget(status_bar);
+    face_card->setObjectName("FaceDetectionCard");
+    face_card->setAttribute(Qt::WA_StyledBackground, true);
+    face_card->setFixedWidth(160);  // 固定宽度防止抖动
+    auto face_card_layout = new QVBoxLayout(face_card);
+    face_card_layout->setContentsMargins(16, 12, 16, 12);
+    face_card_layout->setSpacing(4);
+    face_card_layout->setAlignment(Qt::AlignCenter);
     
-    date_label_ = new QLabel("----年--月--日", date_container);
-    date_label_->setObjectName("DateLabel");
+    auto face_title = new QLabel(tr("人脸检测"), face_card);
+    face_title->setObjectName("FaceCardTitle");
+    face_title->setAlignment(Qt::AlignCenter);
     
-    date_layout->addWidget(date_label_);
-    
-    layout->addWidget(date_container);
-    
-    // ===== 分隔符 =====
-    auto separator2 = new QWidget(status_bar);
-    separator2->setObjectName("StatusBarSeparator");
-    separator2->setFixedWidth(1);
-    separator2->setMinimumHeight(24);
-    layout->addWidget(separator2);
-    
-    // ===== 人脸检测状态 =====
-    auto face_container = new QWidget(status_bar);
-    face_container->setObjectName("FaceCountContainer");
-    face_container->setFixedWidth(140);  // 固定宽度防止抖动
-    auto face_layout = new QHBoxLayout(face_container);
-    face_layout->setContentsMargins(0, 0, 0, 0);
-    face_layout->setSpacing(8);
-    
-    face_count_label_ = new QLabel(tr("人脸: 0"), face_container);
-    face_count_label_->setObjectName("FaceCountLabel");
+    face_count_label_ = new QLabel(tr("0"), face_card);
+    face_count_label_->setObjectName("FaceCountValue");
     face_count_label_->setProperty("status", "inactive");
+    face_count_label_->setAlignment(Qt::AlignCenter);
     
-    face_layout->addWidget(face_count_label_);
+    face_card_layout->addWidget(face_title);
+    face_card_layout->addWidget(face_count_label_);
     
-    layout->addWidget(face_container);
+    layout->addWidget(face_card);
     
     layout->addStretch();
     
-    // ===== 右侧：识别进度 =====
-    auto progress_container = new QWidget(status_bar);
-    progress_container->setObjectName("ProgressContainer");
-    auto progress_layout = new QHBoxLayout(progress_container);
-    progress_layout->setContentsMargins(0, 0, 0, 0);
-    progress_layout->setSpacing(12);
+    // ===== 右侧：识别进度卡片 =====
+    auto progress_card = new QWidget(status_bar);
+    progress_card->setObjectName("ProgressCard");
+    progress_card->setAttribute(Qt::WA_StyledBackground, true);
+    auto progress_card_layout = new QVBoxLayout(progress_card);
+    progress_card_layout->setContentsMargins(20, 12, 20, 12);
+    progress_card_layout->setSpacing(8);
+    progress_card_layout->setAlignment(Qt::AlignCenter);
     
-    detection_status_label_ = new QLabel(tr("等待识别"), progress_container);
+    detection_status_label_ = new QLabel(tr("等待识别"), progress_card);
     detection_status_label_->setObjectName("DetectionStatusLabel");
+    detection_status_label_->setAlignment(Qt::AlignCenter);
     
-    detection_progress_bar_ = new QProgressBar(progress_container);
+    detection_progress_bar_ = new QProgressBar(progress_card);
     detection_progress_bar_->setObjectName("DetectionProgressBar");
     detection_progress_bar_->setRange(0, 100);
     detection_progress_bar_->setValue(0);
     detection_progress_bar_->setTextVisible(false);
-    detection_progress_bar_->setFixedSize(120, 6);
-    // 始终显示进度条，防止布局抖动
+    detection_progress_bar_->setFixedSize(160, 8);
     detection_progress_bar_->setVisible(true);
     
-    progress_layout->addWidget(detection_status_label_);
-    progress_layout->addWidget(detection_progress_bar_);
+    progress_card_layout->addWidget(detection_status_label_);
+    progress_card_layout->addWidget(detection_progress_bar_);
     
-    layout->addWidget(progress_container);
+    layout->addWidget(progress_card);
     
     return status_bar;
 }

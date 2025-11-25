@@ -667,20 +667,21 @@ QToolTip {
     background-color: transparent;
 }
 
-/* 用户信息面板 - 现代化设计 */
+/* 用户信息面板 - 浅色主题 */
 #UserInfoPanel {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 rgba(15, 23, 42, 0.98), stop:1 rgba(30, 41, 59, 0.98));
+        stop:0 rgba(240, 245, 255, 0.98), stop:0.5 rgba(248, 250, 255, 0.98), stop:1 rgba(240, 245, 255, 0.98));
     border-bottom-left-radius: 12px;
     border-bottom-right-radius: 12px;
+    border-top: 1px solid rgba(24, 144, 255, 0.1);
 }
 
 /* 头像容器 */
 #AvatarContainer {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-        stop:0 #3b82f6, stop:1 #8b5cf6);
+        stop:0 #1890ff, stop:1 #722ed1);
     border-radius: 34px;
-    border: 3px solid rgba(255, 255, 255, 0.2);
+    border: 3px solid rgba(255, 255, 255, 0.8);
 }
 
 #AvatarIcon {
@@ -691,7 +692,7 @@ QToolTip {
 
 /* 用户名 */
 #UserNameLabel {
-    color: #ffffff;
+    color: #262626;
     font-size: 22px;
     font-weight: 700;
     background: transparent;
@@ -701,7 +702,7 @@ QToolTip {
 /* 签到成功状态标签 */
 #AttendanceStatusLabel {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0, 
-        stop:0 #10b981, stop:1 #34d399);
+        stop:0 #52c41a, stop:1 #73d13d);
     color: white;
     padding: 6px 16px;
     border-radius: 16px;
@@ -711,13 +712,13 @@ QToolTip {
 
 /* 元信息标签（工号、部门） */
 #UserMetaLabel {
-    color: rgba(255, 255, 255, 0.7);
+    color: #8c8c8c;
     font-size: 13px;
     background: transparent;
 }
 
 #MetaSeparator {
-    color: rgba(255, 255, 255, 0.4);
+    color: #d9d9d9;
     font-size: 13px;
     background: transparent;
 }
@@ -729,19 +730,19 @@ QToolTip {
 
 /* 指标卡片 */
 #MetricCard {
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.8);
     border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(24, 144, 255, 0.15);
 }
 
 #MetricCard:hover {
-    background: rgba(255, 255, 255, 0.12);
-    border-color: rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.95);
+    border-color: rgba(24, 144, 255, 0.25);
 }
 
 /* 指标数值 */
 #MetricValue {
-    color: #ffffff;
+    color: #1890ff;
     font-size: 18px;
     font-weight: 700;
     background: transparent;
@@ -749,7 +750,7 @@ QToolTip {
 
 /* 指标标题 */
 #MetricTitle {
-    color: rgba(255, 255, 255, 0.5);
+    color: #8c8c8c;
     font-size: 11px;
     font-weight: 500;
     background: transparent;
@@ -757,13 +758,13 @@ QToolTip {
 
 /* 兼容旧标签 */
 #UserInfoLabel {
-    color: rgba(255,255,255,0.75);
+    color: #595959;
     font-size: 14px;
     background: transparent;
 }
 
 #UserDetailLabel {
-    color: rgba(255,255,255,0.6);
+    color: #8c8c8c;
     font-size: 13px;
     background: transparent;
 }
@@ -806,111 +807,218 @@ QToolTip {
 }
 
 /* ========================================
-   信息栏（天气 + 考勤统计）
+   信息栏（天气 + 考勤统计）- 增强版
    ======================================== */
 
 #InfoBar {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 #e6f7ff, stop:0.5 #f0f5ff, stop:1 #e6f7ff);
-    border-bottom: 1px solid #d9d9d9;
+        stop:0 rgba(230, 247, 255, 0.95), stop:0.5 rgba(240, 245, 255, 0.95), stop:1 rgba(230, 247, 255, 0.95));
+    border-bottom: 1px solid rgba(24, 144, 255, 0.15);
 }
 
-#WeatherLabel {
+#InfoBarCard {
+    background: rgba(255, 255, 255, 0.7);
+    border-radius: 12px;
+    border: 1px solid rgba(24, 144, 255, 0.1);
+}
+
+#InfoBarCardTitle {
+    color: #8c8c8c;
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    background: transparent;
+}
+
+/* 天气卡片 - 特殊样式 */
+#WeatherCard {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 rgba(24, 144, 255, 0.15), stop:1 rgba(114, 46, 209, 0.1));
+    border-radius: 16px;
+    border: 1px solid rgba(24, 144, 255, 0.2);
+    min-width: 180px;
+}
+
+#WeatherTempBig {
+    color: #1890ff;
+    font-size: 42px;
+    font-weight: 700;
+    font-family: "DIN Alternate", "SF Pro Display", "Segoe UI", sans-serif;
+    background: transparent;
+    min-width: 80px;
+}
+
+#WeatherCityLabel {
     color: #262626;
+    font-size: 16px;
+    font-weight: 600;
+    background: transparent;
+}
+
+#WeatherDescLabel {
+    color: #8c8c8c;
     font-size: 14px;
     font-weight: 500;
-}
-
-#TempLabel {
-    color: #fa8c16;
-    font-size: 14px;
-    font-weight: 600;
+    background: transparent;
 }
 
 #InfoBarSeparator {
-    background-color: #d9d9d9;
-}
-
-#StatsTitle {
-    color: #595959;
-    font-size: 13px;
-    font-weight: 500;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 transparent, stop:0.2 #d9d9d9, stop:0.8 #d9d9d9, stop:1 transparent);
 }
 
 #StatsItemLabel {
     color: #8c8c8c;
-    font-size: 12px;
+    font-size: 13px;
+    font-weight: 500;
+    background: transparent;
 }
 
-#StatsItemValue {
-    font-size: 14px;
-    min-width: 24px;
+#StatsCheckinValue {
+    color: #52c41a;
+    font-size: 24px;
+    font-weight: 700;
+    font-family: "DIN Alternate", "SF Pro Display", "Segoe UI", sans-serif;
+    background: transparent;
+}
+
+#StatsCheckoutValue {
+    color: #1890ff;
+    font-size: 24px;
+    font-weight: 700;
+    font-family: "DIN Alternate", "SF Pro Display", "Segoe UI", sans-serif;
+    background: transparent;
+}
+
+#StatsAbnormalValue {
+    color: #8c8c8c;
+    font-size: 24px;
+    font-weight: 700;
+    font-family: "DIN Alternate", "SF Pro Display", "Segoe UI", sans-serif;
+    background: transparent;
+}
+
+#StatsAbnormalValue[hasAlert="true"] {
+    color: #ff4d4f;
+}
+
+#ModeCard {
+    background: rgba(255, 255, 255, 0.8);
+    border-radius: 16px;
+    border: 2px solid rgba(82, 196, 26, 0.3);
+    min-width: 100px;
+}
+
+#ModeTitle {
+    color: #8c8c8c;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    background: transparent;
 }
 
 #CheckModeLabel {
-    font-size: 13px;
+    font-size: 22px;
+    font-weight: 700;
+    color: #52c41a;
+    background: transparent;
+}
+
+#CheckModeLabel[mode="checkout"] {
+    color: #fa8c16;
 }
 
 /* ========================================
-   综合状态栏（视频与用户信息之间）
+   综合状态栏（时钟 + 检测状态）- 增强版
    ======================================== */
 
 #DetectionStatusBar {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 #f0f5ff, stop:0.5 #ffffff, stop:1 #f0f5ff);
-    border-top: 1px solid #e8e8e8;
-    border-bottom: 1px solid #e8e8e8;
+        stop:0 rgba(240, 245, 255, 0.95), stop:0.5 rgba(255, 255, 255, 0.98), stop:1 rgba(240, 245, 255, 0.95));
+    border-top: 1px solid rgba(24, 144, 255, 0.1);
+    border-bottom: 1px solid rgba(24, 144, 255, 0.15);
+}
+
+#ClockCard {
+    background: rgba(255, 255, 255, 0.7);
+    border-radius: 12px;
+    border: 1px solid rgba(24, 144, 255, 0.1);
+    min-width: 200px;
 }
 
 #ClockLabel {
-    color: #262626;
-    font-size: 20px;
+    color: #1890ff;
+    font-size: 32px;
     font-weight: 700;
-    font-family: "JetBrains Mono", "SF Mono", "Consolas", monospace;
-    letter-spacing: 1px;
-}
-
-#ClockIcon, #DateIcon, #FaceIcon {
-    font-size: 18px;
+    font-family: "JetBrains Mono", "SF Mono", "Fira Code", "Consolas", monospace;
+    letter-spacing: 2px;
+    background: transparent;
 }
 
 #DateLabel {
-    color: #595959;
-    font-size: 14px;
+    color: #8c8c8c;
+    font-size: 13px;
     font-weight: 500;
+    letter-spacing: 0.5px;
+    background: transparent;
 }
 
 #StatusBarSeparator {
-    background-color: #d9d9d9;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 transparent, stop:0.2 #d9d9d9, stop:0.8 #d9d9d9, stop:1 transparent);
 }
 
-#FaceCountLabel {
-    font-size: 14px;
+#FaceDetectionCard {
+    background: rgba(255, 255, 255, 0.7);
+    border-radius: 12px;
+    border: 1px solid rgba(24, 144, 255, 0.1);
+}
+
+#FaceCardTitle {
+    color: #8c8c8c;
+    font-size: 12px;
     font-weight: 500;
+    letter-spacing: 0.5px;
+    background: transparent;
 }
 
-#FaceCountLabel[status="active"] {
+#FaceCountValue {
+    font-size: 28px;
+    font-weight: 700;
+    font-family: "DIN Alternate", "SF Pro Display", "Segoe UI", sans-serif;
+    background: transparent;
+}
+
+#FaceCountValue[status="active"] {
     color: #52c41a;
 }
 
-#FaceCountLabel[status="inactive"] {
-    color: #8c8c8c;
+#FaceCountValue[status="inactive"] {
+    color: #bfbfbf;
+}
+
+#ProgressCard {
+    background: rgba(255, 255, 255, 0.7);
+    border-radius: 12px;
+    border: 1px solid rgba(24, 144, 255, 0.1);
+    min-width: 200px;
 }
 
 #DetectionStatusLabel {
     color: #595959;
-    font-size: 13px;
-    font-weight: 500;
+    font-size: 14px;
+    font-weight: 600;
+    background: transparent;
 }
 
 #DetectionProgressBar {
-    background-color: #e8e8e8;
+    background-color: rgba(0, 0, 0, 0.06);
     border: none;
-    border-radius: 3px;
+    border-radius: 4px;
 }
 
 #DetectionProgressBar::chunk {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 #1890ff, stop:1 #52c41a);
-    border-radius: 3px;
+        stop:0 #1890ff, stop:0.5 #36cfc9, stop:1 #52c41a);
+    border-radius: 4px;
 }
