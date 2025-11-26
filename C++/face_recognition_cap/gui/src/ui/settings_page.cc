@@ -17,6 +17,7 @@
 #include <QStringList>
 #include <QDir>
 #include <QFile>
+#include <QFrame>
 #include <spdlog/spdlog.h>
 
 SettingsPage::SettingsPage(QWidget* parent)
@@ -52,13 +53,90 @@ SettingsPage::SettingsPage(QWidget* parent)
     load_settings();
 }
 
+// ============================================================================
+// 辅助函数：创建分隔线
+// ============================================================================
+QFrame* createSeparator() {
+    auto line = new QFrame();
+    line->setFrameShape(QFrame::HLine);
+    line->setObjectName("SettingsSeparator");
+    return line;
+}
+
+// ============================================================================
+// 辅助函数：创建表单行（标签 + 控件）
+// ============================================================================
+QHBoxLayout* createFormRow(const QString& labelText, QWidget* widget, const QString& hint = QString()) {
+    auto row = new QHBoxLayout();
+    row->setSpacing(12);
+    
+    auto label = new QLabel(labelText);
+    label->setObjectName("SettingsLabel");
+    label->setMinimumWidth(100);
+    label->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    row->addWidget(label);
+    
+    widget->setMinimumWidth(180);
+    row->addWidget(widget);
+    
+    if (!hint.isEmpty()) {
+        auto hintLabel = new QLabel(hint);
+        hintLabel->setObjectName("SettingsHint");
+        row->addWidget(hintLabel);
+    }
+    
+    row->addStretch();
+    return row;
+}
+
+// ============================================================================
+// 辅助函数：创建带图标的区块标题
+// ============================================================================
+QWidget* createSectionHeader(const QString& icon, const QString& title, const QString& subtitle) {
+    auto container = new QWidget();
+    container->setObjectName("SectionHeader");
+    auto layout = new QHBoxLayout(container);
+    layout->setContentsMargins(0, 0, 0, 8);
+    layout->setSpacing(12);
+    
+    // 图标
+    auto iconLabel = new QLabel(icon);
+    iconLabel->setObjectName("SectionIcon");
+    iconLabel->setFixedSize(32, 32);
+    iconLabel->setAlignment(Qt::AlignCenter);
+    layout->addWidget(iconLabel);
+    
+    // 标题和副标题
+    auto textContainer = new QWidget();
+    auto textLayout = new QVBoxLayout(textContainer);
+    textLayout->setContentsMargins(0, 0, 0, 0);
+    textLayout->setSpacing(2);
+    
+    auto titleLabel = new QLabel(title);
+    titleLabel->setObjectName("SectionTitle");
+    textLayout->addWidget(titleLabel);
+    
+    if (!subtitle.isEmpty()) {
+        auto subtitleLabel = new QLabel(subtitle);
+        subtitleLabel->setObjectName("SectionSubtitle");
+        textLayout->addWidget(subtitleLabel);
+    }
+    
+    layout->addWidget(textContainer);
+    layout->addStretch();
+    
+    return container;
+}
+
 void SettingsPage::setup_ui() {
-    // 创建滚动区域以容纳所有设置
+    // 创建滚动区域
     auto scroll = new QScrollArea(this);
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setObjectName("SettingsScroll");
     
     auto content = new QWidget();
+    content->setObjectName("SettingsContent");
     scroll->setWidget(content);
     
     auto main_layout = new QVBoxLayout(this);
@@ -66,223 +144,401 @@ void SettingsPage::setup_ui() {
     main_layout->addWidget(scroll);
     
     auto layout = new QVBoxLayout(content);
-    layout->setContentsMargins(24, 16, 24, 16);
-    layout->setSpacing(16);
+    layout->setContentsMargins(32, 24, 32, 24);
+    layout->setSpacing(24);
 
-    // ========== 系统信息（紧凑型）==========
-    auto info_card = new CardWidget(content);
-    info_card->setTitle(tr("系统信息"));
+    // ========================================================================
+    // 页面标题
+    // ========================================================================
+    auto page_title = new QLabel(tr("系统设置"));
+    page_title->setObjectName("PageTitle");
+    layout->addWidget(page_title);
+
+    // ========================================================================
+    // 第一部分：系统概览（紧凑横条）
+    // ========================================================================
+    auto overview_card = new CardWidget(content);
+    overview_card->setObjectName("OverviewCard");
+    auto overview_layout = new QHBoxLayout(overview_card->bodyContainer());
+    overview_layout->setContentsMargins(0, 0, 0, 0);
+    overview_layout->setSpacing(32);
     
-    auto info_layout = new QGridLayout(info_card->bodyContainer());
-    info_layout->setContentsMargins(0, 0, 0, 0);
-    info_layout->setHorizontalSpacing(16);
-    info_layout->setVerticalSpacing(8);
-    
+    // 版本信息
+    auto version_group = new QWidget();
+    auto version_layout = new QHBoxLayout(version_group);
+    version_layout->setContentsMargins(0, 0, 0, 0);
+    version_layout->setSpacing(8);
+    auto version_icon = new QLabel("📦");
+    version_icon->setObjectName("OverviewIcon");
+    version_layout->addWidget(version_icon);
+    auto version_text = new QVBoxLayout();
+    version_text->setSpacing(0);
+    version_text->addWidget(new QLabel(tr("版本")));
     version_label_ = new QLabel("v1.0.0");
+    version_label_->setObjectName("OverviewValue");
+    version_text->addWidget(version_label_);
+    version_layout->addLayout(version_text);
+    overview_layout->addWidget(version_group);
+    
+    // 数据库大小
+    auto db_group = new QWidget();
+    auto db_layout = new QHBoxLayout(db_group);
+    db_layout->setContentsMargins(0, 0, 0, 0);
+    db_layout->setSpacing(8);
+    auto db_icon = new QLabel("📊");
+    db_icon->setObjectName("OverviewIcon");
+    db_layout->addWidget(db_icon);
+    auto db_text = new QVBoxLayout();
+    db_text->setSpacing(0);
+    db_text->addWidget(new QLabel(tr("数据库")));
     db_size_label_ = new QLabel("0 KB");
+    db_size_label_->setObjectName("OverviewValue");
+    db_text->addWidget(db_size_label_);
+    db_layout->addLayout(db_text);
+    overview_layout->addWidget(db_group);
     
-    info_layout->addWidget(new QLabel(tr("版本:")), 0, 0, Qt::AlignRight);
-    info_layout->addWidget(version_label_, 0, 1);
-    info_layout->addWidget(new QLabel(tr("数据库:")), 0, 2, Qt::AlignRight);
-    info_layout->addWidget(db_size_label_, 0, 3);
+    // 摄像头状态
+    auto camera_group = new QWidget();
+    auto camera_status_layout = new QHBoxLayout(camera_group);
+    camera_status_layout->setContentsMargins(0, 0, 0, 0);
+    camera_status_layout->setSpacing(8);
+    auto camera_icon = new QLabel("📷");
+    camera_icon->setObjectName("OverviewIcon");
+    camera_status_layout->addWidget(camera_icon);
+    auto camera_text = new QVBoxLayout();
+    camera_text->setSpacing(0);
+    camera_text->addWidget(new QLabel(tr("摄像头")));
+    auto camera_status = new QLabel(tr("已连接"));
+    camera_status->setObjectName("OverviewValue");
+    camera_status->setStyleSheet("color: #52c41a;");
+    camera_text->addWidget(camera_status);
+    camera_status_layout->addLayout(camera_text);
+    overview_layout->addWidget(camera_group);
     
-    // ========== 考勤系统设置（新增）==========
+    overview_layout->addStretch();
+    layout->addWidget(overview_card);
+
+    // ========================================================================
+    // 第二部分：摄像头设置
+    // ========================================================================
+    auto camera_card = new CardWidget(content);
+    camera_card->setTitle(tr("📷 摄像头"));
+    camera_card->setSubtitle(tr("选择用于人脸识别的 USB 摄像头设备"));
+    
+    auto camera_body = new QVBoxLayout(camera_card->bodyContainer());
+    camera_body->setContentsMargins(0, 8, 0, 0);
+    camera_body->setSpacing(16);
+    
+    auto camera_row = new QHBoxLayout();
+    camera_row->setSpacing(12);
+    
+    auto camera_label = new QLabel(tr("USB 摄像头:"));
+    camera_label->setObjectName("SettingsLabel");
+    camera_row->addWidget(camera_label);
+    
+    camera_device_combo_ = new QComboBox();
+    camera_device_combo_->setObjectName("SettingsCombo");
+    camera_device_combo_->setMinimumWidth(300);
+    camera_row->addWidget(camera_device_combo_);
+    
+    refresh_camera_btn_ = new QPushButton(tr("↻ 刷新"));
+    refresh_camera_btn_->setObjectName("SecondaryButton");
+    camera_row->addWidget(refresh_camera_btn_);
+    
+    auto camera_hint = new QLabel(tr("切换摄像头需要重启识别生效"));
+    camera_hint->setObjectName("SettingsHint");
+    camera_row->addWidget(camera_hint);
+    
+    camera_row->addStretch();
+    camera_body->addLayout(camera_row);
+    
+    // 扫描摄像头
+    scan_usb_cameras();
+    connect(refresh_camera_btn_, &QPushButton::clicked, this, [this]() {
+        scan_usb_cameras();
+    });
+    
+    layout->addWidget(camera_card);
+
+    // ========================================================================
+    // 第三部分：考勤规则设置
+    // ========================================================================
     auto attendance_card = new CardWidget(content);
-    attendance_card->setTitle(tr("考勤设置"));
+    attendance_card->setTitle(tr("🕐 考勤规则"));
+    attendance_card->setSubtitle(tr("设置上下班时间、迟到早退阈值等考勤参数"));
     
-    auto attendance_layout = new QGridLayout(attendance_card->bodyContainer());
-    attendance_layout->setContentsMargins(0, 0, 0, 0);
-    attendance_layout->setHorizontalSpacing(12);
-    attendance_layout->setVerticalSpacing(10);
+    auto attendance_body = new QVBoxLayout(attendance_card->bodyContainer());
+    attendance_body->setContentsMargins(0, 8, 0, 0);
+    attendance_body->setSpacing(20);
     
-    int row = 0;
+    // 工作时间行
+    auto time_row = new QHBoxLayout();
+    time_row->setSpacing(24);
     
-    // 工作时间设置
+    // 上班时间
+    auto start_group = new QHBoxLayout();
+    start_group->setSpacing(8);
+    start_group->addWidget(new QLabel(tr("上班时间")));
     work_start_time_edit_ = new QTimeEdit();
+    work_start_time_edit_->setObjectName("SettingsTimeEdit");
     work_start_time_edit_->setTime(QTime(9, 0));
     work_start_time_edit_->setDisplayFormat("HH:mm");
-    attendance_layout->addWidget(new QLabel(tr("上班时间:")), row, 0, Qt::AlignRight);
-    attendance_layout->addWidget(work_start_time_edit_, row, 1);
+    work_start_time_edit_->setMinimumWidth(100);
+    start_group->addWidget(work_start_time_edit_);
+    time_row->addLayout(start_group);
     
+    // 下班时间
+    auto end_group = new QHBoxLayout();
+    end_group->setSpacing(8);
+    end_group->addWidget(new QLabel(tr("下班时间")));
     work_end_time_edit_ = new QTimeEdit();
+    work_end_time_edit_->setObjectName("SettingsTimeEdit");
     work_end_time_edit_->setTime(QTime(18, 0));
     work_end_time_edit_->setDisplayFormat("HH:mm");
-    attendance_layout->addWidget(new QLabel(tr("下班时间:")), row, 2, Qt::AlignRight);
-    attendance_layout->addWidget(work_end_time_edit_, row, 3);
-    row++;
+    work_end_time_edit_->setMinimumWidth(100);
+    end_group->addWidget(work_end_time_edit_);
+    time_row->addLayout(end_group);
     
-    // 迟到/早退阈值
+    time_row->addStretch();
+    attendance_body->addLayout(time_row);
+    
+    // 阈值行
+    auto threshold_row = new QHBoxLayout();
+    threshold_row->setSpacing(24);
+    
+    // 迟到阈值
+    auto late_group = new QHBoxLayout();
+    late_group->setSpacing(8);
+    late_group->addWidget(new QLabel(tr("迟到阈值")));
     late_threshold_spin_ = new QSpinBox();
+    late_threshold_spin_->setObjectName("SettingsSpinBox");
     late_threshold_spin_->setRange(0, 120);
     late_threshold_spin_->setValue(30);
-    late_threshold_spin_->setSuffix(" 分钟");
-    attendance_layout->addWidget(new QLabel(tr("迟到阈值:")), row, 0, Qt::AlignRight);
-    attendance_layout->addWidget(late_threshold_spin_, row, 1);
+    late_threshold_spin_->setSuffix(tr(" 分钟"));
+    late_threshold_spin_->setMinimumWidth(120);
+    late_group->addWidget(late_threshold_spin_);
+    threshold_row->addLayout(late_group);
     
+    // 早退阈值
+    auto early_group = new QHBoxLayout();
+    early_group->setSpacing(8);
+    early_group->addWidget(new QLabel(tr("早退阈值")));
     early_leave_threshold_spin_ = new QSpinBox();
+    early_leave_threshold_spin_->setObjectName("SettingsSpinBox");
     early_leave_threshold_spin_->setRange(0, 120);
     early_leave_threshold_spin_->setValue(30);
-    early_leave_threshold_spin_->setSuffix(" 分钟");
-    attendance_layout->addWidget(new QLabel(tr("早退阈值:")), row, 2, Qt::AlignRight);
-    attendance_layout->addWidget(early_leave_threshold_spin_, row, 3);
-    row++;
+    early_leave_threshold_spin_->setSuffix(tr(" 分钟"));
+    early_leave_threshold_spin_->setMinimumWidth(120);
+    early_group->addWidget(early_leave_threshold_spin_);
+    threshold_row->addLayout(early_group);
     
-    // 签到选项（横向排列）
-    auto checkin_opts = new QHBoxLayout();
-    checkin_opts->setSpacing(20);
+    threshold_row->addStretch();
+    attendance_body->addLayout(threshold_row);
+    
+    // 分隔线
+    attendance_body->addWidget(createSeparator());
+    
+    // 选项行
+    auto options_row = new QHBoxLayout();
+    options_row->setSpacing(32);
     
     allow_multiple_checkin_check_ = new QCheckBox(tr("允许一天多次签到"));
-    allow_multiple_checkin_check_->setChecked(false);
-    checkin_opts->addWidget(allow_multiple_checkin_check_);
-    checkin_opts->addStretch();
+    allow_multiple_checkin_check_->setObjectName("SettingsCheckBox");
+    options_row->addWidget(allow_multiple_checkin_check_);
     
-    attendance_layout->addLayout(checkin_opts, row, 0, 1, 4);
-    row++;
-    
-    // 提醒设置
     checkin_sound_check_ = new QCheckBox(tr("签到声音提示"));
+    checkin_sound_check_->setObjectName("SettingsCheckBox");
     checkin_sound_check_->setChecked(true);
-    attendance_layout->addWidget(checkin_sound_check_, row, 0, 1, 2);
+    options_row->addWidget(checkin_sound_check_);
     
     show_checkin_reminder_check_ = new QCheckBox(tr("显示签到提醒"));
+    show_checkin_reminder_check_->setObjectName("SettingsCheckBox");
     show_checkin_reminder_check_->setChecked(true);
-    attendance_layout->addWidget(show_checkin_reminder_check_, row, 2, 1, 2);
+    options_row->addWidget(show_checkin_reminder_check_);
     
-    // ========== 识别设置 ==========
+    options_row->addStretch();
+    attendance_body->addLayout(options_row);
+    
+    layout->addWidget(attendance_card);
+
+    // ========================================================================
+    // 第四部分：识别参数
+    // ========================================================================
     auto recognition_card = new CardWidget(content);
-    recognition_card->setTitle(tr("识别设置"));
+    recognition_card->setTitle(tr("◎ 识别参数"));
+    recognition_card->setSubtitle(tr("调整人脸识别阈值和防误识别参数"));
     
-    auto recognition_layout = new QGridLayout(recognition_card->bodyContainer());
-    recognition_layout->setContentsMargins(0, 0, 0, 0);
-    recognition_layout->setHorizontalSpacing(12);
-    recognition_layout->setVerticalSpacing(10);
+    auto recognition_body = new QVBoxLayout(recognition_card->bodyContainer());
+    recognition_body->setContentsMargins(0, 8, 0, 0);
+    recognition_body->setSpacing(20);
     
-    // 第一行：识别阈值和重复检测
+    // 第一行：识别阈值和防重复
+    auto recog_row1 = new QHBoxLayout();
+    recog_row1->setSpacing(24);
+    
+    // 识别阈值
+    auto threshold_group = new QHBoxLayout();
+    threshold_group->setSpacing(8);
+    threshold_group->addWidget(new QLabel(tr("识别阈值")));
     recognition_threshold_spin_ = new QDoubleSpinBox();
+    recognition_threshold_spin_->setObjectName("SettingsSpinBox");
     recognition_threshold_spin_->setRange(0.3, 0.95);
     recognition_threshold_spin_->setSingleStep(0.05);
     recognition_threshold_spin_->setDecimals(2);
     recognition_threshold_spin_->setValue(0.60);
-    recognition_layout->addWidget(new QLabel(tr("识别阈值:")), 0, 0, Qt::AlignRight);
-    recognition_layout->addWidget(recognition_threshold_spin_, 0, 1);
+    recognition_threshold_spin_->setMinimumWidth(100);
+    threshold_group->addWidget(recognition_threshold_spin_);
+    auto threshold_hint = new QLabel(tr("值越高越严格"));
+    threshold_hint->setObjectName("SettingsHint");
+    threshold_group->addWidget(threshold_hint);
+    recog_row1->addLayout(threshold_group);
     
+    // 防重复签到
+    auto dup_group = new QHBoxLayout();
+    dup_group->setSpacing(8);
+    dup_group->addWidget(new QLabel(tr("防重复签到")));
     duplicate_check_interval_spin_ = new QSpinBox();
+    duplicate_check_interval_spin_->setObjectName("SettingsSpinBox");
     duplicate_check_interval_spin_->setRange(60, 3600);
     duplicate_check_interval_spin_->setSingleStep(60);
     duplicate_check_interval_spin_->setValue(300);
-    duplicate_check_interval_spin_->setSuffix(" 秒");
-    duplicate_check_interval_spin_->setToolTip(tr("防止同一人短时间内重复签到"));
-    recognition_layout->addWidget(new QLabel(tr("防重复签到:")), 0, 2, Qt::AlignRight);
-    recognition_layout->addWidget(duplicate_check_interval_spin_, 0, 3);
+    duplicate_check_interval_spin_->setSuffix(tr(" 秒"));
+    duplicate_check_interval_spin_->setMinimumWidth(120);
+    dup_group->addWidget(duplicate_check_interval_spin_);
+    recog_row1->addLayout(dup_group);
     
-    // 第二行：用户识别确认时间（防误识别）
+    recog_row1->addStretch();
+    recognition_body->addLayout(recog_row1);
+    
+    // 第二行：确认时间
+    auto recog_row2 = new QHBoxLayout();
+    recog_row2->setSpacing(8);
+    
+    recog_row2->addWidget(new QLabel(tr("确认时间")));
     user_confirm_duration_spin_ = new QDoubleSpinBox();
+    user_confirm_duration_spin_->setObjectName("SettingsSpinBox");
     user_confirm_duration_spin_->setRange(0.1, 2.0);
     user_confirm_duration_spin_->setSingleStep(0.1);
     user_confirm_duration_spin_->setDecimals(1);
     user_confirm_duration_spin_->setValue(1.0);
-    user_confirm_duration_spin_->setSuffix(" 秒");
-    user_confirm_duration_spin_->setToolTip(tr("持续识别到同一人多长时间后才确认签到，范围 0.1-2.0 秒"));
-    recognition_layout->addWidget(new QLabel(tr("确认时间:")), 1, 0, Qt::AlignRight);
-    recognition_layout->addWidget(user_confirm_duration_spin_, 1, 1);
+    user_confirm_duration_spin_->setSuffix(tr(" 秒"));
+    user_confirm_duration_spin_->setMinimumWidth(100);
+    recog_row2->addWidget(user_confirm_duration_spin_);
     
-    auto confirm_hint = new QLabel(tr("(持续检测时间，防误识别)"));
-    confirm_hint->setStyleSheet("color: #8c8c8c; font-size: 12px;");
-    recognition_layout->addWidget(confirm_hint, 1, 2, 1, 2);
+    auto confirm_hint = new QLabel(tr("持续检测到同一人的时长，防止误识别"));
+    confirm_hint->setObjectName("SettingsHint");
+    recog_row2->addWidget(confirm_hint);
     
-    // ========== 显示与系统设置 ==========
-    auto system_card = new CardWidget(content);
-    system_card->setTitle(tr("系统设置"));
+    recog_row2->addStretch();
+    recognition_body->addLayout(recog_row2);
     
-    auto system_layout = new QVBoxLayout(system_card->bodyContainer());
-    system_layout->setContentsMargins(0, 0, 0, 0);
-    system_layout->setSpacing(10);
+    layout->addWidget(recognition_card);
+
+    // ========================================================================
+    // 第五部分：显示选项
+    // ========================================================================
+    auto display_card = new CardWidget(content);
+    display_card->setTitle(tr("🖥️ 显示选项"));
+    display_card->setSubtitle(tr("控制界面显示内容和系统行为"));
     
-    // 显示选项（横向排列）
+    auto display_body = new QVBoxLayout(display_card->bodyContainer());
+    display_body->setContentsMargins(0, 8, 0, 0);
+    display_body->setSpacing(16);
+    
     auto display_row = new QHBoxLayout();
-    display_row->setSpacing(20);
+    display_row->setSpacing(32);
     
-    show_fps_check_ = new QCheckBox(tr("显示FPS"));
+    show_fps_check_ = new QCheckBox(tr("显示 FPS"));
+    show_fps_check_->setObjectName("SettingsCheckBox");
     show_fps_check_->setChecked(true);
     display_row->addWidget(show_fps_check_);
     
     show_confidence_check_ = new QCheckBox(tr("显示置信度"));
+    show_confidence_check_->setObjectName("SettingsCheckBox");
     show_confidence_check_->setChecked(true);
     display_row->addWidget(show_confidence_check_);
     
     auto_start_check_ = new QCheckBox(tr("开机自启"));
-    auto_start_check_->setChecked(false);
+    auto_start_check_->setObjectName("SettingsCheckBox");
     display_row->addWidget(auto_start_check_);
     
     display_row->addStretch();
-    system_layout->addLayout(display_row);
+    display_body->addLayout(display_row);
     
     // 操作按钮
     auto action_row = new QHBoxLayout();
     action_row->setSpacing(12);
     
-    auto theme_btn = new QPushButton(tr("切换主题"));
+    auto theme_btn = new QPushButton(tr("🎨 切换主题"));
+    theme_btn->setObjectName("SecondaryButton");
     connect(theme_btn, &QPushButton::clicked, this, &SettingsPage::on_theme_toggle_clicked);
     action_row->addWidget(theme_btn);
     
-    auto clear_cache_btn = new QPushButton(tr("清理缓存"));
+    auto clear_cache_btn = new QPushButton(tr("🗑️ 清理缓存"));
+    clear_cache_btn->setObjectName("SecondaryButton");
     connect(clear_cache_btn, &QPushButton::clicked, this, &SettingsPage::on_clear_cache_clicked);
     action_row->addWidget(clear_cache_btn);
     
     action_row->addStretch();
-    system_layout->addLayout(action_row);
+    display_body->addLayout(action_row);
+    
+    layout->addWidget(display_card);
 
-    // ========== 音频设置 ==========
+    // ========================================================================
+    // 第六部分：音频设置
+    // ========================================================================
     auto audio_card = new CardWidget(content);
-    audio_card->setTitle(tr("音频设置"));
+    audio_card->setTitle(tr("🔊 音频设置"));
+    audio_card->setSubtitle(tr("配置语音播报和音频输出"));
     
-    auto audio_layout = new QGridLayout(audio_card->bodyContainer());
-    audio_layout->setContentsMargins(0, 0, 0, 0);
-    audio_layout->setHorizontalSpacing(12);
-    audio_layout->setVerticalSpacing(10);
+    auto audio_body = new QVBoxLayout(audio_card->bodyContainer());
+    audio_body->setContentsMargins(0, 8, 0, 0);
+    audio_body->setSpacing(20);
     
-    int audio_row = 0;
-    
-    // 第1行：启用音频
+    // 启用语音播报
     audio_enabled_check_ = new QCheckBox(tr("启用语音播报"));
+    audio_enabled_check_->setObjectName("SettingsCheckBox");
     audio_enabled_check_->setChecked(true);
-    audio_layout->addWidget(audio_enabled_check_, audio_row, 0, 1, 4);
-    audio_row++;
+    audio_body->addWidget(audio_enabled_check_);
     
-    // 第2行：音量控制
-    audio_layout->addWidget(new QLabel(tr("音量:")), audio_row, 0, Qt::AlignRight);
+    // 音量控制行
+    auto volume_row = new QHBoxLayout();
+    volume_row->setSpacing(12);
+    
+    volume_row->addWidget(new QLabel(tr("音量")));
     
     audio_volume_slider_ = new QSlider(Qt::Horizontal);
+    audio_volume_slider_->setObjectName("SettingsSlider");
     audio_volume_slider_->setRange(0, 100);
     audio_volume_slider_->setValue(70);
-    audio_volume_slider_->setTickPosition(QSlider::TicksBelow);
-    audio_volume_slider_->setTickInterval(10);
-    audio_layout->addWidget(audio_volume_slider_, audio_row, 1, 1, 2);
+    audio_volume_slider_->setMinimumWidth(200);
+    volume_row->addWidget(audio_volume_slider_);
     
     audio_volume_label_ = new QLabel("70%");
+    audio_volume_label_->setObjectName("VolumeLabel");
     audio_volume_label_->setMinimumWidth(50);
-    audio_layout->addWidget(audio_volume_label_, audio_row, 3);
+    volume_row->addWidget(audio_volume_label_);
     
-    // 连接音量滑块信号
-    connect(audio_volume_slider_, &QSlider::valueChanged, this, [this](int value) {
-        if (audio_volume_label_) {
-            audio_volume_label_->setText(QString("%1%").arg(value));
-        }
-        // 实时更新音量
-        AudioManager::instance()->setVolume(value);
-    });
-    audio_row++;
+    volume_row->addStretch();
+    audio_body->addLayout(volume_row);
     
-    // 第3行：音频设备选择
-    audio_layout->addWidget(new QLabel(tr("输出设备:")), audio_row, 0, Qt::AlignRight);
+    // 设备选择行
+    auto device_row = new QHBoxLayout();
+    device_row->setSpacing(12);
+    
+    device_row->addWidget(new QLabel(tr("输出设备")));
     
     audio_device_combo_ = new QComboBox();
-    audio_device_combo_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    audio_layout->addWidget(audio_device_combo_, audio_row, 1, 1, 2);
+    audio_device_combo_->setObjectName("SettingsCombo");
+    audio_device_combo_->setMinimumWidth(250);
+    device_row->addWidget(audio_device_combo_);
     
-    test_audio_btn_ = new QPushButton(tr("测试"));
-    test_audio_btn_->setMaximumWidth(80);
-    audio_layout->addWidget(test_audio_btn_, audio_row, 3);
+    test_audio_btn_ = new QPushButton(tr("🔈 测试"));
+    test_audio_btn_->setObjectName("SecondaryButton");
+    device_row->addWidget(test_audio_btn_);
+    
+    device_row->addStretch();
+    audio_body->addLayout(device_row);
     
     // 填充音频设备列表
     QStringList devices = AudioManager::instance()->availableDevices();
@@ -293,7 +549,14 @@ void SettingsPage::setup_ui() {
         audio_device_combo_->setCurrentIndex(deviceIndex);
     }
     
-    // 连接设备选择信号
+    // 连接信号
+    connect(audio_volume_slider_, &QSlider::valueChanged, this, [this](int value) {
+        if (audio_volume_label_) {
+            audio_volume_label_->setText(QString("%1%").arg(value));
+        }
+        AudioManager::instance()->setVolume(value);
+    });
+    
     connect(audio_device_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
         if (index >= 0 && audio_device_combo_) {
             QString deviceName = audio_device_combo_->currentText();
@@ -302,83 +565,49 @@ void SettingsPage::setup_ui() {
         }
     });
     
-    // 连接测试按钮
     connect(test_audio_btn_, &QPushButton::clicked, this, [this]() {
         AudioManager::instance()->playSound(AudioType::CheckInSuccess);
     });
     
-    // 连接启用/禁用复选框
     connect(audio_enabled_check_, &QCheckBox::toggled, this, [this](bool checked) {
         AudioManager::instance()->setEnabled(checked);
         if (audio_volume_slider_) audio_volume_slider_->setEnabled(checked);
         if (audio_device_combo_) audio_device_combo_->setEnabled(checked);
         if (test_audio_btn_) test_audio_btn_->setEnabled(checked);
     });
+    
+    layout->addWidget(audio_card);
 
-    // ========== 底部按钮栏 ==========
-    auto button_layout = new QHBoxLayout();
-    button_layout->setSpacing(12);
-    button_layout->addStretch();
-
-    auto reset_btn = new QPushButton(tr("恢复默认"));
-    connect(reset_btn, &QPushButton::clicked, this, &SettingsPage::on_reset_clicked);
-    button_layout->addWidget(reset_btn);
-
-    auto save_btn = new QPushButton(tr("保存设置"));
-    save_btn->setProperty("primary", QVariant(true));
-    connect(save_btn, &QPushButton::clicked, this, &SettingsPage::on_save_clicked);
-    button_layout->addWidget(save_btn);
-
-    // ========== 摄像头设置 ==========
-    auto camera_card = new CardWidget(content);
-    camera_card->setTitle(tr("摄像头设置"));
-    
-    auto camera_layout = new QHBoxLayout(camera_card->bodyContainer());
-    camera_layout->setContentsMargins(0, 0, 0, 0);
-    camera_layout->setSpacing(12);
-    
-    camera_layout->addWidget(new QLabel(tr("USB 摄像头:")));
-    
-    camera_device_combo_ = new QComboBox();
-    camera_device_combo_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    camera_layout->addWidget(camera_device_combo_);
-    
-    refresh_camera_btn_ = new QPushButton(tr("刷新"));
-    refresh_camera_btn_->setMaximumWidth(80);
-    camera_layout->addWidget(refresh_camera_btn_);
-    
-    auto camera_hint = new QLabel(tr("(需要重启识别生效)"));
-    camera_hint->setStyleSheet("color: #8c8c8c; font-size: 12px;");
-    camera_layout->addWidget(camera_hint);
-    
-    // 扫描 USB 摄像头
-    scan_usb_cameras();
-    
-    // 连接刷新按钮
-    connect(refresh_camera_btn_, &QPushButton::clicked, this, [this]() {
-        scan_usb_cameras();
-    });
-    
-    // ========== 天气/城市设置 ==========
+    // ========================================================================
+    // 第七部分：天气/定位设置
+    // ========================================================================
     auto weather_card = new CardWidget(content);
-    weather_card->setTitle(tr("天气/城市设置"));
+    weather_card->setTitle(tr("🌤️ 天气定位"));
+    weather_card->setSubtitle(tr("设置天气显示的城市和位置信息"));
     
-    auto weather_layout = new QGridLayout(weather_card->bodyContainer());
-    weather_layout->setContentsMargins(0, 0, 0, 0);
-    weather_layout->setHorizontalSpacing(16);
-    weather_layout->setVerticalSpacing(12);
+    auto weather_body = new QVBoxLayout(weather_card->bodyContainer());
+    weather_body->setContentsMargins(0, 8, 0, 0);
+    weather_body->setSpacing(20);
     
     // 自动定位开关
     auto_location_check_ = new QCheckBox(tr("使用 IP 自动定位"));
-    weather_layout->addWidget(auto_location_check_, 0, 0, 1, 2);
-    
-    auto auto_loc_hint = new QLabel(tr("(关闭后使用下方手动设置的城市)"));
-    auto_loc_hint->setStyleSheet("color: #8c8c8c; font-size: 12px;");
-    weather_layout->addWidget(auto_loc_hint, 0, 2, 1, 2);
+    auto_location_check_->setObjectName("SettingsCheckBox");
+    auto loc_hint = new QLabel(tr("关闭后使用下方手动设置的城市"));
+    loc_hint->setObjectName("SettingsHint");
+    auto loc_row = new QHBoxLayout();
+    loc_row->addWidget(auto_location_check_);
+    loc_row->addWidget(loc_hint);
+    loc_row->addStretch();
+    weather_body->addLayout(loc_row);
     
     // 快捷城市选择
-    weather_layout->addWidget(new QLabel(tr("快捷选择:")), 1, 0);
+    auto preset_row = new QHBoxLayout();
+    preset_row->setSpacing(12);
+    preset_row->addWidget(new QLabel(tr("快捷选择")));
+    
     city_preset_combo_ = new QComboBox();
+    city_preset_combo_->setObjectName("SettingsCombo");
+    city_preset_combo_->setMinimumWidth(200);
     city_preset_combo_->addItem(tr("-- 选择城市 --"), QVariant());
     city_preset_combo_->addItem(tr("佛山"), QVariant::fromValue(QVector<double>{23.0215, 113.1214}));
     city_preset_combo_->addItem(tr("广州"), QVariant::fromValue(QVector<double>{23.1291, 113.2644}));
@@ -399,34 +628,47 @@ void SettingsPage::setup_ui() {
     city_preset_combo_->addItem(tr("重庆"), QVariant::fromValue(QVector<double>{29.5630, 106.5516}));
     city_preset_combo_->addItem(tr("长沙"), QVariant::fromValue(QVector<double>{28.2282, 112.9388}));
     city_preset_combo_->addItem(tr("厦门"), QVariant::fromValue(QVector<double>{24.4798, 118.0894}));
-    weather_layout->addWidget(city_preset_combo_, 1, 1, 1, 3);
+    preset_row->addWidget(city_preset_combo_);
+    preset_row->addStretch();
+    weather_body->addLayout(preset_row);
     
-    // 手动城市设置
-    weather_layout->addWidget(new QLabel(tr("城市名称:")), 2, 0);
+    // 手动设置行
+    auto manual_row = new QHBoxLayout();
+    manual_row->setSpacing(16);
+    
+    manual_row->addWidget(new QLabel(tr("城市名称")));
     manual_city_edit_ = new QLineEdit();
+    manual_city_edit_->setObjectName("SettingsLineEdit");
     manual_city_edit_->setPlaceholderText(tr("自定义城市名"));
-    weather_layout->addWidget(manual_city_edit_, 2, 1);
+    manual_city_edit_->setMinimumWidth(100);
+    manual_row->addWidget(manual_city_edit_);
     
-    weather_layout->addWidget(new QLabel(tr("纬度:")), 2, 2);
+    manual_row->addWidget(new QLabel(tr("纬度")));
     manual_lat_spin_ = new QDoubleSpinBox();
+    manual_lat_spin_->setObjectName("SettingsSpinBox");
     manual_lat_spin_->setRange(-90.0, 90.0);
     manual_lat_spin_->setDecimals(4);
     manual_lat_spin_->setSingleStep(0.01);
-    weather_layout->addWidget(manual_lat_spin_, 2, 3);
+    manual_lat_spin_->setMinimumWidth(100);
+    manual_row->addWidget(manual_lat_spin_);
     
-    weather_layout->addWidget(new QLabel(tr("经度:")), 3, 2);
+    manual_row->addWidget(new QLabel(tr("经度")));
     manual_lon_spin_ = new QDoubleSpinBox();
+    manual_lon_spin_->setObjectName("SettingsSpinBox");
     manual_lon_spin_->setRange(-180.0, 180.0);
     manual_lon_spin_->setDecimals(4);
     manual_lon_spin_->setSingleStep(0.01);
-    weather_layout->addWidget(manual_lon_spin_, 3, 3);
+    manual_lon_spin_->setMinimumWidth(100);
+    manual_row->addWidget(manual_lon_spin_);
     
-    // 连接自动定位开关
+    manual_row->addStretch();
+    weather_body->addLayout(manual_row);
+    
+    // 连接信号
     connect(auto_location_check_, &QCheckBox::toggled, this, &SettingsPage::on_auto_location_changed);
     
-    // 连接快捷城市选择
     connect(city_preset_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int index) {
-        if (index <= 0) return;  // 忽略 "-- 选择城市 --"
+        if (index <= 0) return;
         
         QString cityName = city_preset_combo_->currentText();
         QVariant data = city_preset_combo_->currentData();
@@ -441,35 +683,46 @@ void SettingsPage::setup_ui() {
         }
     });
     
-    // 添加所有卡片
-    layout->addWidget(info_card);
-    layout->addWidget(camera_card);
-    layout->addWidget(attendance_card);
-    layout->addWidget(recognition_card);
-    layout->addWidget(system_card);
-    layout->addWidget(audio_card);
     layout->addWidget(weather_card);
-    layout->addLayout(button_layout);
+
+    // ========================================================================
+    // 底部操作栏
+    // ========================================================================
+    auto bottom_bar = new QWidget();
+    bottom_bar->setObjectName("BottomBar");
+    auto bottom_layout = new QHBoxLayout(bottom_bar);
+    bottom_layout->setContentsMargins(0, 16, 0, 0);
+    bottom_layout->setSpacing(12);
+    
+    bottom_layout->addStretch();
+    
+    auto reset_btn = new QPushButton(tr("↩️ 恢复默认"));
+    reset_btn->setObjectName("SecondaryButton");
+    connect(reset_btn, &QPushButton::clicked, this, &SettingsPage::on_reset_clicked);
+    bottom_layout->addWidget(reset_btn);
+    
+    auto save_btn = new QPushButton(tr("✓ 保存设置"));
+    save_btn->setProperty("primary", QVariant(true));
+    save_btn->setObjectName("PrimaryButton");
+    connect(save_btn, &QPushButton::clicked, this, &SettingsPage::on_save_clicked);
+    bottom_layout->addWidget(save_btn);
+    
+    layout->addWidget(bottom_bar);
     layout->addStretch();
 }
 
 void SettingsPage::load_settings() {
-    // 从配置文件加载设置
     ConfigManager* config = ConfigManager::instance();
     
-    // 更新数据库大小信息 - 尝试多个可能的路径
+    // 更新数据库大小信息
     if (db_size_label_) {
         QStringList db_paths = {
-            // 绝对路径（优先）
             "/home/firefly/open_project/edge2-npu/C++/face_recognition_cap/install/face_recognition_cap/data/database/face_recognition.db",
-            // 相对于安装目录
             "data/database/face_recognition.db",
             "../data/database/face_recognition.db",
             "../../data/database/face_recognition.db",
-            // 相对于项目根目录
             "install/face_recognition_cap/data/database/face_recognition.db",
             "../install/face_recognition_cap/data/database/face_recognition.db",
-            // 其他可能的路径
             "data/database/attendance.db"
         };
         
@@ -508,7 +761,6 @@ void SettingsPage::load_settings() {
         duplicate_check_interval_spin_->setValue(config->getDuplicateCheckInterval());
     }
     if (user_confirm_duration_spin_) {
-        // 毫秒转秒
         user_confirm_duration_spin_->setValue(config->getUserConfirmDuration() / 1000.0);
     }
     
@@ -529,7 +781,6 @@ void SettingsPage::load_settings() {
     if (show_fps_check_) show_fps_check_->setChecked(config->isShowFPS());
     if (show_confidence_check_) show_confidence_check_->setChecked(config->isShowConfidence());
     if (auto_start_check_) auto_start_check_->setChecked(config->isAutoStart());
-    
     
     // 加载音频设置
     if (audio_enabled_check_) {
@@ -554,7 +805,6 @@ void SettingsPage::load_settings() {
     // 加载摄像头设置
     if (camera_device_combo_) {
         int cameraId = config->getCameraId();
-        // 查找对应的设备
         for (int i = 0; i < camera_device_combo_->count(); i++) {
             if (camera_device_combo_->itemData(i).toInt() == cameraId) {
                 camera_device_combo_->setCurrentIndex(i);
@@ -576,7 +826,6 @@ void SettingsPage::load_settings() {
     if (manual_lon_spin_) {
         manual_lon_spin_->setValue(config->getManualLongitude());
     }
-    // 根据自动定位状态更新控件启用状态
     on_auto_location_changed(config->isAutoLocationEnabled());
     
     spdlog::info("Settings loaded");
@@ -587,13 +836,9 @@ void SettingsPage::scan_usb_cameras() {
         return;
     }
     
-    // 保存当前选择
     int current_id = camera_device_combo_->currentData().toInt();
-    
-    // 清空列表
     camera_device_combo_->clear();
     
-    // 扫描 /sys/class/video4linux/ 目录
     QDir v4lDir("/sys/class/video4linux");
     if (!v4lDir.exists()) {
         camera_device_combo_->addItem(tr("未找到视频设备目录"), -1);
@@ -610,16 +855,14 @@ void SettingsPage::scan_usb_cameras() {
     
     int found_count = 0;
     for (const QFileInfo& deviceInfo : devices) {
-        QString deviceName = deviceInfo.fileName();  // 如 "video21"
+        QString deviceName = deviceInfo.fileName();
         
-        // 提取设备编号
-        QString numStr = deviceName.mid(5);  // "video21" -> "21"
+        QString numStr = deviceName.mid(5);
         bool ok;
         int deviceId = numStr.toInt(&ok);
         
         if (!ok) continue;
         
-        // 读取设备名称
         QString nameFilePath = QString("/sys/class/video4linux/%1/name").arg(deviceName);
         QFile nameFile(nameFilePath);
         QString cameraName = "Unknown";
@@ -629,8 +872,6 @@ void SettingsPage::scan_usb_cameras() {
             nameFile.close();
         }
         
-        // 智能过滤：只保留真正的 USB 摄像头
-        // 排除系统内部设备（rkcif、rkisp、stream_、v4l2loopback 等）
         if (cameraName.contains("rkcif", Qt::CaseInsensitive) ||
             cameraName.contains("rkisp", Qt::CaseInsensitive) ||
             cameraName.contains("stream_", Qt::CaseInsensitive) ||
@@ -641,7 +882,6 @@ void SettingsPage::scan_usb_cameras() {
             continue;
         }
         
-        // 检查符号链接路径是否包含 "usb"（更可靠的判断方式）
         QFileInfo symlinkInfo(QString("/sys/class/video4linux/%1").arg(deviceName));
         QString realPath = symlinkInfo.canonicalFilePath();
         
@@ -650,14 +890,12 @@ void SettingsPage::scan_usb_cameras() {
             continue;
         }
         
-        // 检查设备文件是否可访问
         QString devicePath = QString("/dev/%1").arg(deviceName);
         QFile device(devicePath);
         if (!device.exists()) {
             continue;
         }
         
-        // 这是真正的 USB 摄像头！
         QString displayName = QString("%1 (/dev/video%2)").arg(cameraName).arg(deviceId);
         camera_device_combo_->addItem(displayName, deviceId);
         found_count++;
@@ -671,7 +909,6 @@ void SettingsPage::scan_usb_cameras() {
     } else {
         spdlog::info("Total {} USB camera(s) found", found_count);
         
-        // 恢复之前的选择
         for (int i = 0; i < camera_device_combo_->count(); i++) {
             if (camera_device_combo_->itemData(i).toInt() == current_id) {
                 camera_device_combo_->setCurrentIndex(i);
@@ -683,7 +920,6 @@ void SettingsPage::scan_usb_cameras() {
 }
 
 void SettingsPage::save_settings() {
-    // 保存设置到配置文件
     ConfigManager* config = ConfigManager::instance();
     
     // 保存识别设置
@@ -694,7 +930,6 @@ void SettingsPage::save_settings() {
         config->setDuplicateCheckInterval(duplicate_check_interval_spin_->value());
     }
     if (user_confirm_duration_spin_) {
-        // 秒转毫秒
         config->setUserConfirmDuration(static_cast<int>(user_confirm_duration_spin_->value() * 1000));
     }
     
@@ -739,7 +974,6 @@ void SettingsPage::save_settings() {
         config->setManualLongitude(manual_lon_spin_->value());
     }
     
-    // 通知天气设置已更改，需要刷新天气
     emit weatherSettingsChanged();
     
     spdlog::info("Settings saved:");
@@ -759,7 +993,7 @@ void SettingsPage::save_settings() {
                  show_confidence_check_ ? show_confidence_check_->isChecked() : true,
                  auto_start_check_ ? auto_start_check_->isChecked() : false);
     
-    // 保存音频设置到配置文件和 AudioManager
+    // 保存音频设置
     if (audio_enabled_check_) {
         bool enabled = audio_enabled_check_->isChecked();
         config->setAudioEnabled(enabled);
@@ -802,7 +1036,7 @@ void SettingsPage::on_reset_clicked() {
         // 识别设置
         if (recognition_threshold_spin_) recognition_threshold_spin_->setValue(0.60);
         if (duplicate_check_interval_spin_) duplicate_check_interval_spin_->setValue(300);
-        if (user_confirm_duration_spin_) user_confirm_duration_spin_->setValue(1.0);  // 默认1秒
+        if (user_confirm_duration_spin_) user_confirm_duration_spin_->setValue(1.0);
         
         // 考勤设置
         if (work_start_time_edit_) work_start_time_edit_->setTime(QTime(9, 0));
@@ -825,7 +1059,6 @@ void SettingsPage::on_reset_clicked() {
         
         // 摄像头设置
         if (camera_device_combo_) {
-            // 查找设备 ID 21
             for (int i = 0; i < camera_device_combo_->count(); i++) {
                 if (camera_device_combo_->itemData(i).toInt() == 21) {
                     camera_device_combo_->setCurrentIndex(i);
@@ -834,7 +1067,7 @@ void SettingsPage::on_reset_clicked() {
             }
         }
         
-        // 天气/城市设置（默认：手动设置佛山）
+        // 天气/城市设置
         if (auto_location_check_) auto_location_check_->setChecked(false);
         if (manual_city_edit_) manual_city_edit_->setText(QString::fromUtf8("佛山"));
         if (manual_lat_spin_) manual_lat_spin_->setValue(23.0215);
@@ -852,16 +1085,12 @@ void SettingsPage::on_clear_cache_clicked() {
         QMessageBox::Yes | QMessageBox::No);
     
     if (reply == QMessageBox::Yes) {
-        // 这里可以实现实际的缓存清理逻辑
-        // 例如：清理临时人脸图片、日志文件等
-        
         QMessageBox::information(this, tr("成功"), tr("缓存已清理"));
         spdlog::info("Cache cleared");
     }
 }
 
 void SettingsPage::on_auto_location_changed(bool checked) {
-    // 根据自动定位状态启用/禁用手动设置控件
     if (manual_city_edit_) {
         manual_city_edit_->setEnabled(!checked);
     }
@@ -871,5 +1100,7 @@ void SettingsPage::on_auto_location_changed(bool checked) {
     if (manual_lon_spin_) {
         manual_lon_spin_->setEnabled(!checked);
     }
+    if (city_preset_combo_) {
+        city_preset_combo_->setEnabled(!checked);
+    }
 }
-

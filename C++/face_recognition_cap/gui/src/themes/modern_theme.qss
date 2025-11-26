@@ -1041,3 +1041,407 @@ QToolTip {
         stop:0 #1890ff, stop:0.5 #36cfc9, stop:1 #52c41a);
     border-radius: 4px;
 }
+
+/* ========================================
+   设置页面 - 现代化样式
+   ======================================== */
+
+#SettingsScroll {
+    background: transparent;
+    border: none;
+}
+
+#SettingsContent {
+    background: transparent;
+}
+
+#PageTitle {
+    font-size: 28px;
+    font-weight: 700;
+    color: #262626;
+    background: transparent;
+    padding-bottom: 8px;
+}
+
+/* 概览卡片 */
+#OverviewCard {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #f0f5ff, stop:0.5 #ffffff, stop:1 #f0f5ff);
+    border: 1px solid rgba(24, 144, 255, 0.15);
+}
+
+#OverviewIcon {
+    font-size: 24px;
+    background: transparent;
+}
+
+#OverviewValue {
+    font-size: 16px;
+    font-weight: 600;
+    color: #262626;
+    background: transparent;
+}
+
+/* 分组标题 */
+#SectionHeader {
+    background: transparent;
+}
+
+#SectionIcon {
+    font-size: 20px;
+    background: rgba(24, 144, 255, 0.1);
+    border-radius: 8px;
+    color: #1890ff;
+}
+
+#SectionTitle {
+    font-size: 15px;
+    font-weight: 600;
+    color: #262626;
+    background: transparent;
+}
+
+#SectionSubtitle {
+    font-size: 12px;
+    color: #8c8c8c;
+    background: transparent;
+}
+
+/* 设置标签 */
+#SettingsLabel {
+    font-size: 14px;
+    color: #595959;
+    background: transparent;
+}
+
+#SettingsHint {
+    font-size: 12px;
+    color: #8c8c8c;
+    background: transparent;
+}
+
+/* 分隔线 */
+#SettingsSeparator {
+    background: #f0f0f0;
+    max-height: 1px;
+    min-height: 1px;
+}
+
+/* 表单控件 - SpinBox */
+#SettingsSpinBox,
+QSpinBox,
+QDoubleSpinBox {
+    min-height: 36px;
+    padding: 0 12px;
+    border: 1px solid #d9d9d9;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #262626;
+    font-size: 14px;
+}
+
+#SettingsSpinBox:hover,
+QSpinBox:hover,
+QDoubleSpinBox:hover {
+    border-color: #40a9ff;
+}
+
+#SettingsSpinBox:focus,
+QSpinBox:focus,
+QDoubleSpinBox:focus {
+    border-color: #1890ff;
+    outline: none;
+}
+
+#SettingsSpinBox::up-button,
+#SettingsSpinBox::down-button,
+QSpinBox::up-button,
+QSpinBox::down-button,
+QDoubleSpinBox::up-button,
+QDoubleSpinBox::down-button {
+    width: 24px;
+    border: none;
+    background: transparent;
+}
+
+#SettingsSpinBox::up-button:hover,
+#SettingsSpinBox::down-button:hover,
+QSpinBox::up-button:hover,
+QSpinBox::down-button:hover,
+QDoubleSpinBox::up-button:hover,
+QDoubleSpinBox::down-button:hover {
+    background: rgba(24, 144, 255, 0.1);
+}
+
+#SettingsSpinBox::up-arrow,
+QSpinBox::up-arrow,
+QDoubleSpinBox::up-arrow {
+    width: 10px;
+    height: 10px;
+}
+
+#SettingsSpinBox::down-arrow,
+QSpinBox::down-arrow,
+QDoubleSpinBox::down-arrow {
+    width: 10px;
+    height: 10px;
+}
+
+/* 表单控件 - TimeEdit */
+#SettingsTimeEdit,
+QTimeEdit {
+    min-height: 36px;
+    padding: 0 12px;
+    border: 1px solid #d9d9d9;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #262626;
+    font-size: 14px;
+}
+
+#SettingsTimeEdit:hover,
+QTimeEdit:hover {
+    border-color: #40a9ff;
+}
+
+#SettingsTimeEdit:focus,
+QTimeEdit:focus {
+    border-color: #1890ff;
+}
+
+#SettingsTimeEdit::up-button,
+#SettingsTimeEdit::down-button,
+QTimeEdit::up-button,
+QTimeEdit::down-button {
+    width: 24px;
+    border: none;
+    background: transparent;
+}
+
+/* 表单控件 - LineEdit */
+#SettingsLineEdit,
+QLineEdit {
+    min-height: 36px;
+    padding: 0 12px;
+    border: 1px solid #d9d9d9;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #262626;
+    font-size: 14px;
+}
+
+#SettingsLineEdit:hover,
+QLineEdit:hover {
+    border-color: #40a9ff;
+}
+
+#SettingsLineEdit:focus,
+QLineEdit:focus {
+    border-color: #1890ff;
+    outline: none;
+}
+
+#SettingsLineEdit:disabled,
+QLineEdit:disabled {
+    background: #f5f5f5;
+    color: #bfbfbf;
+}
+
+/* 表单控件 - ComboBox */
+#SettingsCombo,
+QComboBox {
+    min-height: 36px;
+    padding: 0 12px;
+    padding-right: 32px;
+    border: 1px solid #d9d9d9;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #262626;
+    font-size: 14px;
+}
+
+#SettingsCombo:hover,
+QComboBox:hover {
+    border-color: #40a9ff;
+}
+
+#SettingsCombo:focus,
+QComboBox:focus {
+    border-color: #1890ff;
+}
+
+#SettingsCombo::drop-down,
+QComboBox::drop-down {
+    border: none;
+    width: 32px;
+    background: transparent;
+}
+
+#SettingsCombo::down-arrow,
+QComboBox::down-arrow {
+    width: 12px;
+    height: 12px;
+}
+
+#SettingsCombo QAbstractItemView,
+QComboBox QAbstractItemView {
+    border: 1px solid #d9d9d9;
+    border-radius: 8px;
+    background: #ffffff;
+    selection-background-color: #e6f7ff;
+    selection-color: #1890ff;
+    padding: 4px;
+}
+
+#SettingsCombo QAbstractItemView::item,
+QComboBox QAbstractItemView::item {
+    min-height: 32px;
+    padding: 4px 12px;
+    border-radius: 4px;
+}
+
+#SettingsCombo QAbstractItemView::item:hover,
+QComboBox QAbstractItemView::item:hover {
+    background: #f5f5f5;
+}
+
+#SettingsCombo:disabled,
+QComboBox:disabled {
+    background: #f5f5f5;
+    color: #bfbfbf;
+}
+
+/* 表单控件 - CheckBox */
+#SettingsCheckBox,
+QCheckBox {
+    font-size: 14px;
+    color: #262626;
+    spacing: 8px;
+    background: transparent;
+}
+
+#SettingsCheckBox::indicator,
+QCheckBox::indicator {
+    width: 18px;
+    height: 18px;
+    border: 2px solid #d9d9d9;
+    border-radius: 4px;
+    background: #ffffff;
+}
+
+#SettingsCheckBox::indicator:hover,
+QCheckBox::indicator:hover {
+    border-color: #1890ff;
+}
+
+#SettingsCheckBox::indicator:checked,
+QCheckBox::indicator:checked {
+    background: #1890ff;
+    border-color: #1890ff;
+}
+
+#SettingsCheckBox::indicator:checked:hover,
+QCheckBox::indicator:checked:hover {
+    background: #40a9ff;
+    border-color: #40a9ff;
+}
+
+#SettingsCheckBox:disabled,
+QCheckBox:disabled {
+    color: #bfbfbf;
+}
+
+#SettingsCheckBox::indicator:disabled,
+QCheckBox::indicator:disabled {
+    background: #f5f5f5;
+    border-color: #d9d9d9;
+}
+
+/* 表单控件 - Slider */
+#SettingsSlider,
+QSlider::groove:horizontal {
+    height: 6px;
+    background: #e8e8e8;
+    border-radius: 3px;
+}
+
+#SettingsSlider::sub-page:horizontal,
+QSlider::sub-page:horizontal {
+    background: #1890ff;
+    border-radius: 3px;
+}
+
+#SettingsSlider::handle:horizontal,
+QSlider::handle:horizontal {
+    width: 18px;
+    height: 18px;
+    margin: -6px 0;
+    background: #ffffff;
+    border: 2px solid #1890ff;
+    border-radius: 9px;
+}
+
+#SettingsSlider::handle:horizontal:hover,
+QSlider::handle:horizontal:hover {
+    background: #e6f7ff;
+}
+
+#VolumeLabel {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1890ff;
+    background: transparent;
+}
+
+/* 按钮 - 次要按钮 */
+#SecondaryButton {
+    min-height: 36px;
+    min-width: 100px;
+    padding: 0 16px;
+    border-radius: 8px;
+    border: 1px solid #d9d9d9;
+    background: #ffffff;
+    color: #595959;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+#SecondaryButton:hover {
+    border-color: #40a9ff;
+    color: #40a9ff;
+}
+
+#SecondaryButton:pressed {
+    border-color: #096dd9;
+    color: #096dd9;
+}
+
+/* 按钮 - 主要按钮 */
+#PrimaryButton {
+    min-height: 40px;
+    min-width: 120px;
+    padding: 0 24px;
+    border-radius: 8px;
+    border: none;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #40a9ff, stop:1 #1890ff);
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+#PrimaryButton:hover {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #69c0ff, stop:1 #40a9ff);
+}
+
+#PrimaryButton:pressed {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+        stop:0 #1890ff, stop:1 #096dd9);
+}
+
+/* 底部操作栏 */
+#BottomBar {
+    background: transparent;
+    border-top: 1px solid #f0f0f0;
+}
