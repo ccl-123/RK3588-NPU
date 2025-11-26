@@ -383,8 +383,8 @@ void RecognitionPage::requestUv(double lat, double lon) {
                 this, &RecognitionPage::onUvReplyFinished);
     }
     
-    // Open-Meteo UV Index API
-    QString urlStr = QString("https://api.open-meteo.com/v1/forecast?latitude=%1&longitude=%2&hourly=uv_index&forecast_days=1")
+    // Open-Meteo UV Index API - 使用 current 获取当前值，设置时区为北京时间
+    QString urlStr = QString("https://api.open-meteo.com/v1/forecast?latitude=%1&longitude=%2&current=uv_index&timezone=Asia/Shanghai")
                         .arg(lat, 0, 'f', 4)
                         .arg(lon, 0, 'f', 4);
     QUrl url(urlStr);
@@ -508,17 +508,10 @@ void RecognitionPage::onUvReplyFinished(QNetworkReply* reply) {
         
         if (!doc.isNull() && doc.isObject()) {
             QJsonObject root = doc.object();
-            QJsonObject hourly = root["hourly"].toObject();
-            QJsonArray uvArray = hourly["uv_index"].toArray();
             
-            // 获取当前小时的 UV 值（取第一个非空值）
-            double uv = 0;
-            for (int i = 0; i < uvArray.size() && i < 24; i++) {
-                if (!uvArray[i].isNull()) {
-                    uv = uvArray[i].toDouble();
-                    break;
-                }
-            }
+            // 使用 current 字段直接获取当前 UV 值
+            QJsonObject current = root["current"].toObject();
+            double uv = current["uv_index"].toDouble();
             
             QString level = uvToLevel(uv);
             

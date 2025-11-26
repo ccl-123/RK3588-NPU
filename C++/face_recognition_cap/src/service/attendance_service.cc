@@ -167,10 +167,9 @@ int AttendanceService::auto_determine_check_type(int user_id, std::time_t curren
     int minute = tm_info->tm_min;
     int current_minutes = hour * 60 + minute;
     
-    // 计算工作时间的中点
-    int work_start_minutes = work_start_hour_ * 60 + work_start_minute_;
-    int work_end_minutes = work_end_hour_ * 60 + work_end_minute_;
-    int midday_minutes = (work_start_minutes + work_end_minutes) / 2;
+    // 使用12:00（中午）作为固定分界点，更符合日常习惯
+    // 12:00 之前是上午（签到），12:00 及之后是下午（签退）
+    const int midday_minutes = 12 * 60;  // 12:00 = 720 分钟
     
     // 判断当前是上午时段还是下午时段
     bool is_afternoon = (current_minutes >= midday_minutes);
