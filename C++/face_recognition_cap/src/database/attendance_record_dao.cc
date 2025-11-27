@@ -180,7 +180,7 @@ bool AttendanceRecordDAO::has_recent_record(int user_id, int seconds_ago) {
     std::string sql = R"(
         SELECT COUNT(*) FROM attendance_records
         WHERE user_id = ? 
-        AND check_time > datetime('now', '-' || ? || ' seconds')
+        AND check_time > datetime('now', 'localtime', '-' || ? || ' seconds')
     )";
     
     auto stmt = db_manager_->prepare(sql);
