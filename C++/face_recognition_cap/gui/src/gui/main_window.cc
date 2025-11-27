@@ -175,7 +175,8 @@ bool MainWindow::initialize(const std::string& retinaface_model,
             ConfigManager::instance()->getWorkEndTime().toStdString(),
             ConfigManager::instance()->getLateThreshold(),
             ConfigManager::instance()->getEarlyLeaveThreshold(),
-            ConfigManager::instance()->isAllowMultipleCheckin()
+            ConfigManager::instance()->isAllowMultipleCheckin(),
+            ConfigManager::instance()->getDuplicateCheckInterval()
         );
         spdlog::info("Attendance work schedule configured from settings");
     }
@@ -665,7 +666,8 @@ void MainWindow::connect_page_signals() {
                         ConfigManager::instance()->getWorkEndTime().toStdString(),
                         ConfigManager::instance()->getLateThreshold(),
                         ConfigManager::instance()->getEarlyLeaveThreshold(),
-                        ConfigManager::instance()->isAllowMultipleCheckin()
+                        ConfigManager::instance()->isAllowMultipleCheckin(),
+                        ConfigManager::instance()->getDuplicateCheckInterval()
                     );
                     spdlog::info("Attendance work schedule updated from settings");
                 }
@@ -772,11 +774,12 @@ void MainWindow::on_frame_ready(const cv::Mat& frame, const std::vector<Recognit
         fr.similarity = result.similarity;
         fr.is_recognized = (result.user_id > 0);
 
-        // 检查是否已打卡（5分钟内）并判断打卡类型
+        // 检查是否已打卡（使用配置的间隔时间）并判断打卡类型
         fr.is_duplicate = false;
         fr.check_type = 1;  // 默认签到
         if (attendance_service_ && result.user_id > 0) {
-            fr.is_duplicate = attendance_service_->is_duplicate_check(result.user_id, 300);
+            int dup_interval = ConfigManager::instance()->getDuplicateCheckInterval();
+            fr.is_duplicate = attendance_service_->is_duplicate_check(result.user_id, dup_interval);
             // 自动判断打卡类型
             std::time_t current_time = std::time(nullptr);
             fr.check_type = attendance_service_->auto_determine_check_type(result.user_id, current_time);

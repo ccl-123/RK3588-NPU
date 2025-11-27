@@ -21,6 +21,7 @@ AttendanceService::AttendanceService(db::DatabaseManager* db_manager)
     , late_threshold_(30)
     , early_leave_threshold_(30)
     , allow_multiple_checkin_(false)
+    , duplicate_check_interval_(300)
 {
     record_dao_ = new db::AttendanceRecordDAO(db_manager_);
     user_dao_ = new db::UserDAO(db_manager_);
@@ -43,9 +44,9 @@ int AttendanceService::record_attendance(int user_id, const std::string& user_na
     
     // 检查是否允许打卡（基于多次签到开关）
     if (allow_multiple_checkin_) {
-        // 启用多次签到：只检查短时间内重复（300秒），防止误触
-        if (is_duplicate_check(user_id, 300)) {
-            spdlog::debug("Duplicate check within 5 minutes, user_id: {}", user_id);
+        // 启用多次签到：只检查短时间内重复，防止误触
+        if (is_duplicate_check(user_id, duplicate_check_interval_)) {
+            spdlog::debug("Duplicate check within {} seconds, user_id: {}", duplicate_check_interval_, user_id);
             return -1;
         }
     } else {
@@ -57,8 +58,8 @@ int AttendanceService::record_attendance(int user_id, const std::string& user_na
         }
         
         // 同时也检查短时间内重复（双重保护）
-        if (is_duplicate_check(user_id, 300)) {
-            spdlog::debug("Duplicate check within 5 minutes, user_id: {}", user_id);
+        if (is_duplicate_check(user_id, duplicate_check_interval_)) {
+            spdlog::debug("Duplicate check within {} seconds, user_id: {}", duplicate_check_interval_, user_id);
             return -1;
         }
     }
@@ -198,7 +199,8 @@ void AttendanceService::set_work_schedule(const std::string& work_start_time,
                                          const std::string& work_end_time,
                                          int late_threshold,
                                          int early_leave_threshold,
-                                         bool allow_multiple_checkin) {
+                                         bool allow_multiple_checkin,
+                                         int duplicate_check_interval) {
     // 解析上班时间（HH:mm 格式）
     sscanf(work_start_time.c_str(), "%d:%d", &work_start_hour_, &work_start_minute_);
     
@@ -209,10 +211,11 @@ void AttendanceService::set_work_schedule(const std::string& work_start_time,
     late_threshold_ = late_threshold;
     early_leave_threshold_ = early_leave_threshold;
     allow_multiple_checkin_ = allow_multiple_checkin;
+    duplicate_check_interval_ = duplicate_check_interval;
     
-    spdlog::info("Work schedule updated: {} - {} (late: {}min, early_leave: {}min, multiple_checkin: {})", 
+    spdlog::info("Work schedule updated: {} - {} (late: {}min, early_leave: {}min, multiple_checkin: {}, dup_interval: {}s)", 
                  work_start_time, work_end_time, late_threshold, early_leave_threshold,
-                 allow_multiple_checkin ? "yes" : "no");
+                 allow_multiple_checkin ? "yes" : "no", duplicate_check_interval);
 }
 
 std::vector<db::AttendanceRecord> AttendanceService::query_user_records(

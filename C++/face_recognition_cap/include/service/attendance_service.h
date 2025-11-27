@@ -90,12 +90,14 @@ public:
      * @param late_threshold 迟到阈值（分钟）
      * @param early_leave_threshold 早退阈值（分钟）
      * @param allow_multiple_checkin 是否允许一天多次签到
+     * @param duplicate_check_interval 防重复签到间隔（秒）
      */
     void set_work_schedule(const std::string& work_start_time,
                           const std::string& work_end_time,
                           int late_threshold,
                           int early_leave_threshold,
-                          bool allow_multiple_checkin = false);
+                          bool allow_multiple_checkin = false,
+                          int duplicate_check_interval = 300);
     
     /**
      * @brief 查询用户考勤记录
@@ -165,6 +167,7 @@ private:
     int late_threshold_;        // 迟到阈值（分钟）
     int early_leave_threshold_; // 早退阈值（分钟）
     bool allow_multiple_checkin_; // 是否允许一天多次签到
+    int duplicate_check_interval_; // 防重复签到间隔（秒）
 };
 
 } // namespace service
