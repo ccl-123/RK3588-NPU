@@ -79,6 +79,7 @@ MainWindow::MainWindow(QWidget* parent)
     , fps_(0.0)
     , camera_id_(0)
     , is_dark_theme_(false)  // 默认使用浅色主题
+    , current_date_(QDate::currentDate())  // 初始化当前日期（用于跨日检测）
     , user_detection_{false, 0, "", 0.0f, std::chrono::steady_clock::now(), std::chrono::steady_clock::now(), false}
     , user_confirm_duration_ms_(1000)  // 默认1秒，从配置加载
     , stranger_detection_{false, std::chrono::steady_clock::now(), std::chrono::steady_clock::now()}
@@ -464,10 +465,10 @@ void MainWindow::load_today_attendance() {
         
         attendance_table_->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(record.user_name)));
         
-        // 格式化时间为 HH:mm:ss
+        // 格式化时间为 MM-dd HH:mm:ss（带日期，便于确认是否是今天的记录）
         std::tm* tm_info = std::localtime(&record.check_time);
-        char time_str[9];
-        strftime(time_str, sizeof(time_str), "%H:%M:%S", tm_info);
+        char time_str[18];
+        strftime(time_str, sizeof(time_str), "%m-%d %H:%M:%S", tm_info);
         attendance_table_->setItem(row, 1, new QTableWidgetItem(QString::fromUtf8(time_str)));
         
         // 显示打卡类型
@@ -819,13 +820,23 @@ void MainWindow::update_status() {
     // 更新状态栏的时钟和日期
     if (recognition_page_) {
         QDateTime current_datetime = QDateTime::currentDateTime();
+        QDate today = current_datetime.date();
+        
+        // 跨日检测：如果日期变化，自动刷新签到表格
+        if (today != current_date_) {
+            spdlog::info("Date changed from {} to {}, refreshing attendance table",
+                        current_date_.toString("yyyy-MM-dd").toStdString(),
+                        today.toString("yyyy-MM-dd").toStdString());
+            current_date_ = today;
+            load_today_attendance();  // 重新加载今日签到记录
+        }
         
         // 更新时钟 (HH:mm:ss)
         recognition_page_->updateClock(current_datetime.toString("HH:mm:ss"));
         
         // 更新日期 (yyyy年MM月dd日 周x)
         QString weekday;
-        switch (current_datetime.date().dayOfWeek()) {
+        switch (today.dayOfWeek()) {
             case 1: weekday = tr("周一"); break;
             case 2: weekday = tr("周二"); break;
             case 3: weekday = tr("周三"); break;
@@ -984,8 +995,9 @@ void MainWindow::on_recognition_result(int user_id, const QString& name, float s
             
             attendance_table_->insertRow(0);  // 插入到第0行
             attendance_table_->setItem(0, 0, new QTableWidgetItem(name));
+            // 时间格式：MM-dd HH:mm:ss（带日期，便于确认是否是今天的记录）
             attendance_table_->setItem(0, 1, new QTableWidgetItem(
-                QDateTime::currentDateTime().toString("hh:mm:ss")));
+                QDateTime::currentDateTime().toString("MM-dd HH:mm:ss")));
             
             // 根据打卡类型显示不同文字
             QString type_text = (check_type == 2) ? tr("签退") : tr("签到");

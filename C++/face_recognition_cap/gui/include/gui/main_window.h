@@ -15,6 +15,7 @@
 #include <QLabel>
 #include <QStackedWidget>
 #include <QTimer>
+#include <QDate>
 #include <memory>
 #include <thread>
 #include <map>
@@ -154,6 +155,9 @@ private:
 
     // 主题状态
     bool is_dark_theme_;
+    
+    // 当前日期（用于跨日检测）
+    QDate current_date_;
     
     // 用户持续识别确认机制（基于时间而非帧数）
     struct UserDetection {
