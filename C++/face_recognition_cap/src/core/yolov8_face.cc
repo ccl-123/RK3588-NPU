@@ -81,8 +81,7 @@ int create_yolov8_face(char* model_name, rknn_context* ctx,
                        int& width, int& height, int& channel,
                        rknn_input_output_num& io_num,
                        rknn_tensor_attr* output_attrs,
-                       unsigned char* model_data) {
-    int status = 0;
+                       unsigned char*& model_data) {
     int ret;
 
     // 加载模型

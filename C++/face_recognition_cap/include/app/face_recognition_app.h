@@ -37,7 +37,7 @@ struct RecognitionResult {
  * @brief 应用配置结构
  */
 struct AppConfig {
-    std::string retinaface_model_path;  // RetinaFace 模型路径
+    std::string retinaface_model_path;  // 人脸检测模型路径 (YOLOv8-face，字段名保留兼容)
     std::string facenet_model_path;     // FaceNet 模型路径
     std::string camera_type;            // 摄像头类型: "usb" 或 "mipi"
     std::string device_number;          // 设备编号
@@ -55,8 +55,8 @@ struct AppConfig {
     AppConfig()
         : camera_width(1280)
         , camera_height(720)
-        , box_conf_threshold(0.7f)
-        , nms_threshold(0.6f)
+        , box_conf_threshold(0.5f)   // 人脸检测阈值
+        , nms_threshold(0.45f)       // NMS阈值
         , facenet_threshold(0.5f)
         , use_async_usb(true)
         , perf_report_interval(10)

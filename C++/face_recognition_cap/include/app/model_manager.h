@@ -111,18 +111,6 @@ public:
      */
     void release();
 
-    // ============================================
-    // 兼容性别名 (保持向后兼容)
-    // ============================================
-    int init_retinaface(const char* model_path) { return init_face_detector(model_path); }
-    rknn_context* get_retinaface_ctx() { return get_face_detector_ctx(); }
-    rknn_input* get_retinaface_inputs() { return get_face_detector_inputs(); }
-    rknn_output* get_retinaface_outputs() { return get_face_detector_outputs(); }
-    void get_retinaface_size(int& width, int& height, int& channel) const {
-        get_face_detector_size(width, height, channel);
-    }
-    const rknn_input_output_num& get_retinaface_io_num() const { return get_face_detector_io_num(); }
-
 private:
     // YOLOv8-face 人脸检测模型相关
     rknn_context face_detector_ctx_;
