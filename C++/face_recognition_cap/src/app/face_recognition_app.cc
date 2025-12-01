@@ -6,7 +6,7 @@
  */
 
 #include "app/face_recognition_app.h"
-#include "core/retinaface.h"
+#include "core/yolov8_face.h"
 #include "core/facenet.h"
 #include "core/postprocess.h"
 #include "hardware/camera_util.h"
@@ -47,8 +47,8 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
 
     // 1. 初始化模型
     std::cout << "Initializing models..." << std::endl;
-    if (model_manager_.init_retinaface(config_.retinaface_model_path.c_str()) != 0) {
-        std::cerr << "Failed to initialize RetinaFace model" << std::endl;
+    if (model_manager_.init_face_detector(config_.retinaface_model_path.c_str()) != 0) {
+        std::cerr << "Failed to initialize YOLOv8-face model" << std::endl;
         return -1;
     }
 
@@ -94,19 +94,19 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
     }
 
     // 4. 计算缩放参数
-    int retinaface_width, retinaface_height, retinaface_channel;
-    model_manager_.get_retinaface_size(retinaface_width, retinaface_height, retinaface_channel);
+    int detector_width, detector_height, detector_channel;
+    model_manager_.get_face_detector_size(detector_width, detector_height, detector_channel);
 
     if (config_.camera_width > config_.camera_height) {
-        scale_w_ = (float)retinaface_width / config_.camera_width;
+        scale_w_ = (float)detector_width / config_.camera_width;
         scale_h_ = scale_w_;
-        resize_w_ = retinaface_width;
+        resize_w_ = detector_width;
         resize_h_ = (int)(resize_w_ * config_.camera_height / config_.camera_width);
         padding_ = resize_w_ - resize_h_;
     } else {
-        scale_h_ = (float)retinaface_height / config_.camera_height;
+        scale_h_ = (float)detector_height / config_.camera_height;
         scale_w_ = scale_h_;
-        resize_h_ = retinaface_height;
+        resize_h_ = detector_height;
         resize_w_ = (int)(resize_h_ * config_.camera_width / config_.camera_height);
         padding_ = resize_h_ - resize_w_;
     }
@@ -286,25 +286,24 @@ void FaceRecognitionApp::detect_faces(const cv::Mat& img, detect_result_group_t&
     }
 
     // 获取模型参数
-    int retinaface_width, retinaface_height, retinaface_channel;
-    model_manager_.get_retinaface_size(retinaface_width, retinaface_height, retinaface_channel);
+    int detector_width, detector_height, detector_channel;
+    model_manager_.get_face_detector_size(detector_width, detector_height, detector_channel);
 
-    // 执行推理
-    retinaface_inference(
-        model_manager_.get_retinaface_ctx(),
+    // 执行 YOLOv8-face 推理
+    yolov8_face_inference(
+        model_manager_.get_face_detector_ctx(),
         padded_img,
-        retinaface_width,
-        retinaface_height,
-        retinaface_channel,
+        detector_width,
+        detector_height,
+        detector_channel,
         config_.box_conf_threshold,
         config_.nms_threshold,
         img_width,
         img_height,
-        model_manager_.get_retinaface_io_num(),
-        model_manager_.get_retinaface_inputs(),
-        model_manager_.get_retinaface_outputs(),
-        model_manager_.get_retinaface_out_scales(),
-        model_manager_.get_retinaface_out_zps(),
+        model_manager_.get_face_detector_io_num(),
+        model_manager_.get_face_detector_inputs(),
+        model_manager_.get_face_detector_outputs(),
+        model_manager_.get_face_detector_output_attrs(),
         &result_group
     );
 }
@@ -563,28 +562,27 @@ int FaceRecognitionApp::detect_faces(const cv::Mat& frame,
         img_height = resize_h_;
     }
 
-    // RetinaFace 检测
+    // YOLOv8-face 检测
     detect_result_group_t detect_result_group;
     memset(&detect_result_group, 0, sizeof(detect_result_group_t));
 
-    int retinaface_width, retinaface_height, retinaface_channel;
-    model_manager_.get_retinaface_size(retinaface_width, retinaface_height, retinaface_channel);
+    int detector_width, detector_height, detector_channel;
+    model_manager_.get_face_detector_size(detector_width, detector_height, detector_channel);
 
-    retinaface_inference(
-        model_manager_.get_retinaface_ctx(),
+    yolov8_face_inference(
+        model_manager_.get_face_detector_ctx(),
         padded_img,
-        retinaface_width,
-        retinaface_height,
-        retinaface_channel,
+        detector_width,
+        detector_height,
+        detector_channel,
         config_.box_conf_threshold,
         config_.nms_threshold,
         img_width,
         img_height,
-        model_manager_.get_retinaface_io_num(),
-        model_manager_.get_retinaface_inputs(),
-        model_manager_.get_retinaface_outputs(),
-        model_manager_.get_retinaface_out_scales(),
-        model_manager_.get_retinaface_out_zps(),
+        model_manager_.get_face_detector_io_num(),
+        model_manager_.get_face_detector_inputs(),
+        model_manager_.get_face_detector_outputs(),
+        model_manager_.get_face_detector_output_attrs(),
         &detect_result_group
     );
 

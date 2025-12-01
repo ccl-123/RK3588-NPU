@@ -68,7 +68,7 @@ include_directories( ${CMAKE_SOURCE_DIR}/gui/include)
 
 # 源文件分组
 set(CORE_SOURCES
-    src/core/retinaface.cc
+    src/core/yolov8_face.cc
     src/core/facenet.cc
     src/core/postprocess.cc
 )

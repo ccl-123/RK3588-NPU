@@ -69,7 +69,7 @@ int main(int argc, char* argv[]) {
     
     // 解析命令行参数
     // 使用相对于可执行文件的路径
-    std::string retinaface_model = (appDir + "/data/model/retinaface.rknn").toStdString();
+    std::string yolov8_face_model = (appDir + "/data/model/yolov8n-face.rknn").toStdString();
     std::string facenet_model = (appDir + "/data/model/w600k_mbf.rknn").toStdString();
     
     // 从配置文件加载摄像头设置（固定 USB + 异步）
@@ -87,7 +87,7 @@ int main(int argc, char* argv[]) {
     }
     
     if (argc >= 3) {
-        retinaface_model = argv[1];
+        yolov8_face_model = argv[1];
         facenet_model = argv[2];
     }
     if (argc >= 5) {
@@ -99,7 +99,7 @@ int main(int argc, char* argv[]) {
     }
     
     spdlog::info("Configuration:");
-    spdlog::info("  RetinaFace model: {}", retinaface_model);
+    spdlog::info("  YOLOv8-face model: {}", yolov8_face_model);
     spdlog::info("  FaceNet model: {}", facenet_model);
     spdlog::info("  Camera source: {}", camera_source);
     spdlog::info("  Camera ID: {}", camera_id);
@@ -109,7 +109,7 @@ int main(int argc, char* argv[]) {
     MainWindow main_window;
     
     // 初始化系统
-    if (!main_window.initialize(retinaface_model, facenet_model, 
+    if (!main_window.initialize(yolov8_face_model, facenet_model, 
                                 camera_source, camera_id, db_path)) {
         QMessageBox::critical(nullptr, "错误", "系统初始化失败");
         spdlog::error("System initialization failed");

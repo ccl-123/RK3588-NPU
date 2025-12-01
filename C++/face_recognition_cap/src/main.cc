@@ -6,7 +6,7 @@
  *
  * 功能: 实时人脸识别系统
  * - 支持 USB/MIPI 摄像头
- * - RetinaFace 人脸检测
+ * - YOLOv8-face 人脸检测
  * - FaceNet 特征提取和识别
  * - 多线程优化 (预处理、渲染、异步采集)
  * - 支持数据库模式和考勤记录
@@ -44,7 +44,7 @@ void on_recognition_callback(const RecognitionResult& result) {
  *
  * @param argc 参数个数
  * @param argv 参数列表
- *   argv[1]: RetinaFace 模型路径
+ *   argv[1]: YOLOv8-face 模型路径
  *   argv[2]: FaceNet 模型路径
  *   argv[3]: 摄像头类型 (usb/mipi)
  *   argv[4]: 设备编号
@@ -56,16 +56,16 @@ int main(int argc, char** argv)
 {
     // 1. 参数检查
     if (argc < 5) {
-        printf("Usage: %s <retinaface model> <facenet model> <usb or mipi> <device number> [--db]\n", argv[0]);
+        printf("Usage: %s <yolov8-face model> <facenet model> <usb or mipi> <device number> [--db]\n", argv[0]);
         printf("\nExample:\n");
-        printf("  File mode:     %s data/model/retinaface.rknn data/model/w600k_mbf.rknn usb 21\n", argv[0]);
-        printf("  Database mode: %s data/model/retinaface.rknn data/model/w600k_mbf.rknn usb 21 --db\n", argv[0]);
+        printf("  File mode:     %s data/model/yolov8n-face.rknn data/model/w600k_mbf.rknn usb 21\n", argv[0]);
+        printf("  Database mode: %s data/model/yolov8n-face.rknn data/model/w600k_mbf.rknn usb 21 --db\n", argv[0]);
         return -1;
     }
 
     // 2. 解析命令行参数
     AppConfig config;
-    config.retinaface_model_path = argv[1];
+    config.retinaface_model_path = argv[1];  // 兼容性：使用旧字段名
     config.facenet_model_path = argv[2];
     config.camera_type = argv[3];
     config.device_number = argv[4];
@@ -93,7 +93,7 @@ int main(int argc, char** argv)
 
     // 5. 初始化应用
     std::cout << "========================================" << std::endl;
-    std::cout << "  Face Recognition System" << std::endl;
+    std::cout << "  Face Recognition System (YOLOv8-face)" << std::endl;
     std::cout << "  Mode: " << (use_database ? "Database" : "File") << std::endl;
     std::cout << "========================================" << std::endl;
 

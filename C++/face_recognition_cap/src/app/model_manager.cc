@@ -6,77 +6,72 @@
  */
 
 #include "app/model_manager.h"
-#include "core/retinaface.h"
+#include "core/yolov8_face.h"
 #include "core/facenet.h"
 #include <cstring>
 #include <iostream>
 
 ModelManager::ModelManager()
-    : retinaface_width_(0)
-    , retinaface_height_(0)
-    , retinaface_channel_(0)
-    , retinaface_model_data_(nullptr)
-    , retinaface_outputs_(nullptr)
+    : face_detector_width_(0)
+    , face_detector_height_(0)
+    , face_detector_channel_(0)
+    , face_detector_model_data_(nullptr)
     , facenet_width_(0)
     , facenet_height_(0)
     , facenet_channel_(0)
     , facenet_model_data_(nullptr)
     , facenet_outputs_(nullptr)
-    , retinaface_initialized_(false)
+    , face_detector_initialized_(false)
     , facenet_initialized_(false)
 {
+    memset(face_detector_outputs_, 0, sizeof(face_detector_outputs_));
+    memset(face_detector_output_attrs_, 0, sizeof(face_detector_output_attrs_));
 }
 
 ModelManager::~ModelManager() {
     release();
 }
 
-int ModelManager::init_retinaface(const char* model_path) {
-    if (retinaface_initialized_) {
-        std::cerr << "RetinaFace already initialized" << std::endl;
+int ModelManager::init_face_detector(const char* model_path) {
+    if (face_detector_initialized_) {
+        std::cerr << "Face detector already initialized" << std::endl;
         return -1;
     }
 
-    // 调用 core 层的创建函数
-    int ret = create_retinaface(
+    // 调用 YOLOv8-face 创建函数
+    int ret = create_yolov8_face(
         const_cast<char*>(model_path),
-        &retinaface_ctx_,
-        retinaface_width_,
-        retinaface_height_,
-        retinaface_channel_,
-        retinaface_out_scales_,
-        retinaface_out_zps_,
-        retinaface_io_num_,
-        retinaface_model_data_
+        &face_detector_ctx_,
+        face_detector_width_,
+        face_detector_height_,
+        face_detector_channel_,
+        face_detector_io_num_,
+        face_detector_output_attrs_,
+        face_detector_model_data_
     );
 
     if (ret != 0) {
-        std::cerr << "Failed to create RetinaFace model" << std::endl;
+        std::cerr << "Failed to create YOLOv8-face model" << std::endl;
         return -1;
     }
 
     // 配置输入
-    memset(retinaface_inputs_, 0, sizeof(retinaface_inputs_));
-    retinaface_inputs_[0].index = 0;
-    retinaface_inputs_[0].type = RKNN_TENSOR_UINT8;
-    retinaface_inputs_[0].size = retinaface_width_ * retinaface_height_ * retinaface_channel_;
-    retinaface_inputs_[0].fmt = RKNN_TENSOR_NHWC;
-    retinaface_inputs_[0].pass_through = 0;
+    memset(face_detector_inputs_, 0, sizeof(face_detector_inputs_));
+    face_detector_inputs_[0].index = 0;
+    face_detector_inputs_[0].type = RKNN_TENSOR_UINT8;
+    face_detector_inputs_[0].size = face_detector_width_ * face_detector_height_ * face_detector_channel_;
+    face_detector_inputs_[0].fmt = RKNN_TENSOR_NHWC;
+    face_detector_inputs_[0].pass_through = 0;
 
-    // 配置输出
-    retinaface_outputs_ = new rknn_output[retinaface_io_num_.n_output];
-    memset(retinaface_outputs_, 0, sizeof(rknn_output) * retinaface_io_num_.n_output);
-    for (int i = 0; i < retinaface_io_num_.n_output; i++) {
-        if (i != 1) {
-            retinaface_outputs_[i].want_float = 0;
-        } else {
-            retinaface_outputs_[i].want_float = 1;
-        }
+    // 配置输出 - YOLOv8-face 有 4 个输出，全部使用 float
+    memset(face_detector_outputs_, 0, sizeof(face_detector_outputs_));
+    for (int i = 0; i < YOLOV8_FACE_OUTPUT_NUM; i++) {
+        face_detector_outputs_[i].want_float = 1;
     }
 
-    retinaface_initialized_ = true;
-    std::cout << "RetinaFace model initialized: " << retinaface_width_ << "x" 
-              << retinaface_height_ << "x" << retinaface_channel_ << std::endl;
+    face_detector_initialized_ = true;
+    std::cout << "YOLOv8-face model initialized: " << face_detector_width_ << "x" 
+              << face_detector_height_ << "x" << face_detector_channel_ << std::endl;
     return 0;
 }
 
@@ -124,14 +119,10 @@ int ModelManager::init_facenet(const char* model_path) {
 }
 
 void ModelManager::release() {
-    if (retinaface_initialized_) {
-        release_retinaface(&retinaface_ctx_, retinaface_model_data_);
-        if (retinaface_outputs_) {
-            delete[] retinaface_outputs_;
-            retinaface_outputs_ = nullptr;
-        }
-        retinaface_initialized_ = false;
-        std::cout << "RetinaFace model released" << std::endl;
+    if (face_detector_initialized_) {
+        release_yolov8_face(&face_detector_ctx_, face_detector_model_data_);
+        face_detector_initialized_ = false;
+        std::cout << "YOLOv8-face model released" << std::endl;
     }
 
     if (facenet_initialized_) {

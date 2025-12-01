@@ -96,7 +96,7 @@ QString AboutDialog::get_system_info() {
     stream << QString::fromUtf8("<h3>🔧 技术栈</h3>");
     stream << "<table cellpadding='5'>";
     stream << QString::fromUtf8("<tr><td><b>AI 加速:</b></td><td>RKNN NPU 2.3.0</td></tr>");
-    stream << QString::fromUtf8("<tr><td><b>人脸检测:</b></td><td>RetinaFace</td></tr>");
+    stream << QString::fromUtf8("<tr><td><b>人脸检测:</b></td><td>YOLOv8-face</td></tr>");
     stream << QString::fromUtf8("<tr><td><b>特征提取:</b></td><td>MobileFaceNet (512维)</td></tr>");
     stream << QString::fromUtf8("<tr><td><b>计算机视觉:</b></td><td>OpenCV 4.5.4</td></tr>");
     stream << QString::fromUtf8("<tr><td><b>数据库:</b></td><td>SQLite 3.37.2</td></tr>");

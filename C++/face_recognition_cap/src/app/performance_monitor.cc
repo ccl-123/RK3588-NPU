@@ -80,14 +80,14 @@ void PerformanceMonitor::print_report() {
     std::cout << std::fixed << std::setprecision(2);
     std::cout << "1. 摄像头读取:      " << avg_camera << " ms (线程1-异步)" << std::endl;
     std::cout << "2. RGA预处理:       " << avg_preprocess << " ms (线程2-异步)" << std::endl;
-    std::cout << "3. RetinaFace:     " << avg_detection << " ms (主线程-人脸检测)" << std::endl;
+    std::cout << "3. YOLOv8-face:    " << avg_detection << " ms (主线程-人脸检测)" << std::endl;
     std::cout << "4. 人脸对齐:        " << avg_alignment << " ms" << std::endl;
     std::cout << "5. FaceNet:         " << avg_recognition << " ms (512维特征提取)" << std::endl;
     std::cout << "6. 特征匹配:        " << avg_matching << " ms" << std::endl;
     std::cout << "7. 显示渲染:        " << avg_render << " ms (线程3-异步)" << std::endl;
     std::cout << "-------------------------------------------" << std::endl;
     std::cout << "主线程耗时:        " << main_thread_time << " ms (" << smoothed_fps_ << " FPS)" << std::endl;
-    std::cout << "理论最大FPS:      " << theoretical_fps << " (瓶颈: RetinaFace)" << std::endl;
+    std::cout << "理论最大FPS:      " << theoretical_fps << " (瓶颈: YOLOv8-face)" << std::endl;
     std::cout << "===========================================" << std::endl;
 
     // 重置统计
