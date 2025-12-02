@@ -67,7 +67,7 @@ int ModelManager::init_face_detector(const char* model_path) {
     memset(face_detector_outputs_, 0, sizeof(face_detector_outputs_));
     for (int i = 0; i < YOLOV8_FACE_OUTPUT_NUM; i++) {
         face_detector_outputs_[i].want_float = 1;
-    }
+        }
 
     face_detector_initialized_ = true;
     std::cout << "YOLOv8-face model initialized: " << face_detector_width_ << "x" 

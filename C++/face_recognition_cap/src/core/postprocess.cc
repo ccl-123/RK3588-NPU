@@ -25,8 +25,8 @@ inline static int clamp(float val, int min, int max) {
 }
 
 inline static int32_t __clip(float val, float min, float max) {
-    float f = val <= min ? min : (val >= max ? max : val);
-    return f;
+  float f = val <= min ? min : (val >= max ? max : val);
+  return f;
 }
 
 static float sigmoid(float x) {
@@ -41,7 +41,7 @@ static float unsigmoid(float y) {
 static int8_t qnt_f32_to_affine(float f32, int32_t zp, float scale) {
     float dst_val = (f32 / scale) + zp;
     int8_t res = (int8_t)__clip(dst_val, -128, 127);
-    return res;
+  return res;
 }
 
 static float deqnt_affine_to_f32(int8_t qnt, int32_t zp, float scale) {
@@ -149,7 +149,7 @@ static int process_fp32(float* input, int grid_h, int grid_w, int stride,
                         std::vector<float>& boxes, std::vector<float>& boxScores,
                         std::vector<int>& classId, float threshold, int index) {
     int input_loc_len = 64;  // DFL: 4 * 16
-    int validCount = 0;
+  int validCount = 0;
     float thres_fp = unsigmoid(threshold);
 
     for (int h = 0; h < grid_h; h++) {
@@ -201,10 +201,10 @@ static int process_fp32(float* input, int grid_h, int grid_w, int stride,
 
                 boxScores.push_back(box_conf_f32);
                 classId.push_back(0);  // class 0: face
-                validCount++;
-            }
-        }
-    }
+  					validCount++;
+  				}
+  			}
+  		}
 
     return validCount;
 }
@@ -232,8 +232,8 @@ static int process_i8(int8_t* input, int grid_h, int grid_w, int stride,
                 float loc[input_loc_len];
                 for (int i = 0; i < input_loc_len; ++i) {
                     loc[i] = deqnt_affine_to_f32(input[i * grid_h * grid_w + h * grid_w + w], zp, scale);
-                }
-
+  }
+  
                 // DFL 解码
                 for (int i = 0; i < 4; ++i) {
                     softmax(&loc[i * 16], 16);
@@ -319,9 +319,9 @@ int post_process_yolov8_face(rknn_output* outputs, rknn_tensor_attr* output_attr
     }
 
     // 没有检测到目标
-    if (validCount <= 0) {
-        return 0;
-    }
+  if (validCount <= 0) {
+    return 0;
+  }
 
     // 排序
     std::vector<int> indexArray;
@@ -344,13 +344,13 @@ int post_process_yolov8_face(rknn_output* outputs, rknn_tensor_attr* output_attr
     bool kpt_is_float = (outputs[3].size == output_attrs[3].n_elems * sizeof(float));
 
     // 提取结果
-    int last_count = 0;
+  int last_count = 0;
     group->count = 0;
 
-    for (int i = 0; i < validCount; ++i) {
+  for (int i = 0; i < validCount; ++i) {
         if (indexArray[i] == -1 || last_count >= OBJ_NUMB_MAX_SIZE) {
-            continue;
-        }
+      continue;
+    }
 
         int n = indexArray[i];
         float x1 = filterBoxes[n * 5 + 0];
@@ -377,8 +377,8 @@ int post_process_yolov8_face(rknn_output* outputs, rknn_tensor_attr* output_attr
         }
 
         // 坐标转换 (模型坐标 -> 原图坐标)
-        group->results[last_count].box.left   = (int)(clamp(x1, 0, model_in_w) / scale_w);
-        group->results[last_count].box.top    = (int)(clamp(y1, 0, model_in_h) / scale_h);
+    group->results[last_count].box.left   = (int)(clamp(x1, 0, model_in_w) / scale_w);
+    group->results[last_count].box.top    = (int)(clamp(y1, 0, model_in_h) / scale_h);
         group->results[last_count].box.right  = (int)(clamp(x1 + w, 0, model_in_w) / scale_w);
         group->results[last_count].box.bottom = (int)(clamp(y1 + h, 0, model_in_h) / scale_h);
         group->results[last_count].prop = objProbs[i];
@@ -396,11 +396,11 @@ int post_process_yolov8_face(rknn_output* outputs, rknn_tensor_attr* output_attr
         group->results[last_count].point.point_5_y = (int)(clamp(kpts[4][1], 0, model_in_h) / scale_h);
 
         strncpy(group->results[last_count].name, "face", OBJ_NAME_MAX_SIZE);
-        last_count++;
-    }
+    last_count++;
+  }
 
-    group->count = last_count;
-    return 0;
+  group->count = last_count;
+  return 0;
 }
 
 // ============================================
@@ -408,87 +408,87 @@ int post_process_yolov8_face(rknn_output* outputs, rknn_tensor_attr* output_attr
 // ============================================
 
 cv::Mat meanAxis0(const cv::Mat& src) {
-    int num = src.rows;
-    int dim = src.cols;
+        int num = src.rows;
+        int dim = src.cols;
     cv::Mat output(1, dim, CV_32F);
     for (int i = 0; i < dim; i++) {
         float sum = 0;
         for (int j = 0; j < num; j++) {
             sum += src.at<float>(j, i);
-        }
+            }
         output.at<float>(0, i) = sum / num;
-    }
-    return output;
+        }
+        return output;
 }
 
 cv::Mat elementwiseMinus(const cv::Mat& A, const cv::Mat& B) {
     cv::Mat output(A.rows, A.cols, A.type());
-    assert(B.cols == A.cols);
+        assert(B.cols == A.cols);
     if (B.cols == A.cols) {
         for (int i = 0; i < A.rows; i++) {
             for (int j = 0; j < B.cols; j++) {
                 output.at<float>(i, j) = A.at<float>(i, j) - B.at<float>(0, j);
+                }
             }
         }
-    }
-    return output;
+        return output;
 }
 
 cv::Mat varAxis0(const cv::Mat& src) {
     cv::Mat temp_ = elementwiseMinus(src, meanAxis0(src));
     cv::multiply(temp_, temp_, temp_);
-    return meanAxis0(temp_);
+        return meanAxis0(temp_);
 }
 
 int MatrixRank(cv::Mat M) {
-    cv::Mat w, u, vt;
-    cv::SVD::compute(M, w, u, vt);
-    cv::Mat1b nonZeroSingularValues = w > 0.0001;
+	cv::Mat w, u, vt;
+	cv::SVD::compute(M, w, u, vt);
+	cv::Mat1b nonZeroSingularValues = w > 0.0001;
     int rank = cv::countNonZero(nonZeroSingularValues);
-    return rank;
+        return rank;
 }
 
 cv::Mat similarTransform(cv::Mat src, cv::Mat dst) {
-    int num = src.rows;
-    int dim = src.cols;
-    cv::Mat src_mean = meanAxis0(src);
-    cv::Mat dst_mean = meanAxis0(dst);
-    cv::Mat src_demean = elementwiseMinus(src, src_mean);
-    cv::Mat dst_demean = elementwiseMinus(dst, dst_mean);
-    cv::Mat A = (dst_demean.t() * src_demean) / static_cast<float>(num);
-    cv::Mat d(dim, 1, CV_32F);
-    d.setTo(1.0f);
-    if (cv::determinant(A) < 0) {
-        d.at<float>(dim - 1, 0) = -1;
-    }
-    cv::Mat T = cv::Mat::eye(dim + 1, dim + 1, CV_32F);
-    cv::Mat U, S, V;
+        int num = src.rows;
+        int dim = src.cols;
+        cv::Mat src_mean = meanAxis0(src);
+        cv::Mat dst_mean = meanAxis0(dst);
+        cv::Mat src_demean = elementwiseMinus(src, src_mean);
+        cv::Mat dst_demean = elementwiseMinus(dst, dst_mean);
+        cv::Mat A = (dst_demean.t() * src_demean) / static_cast<float>(num);
+        cv::Mat d(dim, 1, CV_32F);
+        d.setTo(1.0f);
+        if (cv::determinant(A) < 0) {
+            d.at<float>(dim - 1, 0) = -1;
+        }
+	cv::Mat T = cv::Mat::eye(dim + 1, dim + 1, CV_32F);
+        cv::Mat U, S, V;
     cv::SVD::compute(A, S, U, V);
 
-    int rank = MatrixRank(A);
-    if (rank == 0) {
-        assert(rank == 0);
-    } else if (rank == dim - 1) {
-        if (cv::determinant(U) * cv::determinant(V) > 0) {
-            T.rowRange(0, dim).colRange(0, dim) = U * V;
-        } else {
-            int s = d.at<float>(dim - 1, 0) = -1;
-            d.at<float>(dim - 1, 0) = -1;
-            T.rowRange(0, dim).colRange(0, dim) = U * V;
-            cv::Mat diag_ = cv::Mat::diag(d);
+        int rank = MatrixRank(A);
+        if (rank == 0) {
+            assert(rank == 0);
+        } else if (rank == dim - 1) {
+            if (cv::determinant(U) * cv::determinant(V) > 0) {
+                T.rowRange(0, dim).colRange(0, dim) = U * V;
+            } else {
+                int s = d.at<float>(dim - 1, 0) = -1;
+                d.at<float>(dim - 1, 0) = -1;
+                T.rowRange(0, dim).colRange(0, dim) = U * V;
+                cv::Mat diag_ = cv::Mat::diag(d);
             cv::Mat twp = diag_ * V;
             T.rowRange(0, dim).colRange(0, dim) = U * twp;
-            d.at<float>(dim - 1, 0) = s;
+                d.at<float>(dim - 1, 0) = s;
         }
     } else {
-        cv::Mat diag_ = cv::Mat::diag(d);
+            cv::Mat diag_ = cv::Mat::diag(d);
         cv::Mat twp = diag_ * V.t();
         cv::Mat res = U * twp;
         T.rowRange(0, dim).colRange(0, dim) = -U.t() * twp;
-    }
-    cv::Mat var_ = varAxis0(src_demean);
-    float val = cv::sum(var_).val[0];
-    cv::Mat res;
+        }
+        cv::Mat var_ = varAxis0(src_demean);
+        float val = cv::sum(var_).val[0];
+        cv::Mat res;
     cv::multiply(d, S, res);
     float scale = 1.0 / val * cv::sum(res).val[0];
     T.rowRange(0, dim).colRange(0, dim) = -T.rowRange(0, dim).colRange(0, dim).t();
@@ -497,8 +497,8 @@ cv::Mat similarTransform(cv::Mat src, cv::Mat dst) {
     cv::Mat temp3 = temp1 * temp2;
     cv::Mat temp4 = scale * temp3;
     T.rowRange(0, dim).colRange(dim, dim + 1) = -(temp4 - dst_mean.t());
-    T.rowRange(0, dim).colRange(0, dim) *= scale;
-    return T;
+        T.rowRange(0, dim).colRange(0, dim) *= scale;
+        return T;
 }
 
 // ============================================
@@ -514,32 +514,32 @@ static float eu_distance(float* input) {
 }
 
 void l2_normalize(float* input) {
-    float sum = 0;
+	float sum = 0;
     for (int i = 0; i < FACENET_FEATURE_DIM; ++i) {
-        sum = sum + input[i] * input[i];
-    }
-    sum = sqrt(sum);
+		sum = sum + input[i] * input[i];
+	}
+	sum = sqrt(sum);
     for (int i = 0; i < FACENET_FEATURE_DIM; ++i) {
-        input[i] = input[i] / sum;
-    }
+		input[i] = input[i] / sum;
+	}
 }
 
 float compare_eu_distance(float* input1, float* input2) {
-    float sum = 0;
+	float sum = 0;
     for (int i = 0; i < FACENET_FEATURE_DIM; ++i) {
-        sum = sum + (input1[i] - input2[i]) * (input1[i] - input2[i]);
-    }
+		sum = sum + (input1[i] - input2[i]) * (input1[i] - input2[i]);
+	}
     return sqrt(sum);
 }
 
 float cos_similarity(float* input1, float* input2) {
-    float sum = 0;
+	float sum = 0;
     for (int i = 0; i < FACENET_FEATURE_DIM; ++i) {
-        sum = sum + input1[i] * input2[i];
-    }
-    float tmp1 = eu_distance(input1);
-    float tmp2 = eu_distance(input2);
-    return sum / (tmp1 * tmp2);
+		sum = sum + input1[i] * input2[i];
+	}
+	float tmp1 = eu_distance(input1);
+	float tmp2 = eu_distance(input2);
+	return sum / (tmp1 * tmp2);
 }
 
 void deinitPostProcess() {
