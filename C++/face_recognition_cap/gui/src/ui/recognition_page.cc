@@ -671,19 +671,30 @@ CardWidget* RecognitionPage::createVideoCard() {
     auto user_info_column = new QVBoxLayout();
     user_info_column->setSpacing(6);
     
-    // 用户名 + 状态标签
+    // 用户名 + 状态标签 (固定宽度容器，防止布局抖动)
     auto name_row = new QHBoxLayout();
-    name_row->setSpacing(10);
+    name_row->setSpacing(12);
     
     user_name_label_ = new QLabel(tr("等待识别..."), info_panel);
     user_name_label_->setObjectName("UserNameLabel");
+    user_name_label_->setMinimumWidth(150);  // 最小宽度
+    user_name_label_->setMaximumWidth(300);  // 最大宽度，支持较长的名字
     
-    attendance_status_label_ = new QLabel(info_panel);
+    // 签到成功标签容器（固定宽度，防止显示/隐藏时布局抖动）
+    auto status_container = new QWidget(info_panel);
+    status_container->setFixedWidth(130);  // 固定宽度容器（适应更大的标签）
+    status_container->setAttribute(Qt::WA_TranslucentBackground);
+    auto status_layout = new QHBoxLayout(status_container);
+    status_layout->setContentsMargins(0, 0, 0, 0);
+    status_layout->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    
+    attendance_status_label_ = new QLabel(status_container);
     attendance_status_label_->setObjectName("AttendanceStatusLabel");
-    attendance_status_label_->setVisible(false);
+    attendance_status_label_->setVisible(false);  // 初始隐藏
+    status_layout->addWidget(attendance_status_label_);
     
     name_row->addWidget(user_name_label_);
-    name_row->addWidget(attendance_status_label_);
+    name_row->addWidget(status_container);
     name_row->addStretch();
     
     // 工号 | 部门

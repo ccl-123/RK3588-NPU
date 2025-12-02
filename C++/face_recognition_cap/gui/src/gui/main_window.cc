@@ -973,16 +973,20 @@ void MainWindow::on_recognition_result(int user_id, const QString& name, float s
         spdlog::info("Processing new attendance: user_id={}, name={}, check_type={}", 
                      user_id, name.toStdString(), check_type);
         
-        // 更新状态标签
+        // 更新状态标签（签到绿色/签退蓝色，5秒后隐藏）
         if (attendance_status_label_) {
-            QString msg = (check_type == 2) ? 
-                QString("✓ %1 签退成功").arg(name) :
-                QString("✓ %1 签到成功").arg(name);
+            QString msg = (check_type == 2) ? tr("✓ 签退成功") : tr("✓ 签到成功");
             attendance_status_label_->setText(msg);
+            
+            // 设置样式属性，区分签到/签退颜色
+            attendance_status_label_->setProperty("checkType", (check_type == 2) ? "checkout" : "checkin");
+            attendance_status_label_->style()->unpolish(attendance_status_label_);
+            attendance_status_label_->style()->polish(attendance_status_label_);
+            
             attendance_status_label_->setVisible(true);
 
-            // 3秒后隐藏提示
-            QTimer::singleShot(3000, this, [this]() {
+            // 5秒后隐藏提示（容器固定宽度，不会导致布局抖动）
+            QTimer::singleShot(5000, this, [this]() {
                 if (attendance_status_label_) {
                     attendance_status_label_->setVisible(false);
                 }
