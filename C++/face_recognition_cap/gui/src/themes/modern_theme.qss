@@ -693,21 +693,34 @@ QToolTip {
 /* 用户名 */
 #UserNameLabel {
     color: #262626;
-    font-size: 22px;
+    font-size: 20px;
     font-weight: 700;
     background: transparent;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.3px;
 }
 
-/* 签到成功状态标签 */
+/* 签到/签退成功状态标签 - 现代化设计 */
 #AttendanceStatusLabel {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, 
-        stop:0 #52c41a, stop:1 #73d13d);
     color: white;
-    padding: 6px 16px;
-    border-radius: 16px;
-    font-size: 13px;
-    font-weight: 600;
+    padding: 8px 18px;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+
+/* 签到成功 - 翠绿色渐变 + 发光边框 */
+#AttendanceStatusLabel[checkType="checkin"] {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #52c41a, stop:0.5 #73d13d, stop:1 #389e0d);
+    border: 2px solid rgba(115, 209, 61, 0.5);
+}
+
+/* 签退成功 - 天蓝色渐变 + 发光边框 */
+#AttendanceStatusLabel[checkType="checkout"] {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #1890ff, stop:0.5 #40a9ff, stop:1 #096dd9);
+    border: 2px solid rgba(64, 169, 255, 0.5);
 }
 
 /* 元信息标签（工号、部门） */
