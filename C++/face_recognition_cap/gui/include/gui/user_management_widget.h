@@ -43,6 +43,10 @@ signals:
     void data_changed();  // 数据变更信号（用于通知主窗口刷新）
     void register_face_requested();  // 请求打开人脸注册对话框
 
+protected:
+    // 重写 showEvent 实现延迟加载
+    void showEvent(QShowEvent* event) override;
+
 private slots:
     void on_refresh_clicked();
     void on_add_clicked();
@@ -62,6 +66,7 @@ private:
 
 private:
     service::UserService* user_service_;
+    bool need_reload_;  // 标记是否需要重新加载数据
     
     // UI 组件
     SearchInput* search_input_;

@@ -121,6 +121,7 @@ if(Qt5_FOUND)
         gui/src/widgets/icon_button.cc
         gui/src/widgets/search_input.cc
         gui/src/widgets/status_tag.cc
+        gui/src/widgets/status_item_delegate.cc
         gui/src/widgets/modern_table_view.cc
         gui/src/widgets/title_bar.cc
         gui/src/widgets/side_menu.cc
@@ -175,6 +176,7 @@ if(Qt5_FOUND)
         gui/include/widgets/icon_button.h
         gui/include/widgets/search_input.h
         gui/include/widgets/status_tag.h
+        gui/include/widgets/status_item_delegate.h
         gui/include/widgets/modern_table_view.h
         gui/include/widgets/title_bar.h
         gui/include/widgets/side_menu.h

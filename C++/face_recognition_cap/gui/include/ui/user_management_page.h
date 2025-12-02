@@ -26,6 +26,10 @@ signals:
     void dataChanged();
     void registerFaceRequested();
 
+protected:
+    // 重写 showEvent 实现延迟加载
+    void showEvent(QShowEvent* event) override;
+
 private slots:
     void on_refresh_clicked();
     void on_add_clicked();
@@ -44,6 +48,7 @@ private:
     void update_button_states();
 
     service::UserService* user_service_;
+    bool need_reload_;  // 标记是否需要重新加载数据
     
     SearchInput* search_input_;
     QComboBox* status_filter_;

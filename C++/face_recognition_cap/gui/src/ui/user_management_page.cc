@@ -4,7 +4,7 @@
 #include "widgets/card_widget.h"
 #include "widgets/modern_table_view.h"
 #include "widgets/search_input.h"
-#include "widgets/status_tag.h"
+#include "widgets/status_item_delegate.h"
 #include "widgets/toast_notification.h"
 
 #include <QHBoxLayout>
@@ -14,11 +14,14 @@
 #include <QLabel>
 #include <QMessageBox>
 #include <QVariant>
+#include <QShowEvent>
+#include <QTimer>
 #include <spdlog/spdlog.h>
 
 UserManagementPage::UserManagementPage(QWidget* parent)
     : QWidget(parent)
     , user_service_(nullptr)
+    , need_reload_(false)
     , search_input_(nullptr)
     , status_filter_(nullptr)
     , refresh_btn_(nullptr)
@@ -33,8 +36,33 @@ UserManagementPage::UserManagementPage(QWidget* parent)
 
 void UserManagementPage::setUserService(service::UserService* service) {
     user_service_ = service;
-    if (user_service_) {
-        load_users();
+    // 标记需要重新加载，在 showEvent 中延迟加载
+    // 避免在页面还没显示时加载数据导致表格渲染问题
+    need_reload_ = true;
+    
+    // 如果页面已经可见，立即加载
+    if (isVisible() && user_service_) {
+        QTimer::singleShot(0, this, [this]() {
+            if (need_reload_) {
+                load_users();
+                need_reload_ = false;
+            }
+        });
+    }
+}
+
+void UserManagementPage::showEvent(QShowEvent* event) {
+    QWidget::showEvent(event);
+    
+    // 页面显示时，如果需要重新加载数据
+    if (need_reload_ && user_service_) {
+        // 使用 QTimer::singleShot 延迟一帧，确保布局完全完成
+        QTimer::singleShot(0, this, [this]() {
+            if (need_reload_) {
+                load_users();
+                need_reload_ = false;
+            }
+        });
     }
 }
 
@@ -104,9 +132,15 @@ void UserManagementPage::setup_ui() {
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setSelectionMode(QAbstractItemView::SingleSelection);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    table_->horizontalHeader()->setStretchLastSection(true);
     table_->verticalHeader()->setVisible(false);
     table_->setEmptyText(tr("暂无用户数据"));
+    
+    // 设置列宽策略：所有列按比例分配空间
+    table_->horizontalHeader()->setStretchLastSection(false);
+    table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    
+    // 为状态列设置自定义绘制代理，避免使用 setCellWidget 导致的列错位问题
+    table_->setItemDelegateForColumn(5, new StatusItemDelegate(table_));
     
     connect(table_, &QTableWidget::itemSelectionChanged,
             this, &UserManagementPage::on_table_selection_changed);
@@ -135,26 +169,57 @@ void UserManagementPage::update_table(const std::vector<db::UserInfo>& users) {
         return;
     }
     
-    table_->setRowCount(0);
+    // 在批量更新期间禁用界面更新和信号，提高性能并避免渲染问题
+    table_->setUpdatesEnabled(false);
+    table_->blockSignals(true);
     
-    for (const auto& user : users) {
-        int row = table_->rowCount();
-        table_->insertRow(row);
+    // 清空表格内容并预设行数
+    table_->clearContents();
+    table_->setRowCount(static_cast<int>(users.size()));
+    
+    for (int row = 0; row < static_cast<int>(users.size()); ++row) {
+        const auto& user = users[row];
         
-        table_->setItem(row, 0, new QTableWidgetItem(QString::number(user.user_id)));
-        table_->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(user.user_name)));
-        table_->setItem(row, 2, new QTableWidgetItem(QString::fromStdString(user.employee_id)));
-        table_->setItem(row, 3, new QTableWidgetItem(QString::fromStdString(user.department)));
-        table_->setItem(row, 4, new QTableWidgetItem(QString::fromStdString(user.position)));
+        // ID
+        auto id_item = new QTableWidgetItem(QString::number(user.user_id));
+        id_item->setTextAlignment(Qt::AlignCenter);
+        table_->setItem(row, 0, id_item);
         
-        auto status_tag = new StatusTag(table_);
-        status_tag->setText(user.status == 1 ? tr("启用") : tr("禁用"));
-        status_tag->setType(user.status == 1 ? StatusTag::Type::Success : StatusTag::Type::Error);
-        table_->setCellWidget(row, 5, status_tag);
+        // 姓名
+        auto name_item = new QTableWidgetItem(QString::fromStdString(user.user_name));
+        table_->setItem(row, 1, name_item);
         
+        // 工号
+        auto emp_item = new QTableWidgetItem(QString::fromStdString(user.employee_id));
+        table_->setItem(row, 2, emp_item);
+        
+        // 部门
+        auto dept_item = new QTableWidgetItem(QString::fromStdString(user.department));
+        table_->setItem(row, 3, dept_item);
+        
+        // 职位
+        auto pos_item = new QTableWidgetItem(QString::fromStdString(user.position));
+        table_->setItem(row, 4, pos_item);
+        
+        // 状态 (使用 delegate 绘制，不需要 setCellWidget)
+        auto status_item = new QTableWidgetItem(user.status == 1 ? tr("启用") : tr("禁用"));
+        status_item->setData(Qt::UserRole, user.status);
+        status_item->setTextAlignment(Qt::AlignCenter);
+        table_->setItem(row, 5, status_item);
+        
+        // 特征数
         int feature_count = user_service_ ? user_service_->get_feature_count(user.user_id) : 0;
-        table_->setItem(row, 6, new QTableWidgetItem(QString::number(feature_count)));
+        auto feature_item = new QTableWidgetItem(QString::number(feature_count));
+        feature_item->setTextAlignment(Qt::AlignCenter);
+        table_->setItem(row, 6, feature_item);
     }
+    
+    // 恢复信号和界面更新
+    table_->blockSignals(false);
+    table_->setUpdatesEnabled(true);
+    
+    // 强制刷新视图
+    table_->viewport()->update();
 }
 
 void UserManagementPage::update_button_states() {
@@ -189,7 +254,10 @@ void UserManagementPage::on_edit_clicked() {
         ToastNotification::showMessage(this, tr("操作成功"),
                                        QString(tr("用户 %1 信息已更新")).arg(user_name),
                                        ToastNotification::Level::Success);
-        load_users();
+        // 延迟一帧再刷新表格，避免对话框关闭后立即更新导致的渲染问题
+        QTimer::singleShot(0, this, [this]() {
+            load_users();
+        });
         emit userUpdated();
         emit dataChanged();
     }
@@ -213,7 +281,9 @@ void UserManagementPage::on_delete_clicked() {
             ToastNotification::showMessage(this, tr("操作成功"),
                                            QString(tr("用户 %1 已删除")).arg(user_name),
                                            ToastNotification::Level::Success);
-            load_users();
+            QTimer::singleShot(0, this, [this]() {
+                load_users();
+            });
             emit userUpdated();
             emit dataChanged();
         } else {
@@ -236,7 +306,9 @@ void UserManagementPage::on_enable_clicked() {
         ToastNotification::showMessage(this, tr("操作成功"),
                                        tr("用户已启用"),
                                        ToastNotification::Level::Success);
-        load_users();
+        QTimer::singleShot(0, this, [this]() {
+            load_users();
+        });
         emit userUpdated();
         emit dataChanged();
     } else {
@@ -258,7 +330,9 @@ void UserManagementPage::on_disable_clicked() {
         ToastNotification::showMessage(this, tr("操作成功"),
                                        tr("用户已禁用"),
                                        ToastNotification::Level::Success);
-        load_users();
+        QTimer::singleShot(0, this, [this]() {
+            load_users();
+        });
         emit userUpdated();
         emit dataChanged();
     } else {
