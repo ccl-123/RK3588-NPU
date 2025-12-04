@@ -63,11 +63,12 @@ int ModelManager::init_face_detector(const char* model_path) {
     face_detector_inputs_[0].fmt = RKNN_TENSOR_NHWC;
     face_detector_inputs_[0].pass_through = 0;
 
-    // 配置输出 - YOLOv8-face 有 4 个输出，全部使用 float
+    // 配置输出 - YOLOv8-face 有 4 个输出
+    // 模型是 int8 量化的，设置 want_float=1 让 RKNN 自动反量化为 float
     memset(face_detector_outputs_, 0, sizeof(face_detector_outputs_));
     for (int i = 0; i < YOLOV8_FACE_OUTPUT_NUM; i++) {
         face_detector_outputs_[i].want_float = 1;
-        }
+    }
 
     face_detector_initialized_ = true;
     std::cout << "YOLOv8-face model initialized: " << face_detector_width_ << "x" 
@@ -105,7 +106,7 @@ int ModelManager::init_facenet(const char* model_path) {
     facenet_inputs_[0].fmt = RKNN_TENSOR_NHWC;
     facenet_inputs_[0].pass_through = 0;
 
-    // 配置输出
+    // 配置输出 - 模型是 int8 量化的，设置 want_float=1 让 RKNN 自动反量化为 float
     facenet_outputs_ = new rknn_output[facenet_io_num_.n_output];
     memset(facenet_outputs_, 0, sizeof(rknn_output) * facenet_io_num_.n_output);
     for (int i = 0; i < facenet_io_num_.n_output; i++) {

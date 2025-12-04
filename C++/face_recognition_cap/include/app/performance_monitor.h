@@ -8,16 +8,21 @@
  * - 线程1: 采集 + RGA预处理
  * - 线程2: YOLO检测 (主线程)
  * - 线程3: 对齐 + FaceNet + 匹配 + 渲染
+ * 
+ * 监控内容：
+ * - 各线程耗时及 FPS
+ * - CPU/内存资源占用
  */
 
 #ifndef _PERFORMANCE_MONITOR_H_
 #define _PERFORMANCE_MONITOR_H_
 
 #include <vector>
+#include <cstdint>
 
 class PerformanceMonitor {
 public:
-    PerformanceMonitor(int report_interval = 10);
+    PerformanceMonitor(int report_interval = 50);
     ~PerformanceMonitor() = default;
 
     // 线程2：YOLO检测耗时
@@ -31,7 +36,7 @@ public:
     // FPS 统计
     void update_fps(double current_fps);
     double get_smoothed_fps() const { return smoothed_fps_; }
-
+    
     // 报告
     bool should_print_report();
     void print_report();
@@ -39,6 +44,11 @@ public:
 
 private:
     double get_average(const std::vector<double>& data) const;
+    
+    // 资源监控 (Linux /proc)
+    double get_cpu_usage();
+    double get_memory_usage_mb();
+    double get_npu_memory_mb();
 
 private:
     std::vector<double> detection_times_;
@@ -49,6 +59,10 @@ private:
     double smoothed_fps_;
     int report_interval_;
     int frame_count_;
+    
+    // CPU 使用率计算 (上次采样值)
+    uint64_t last_total_time_;
+    uint64_t last_idle_time_;
 };
 
 #endif // _PERFORMANCE_MONITOR_H_

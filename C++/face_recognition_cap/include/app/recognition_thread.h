@@ -83,6 +83,9 @@ public:
     float get_avg_align_time() const { return avg_align_time_; }
     float get_avg_facenet_time() const { return avg_facenet_time_; }
     float get_avg_match_time() const { return avg_match_time_; }
+    
+    // 获取检测精度统计（调用后重置）
+    void get_recognition_stats(int& faces_detected, int& faces_recognized);
 
     bool is_running() const { return running_; }
 
@@ -108,6 +111,10 @@ private:
     std::atomic<float> avg_align_time_;
     std::atomic<float> avg_facenet_time_;
     std::atomic<float> avg_match_time_;
+    
+    // 检测精度统计
+    std::atomic<int> stat_faces_detected_;
+    std::atomic<int> stat_faces_recognized_;
 
     static const int MAX_QUEUE_SIZE = 2;
 };

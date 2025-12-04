@@ -59,7 +59,7 @@ struct AppConfig {
         , nms_threshold(0.45f)       // NMS阈值
         , facenet_threshold(0.5f)
         , use_async_usb(true)
-        , perf_report_interval(10)
+        , perf_report_interval(50)
         , feature_lib_path("./data/face_feature_lib/")
         , database_path("./data/database/face_recognition.db")
         , use_database(false)

@@ -59,7 +59,7 @@ void UserManagementPage::showEvent(QShowEvent* event) {
         // 使用 QTimer::singleShot 延迟一帧，确保布局完全完成
         QTimer::singleShot(0, this, [this]() {
             if (need_reload_) {
-                load_users();
+        load_users();
                 need_reload_ = false;
             }
         });
@@ -176,7 +176,7 @@ void UserManagementPage::update_table(const std::vector<db::UserInfo>& users) {
     // 清空表格内容并预设行数
     table_->clearContents();
     table_->setRowCount(static_cast<int>(users.size()));
-    
+        
     for (int row = 0; row < static_cast<int>(users.size()); ++row) {
         const auto& user = users[row];
         
@@ -256,7 +256,7 @@ void UserManagementPage::on_edit_clicked() {
                                        ToastNotification::Level::Success);
         // 延迟一帧再刷新表格，避免对话框关闭后立即更新导致的渲染问题
         QTimer::singleShot(0, this, [this]() {
-            load_users();
+        load_users();
         });
         emit userUpdated();
         emit dataChanged();
@@ -282,7 +282,7 @@ void UserManagementPage::on_delete_clicked() {
                                            QString(tr("用户 %1 已删除")).arg(user_name),
                                            ToastNotification::Level::Success);
             QTimer::singleShot(0, this, [this]() {
-                load_users();
+            load_users();
             });
             emit userUpdated();
             emit dataChanged();
@@ -307,7 +307,7 @@ void UserManagementPage::on_enable_clicked() {
                                        tr("用户已启用"),
                                        ToastNotification::Level::Success);
         QTimer::singleShot(0, this, [this]() {
-            load_users();
+        load_users();
         });
         emit userUpdated();
         emit dataChanged();
@@ -331,7 +331,7 @@ void UserManagementPage::on_disable_clicked() {
                                        tr("用户已禁用"),
                                        ToastNotification::Level::Success);
         QTimer::singleShot(0, this, [this]() {
-            load_users();
+        load_users();
         });
         emit userUpdated();
         emit dataChanged();

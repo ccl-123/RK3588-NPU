@@ -211,7 +211,7 @@ int FaceRecognitionApp::run() {
         perf_monitor_.record_alignment_time(recognition_thread_->get_avg_align_time());
         perf_monitor_.record_recognition_time(recognition_thread_->get_avg_facenet_time());
         perf_monitor_.record_matching_time(recognition_thread_->get_avg_match_time());
-
+        
         // 4. 提交到识别线程
         RecognitionTask rec_task;
         rec_task.orig_img = task.orig_img;

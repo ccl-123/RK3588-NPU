@@ -23,6 +23,8 @@ RecognitionThread::RecognitionThread(ModelManager* model_manager,
     , avg_align_time_(0)
     , avg_facenet_time_(0)
     , avg_match_time_(0)
+    , stat_faces_detected_(0)
+    , stat_faces_recognized_(0)
 {
 }
 
@@ -70,6 +72,11 @@ void RecognitionThread::set_threshold(float threshold) {
     facenet_threshold_ = threshold;
 }
 
+void RecognitionThread::get_recognition_stats(int& faces_detected, int& faces_recognized) {
+    faces_detected = stat_faces_detected_.exchange(0);
+    faces_recognized = stat_faces_recognized_.exchange(0);
+}
+
 void RecognitionThread::thread_func() {
     while (running_) {
         RecognitionTask task;
@@ -107,6 +114,7 @@ void RecognitionThread::process_task(RecognitionTask& task) {
     std::vector<RecognitionResultData> recognition_results;
     cv::Mat render_img = task.orig_img.clone();
     float threshold = facenet_threshold_;
+    int recognized_count = 0;
     
     for (int i = 0; i < task.detect_result.count; i++) {
         // 1. 人脸对齐
@@ -181,8 +189,11 @@ void RecognitionThread::process_task(RecognitionTask& task) {
         );
         
         // 绘制结果（与之前的 recognize_and_match 保持一致）
-        cv::Scalar color = (name != "stranger" && max_score >= threshold) ?
-                          cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255);
+        bool is_recognized = (name != "stranger" && max_score >= threshold);
+        if (is_recognized) {
+            recognized_count++;
+        }
+        cv::Scalar color = is_recognized ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255);
         
         cv::rectangle(render_img, cv::Point(x1, y1), cv::Point(x2, y2), color, 2);
         
@@ -201,6 +212,10 @@ void RecognitionThread::process_task(RecognitionTask& task) {
     avg_align_time_ = avg_align_time_ * 0.9f + total_align_time * 0.1f;
     avg_facenet_time_ = avg_facenet_time_ * 0.9f + total_facenet_time * 0.1f;
     avg_match_time_ = avg_match_time_ * 0.9f + total_match_time * 0.1f;
+    
+    // 更新检测精度统计
+    stat_faces_detected_ += task.detect_result.count;
+    stat_faces_recognized_ += recognized_count;
     
     // 输出
     if (frame_callback_) {
