@@ -130,7 +130,7 @@ bool MainWindow::initialize(const std::string& retinaface_model,
     camera_id_ = camera_id;
     
     // 初始化数据库
-    db_manager_ = db::DatabaseManager::instance();
+    db_manager_ = &db::DatabaseManager::instance();
     if (!db_manager_->initialize(db_path)) {
         QMessageBox::critical(this, "错误", "数据库初始化失败");
         return false;

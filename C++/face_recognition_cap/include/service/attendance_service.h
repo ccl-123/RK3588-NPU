@@ -14,6 +14,7 @@
 #include "config/config.h"
 #include <string>
 #include <vector>
+#include <memory>
 #include <ctime>
 
 namespace service {
@@ -157,9 +158,9 @@ private:
     
 private:
     db::DatabaseManager* db_manager_;
-    db::AttendanceRecordDAO* record_dao_;
-    db::UserDAO* user_dao_;
-    
+    std::unique_ptr<db::AttendanceRecordDAO> record_dao_;  // 智能指针管理
+    std::unique_ptr<db::UserDAO> user_dao_;                // 智能指针管理
+
     // 考勤规则配置（支持分钟级精度）
     int work_start_hour_;       // 上班时间（小时）
     int work_start_minute_;     // 上班时间（分钟）

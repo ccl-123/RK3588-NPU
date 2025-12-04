@@ -14,6 +14,8 @@ namespace service {
 
 AttendanceService::AttendanceService(db::DatabaseManager* db_manager)
     : db_manager_(db_manager)
+    , record_dao_(std::make_unique<db::AttendanceRecordDAO>(db_manager))
+    , user_dao_(std::make_unique<db::UserDAO>(db_manager))
     , work_start_hour_(9)
     , work_start_minute_(0)
     , work_end_hour_(18)
@@ -23,13 +25,10 @@ AttendanceService::AttendanceService(db::DatabaseManager* db_manager)
     , allow_multiple_checkin_(false)
     , duplicate_check_interval_(300)
 {
-    record_dao_ = new db::AttendanceRecordDAO(db_manager_);
-    user_dao_ = new db::UserDAO(db_manager_);
 }
 
 AttendanceService::~AttendanceService() {
-    delete record_dao_;
-    delete user_dao_;
+    // 智能指针自动释放，无需手动 delete
 }
 
 int AttendanceService::record_attendance(int user_id, const std::string& user_name,
@@ -72,8 +71,8 @@ int AttendanceService::record_attendance(int user_id, const std::string& user_na
     record.check_type = check_type;
     record.similarity = similarity;
     record.face_image = face_image_path;
-    record.device_id = "device_001";
-    record.location = "Main Entrance";
+    record.device_id = Config::Default::DEVICE_ID;    // 使用配置值
+    record.location = Config::Default::LOCATION;       // 使用配置值
     
     // 判断考勤状态
     record.status = determine_status(record.check_time, check_type);

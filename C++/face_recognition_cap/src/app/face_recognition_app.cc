@@ -29,6 +29,7 @@ FaceRecognitionApp::FaceRecognitionApp()
     , initialized_(false)
     , running_(false)
     , recognition_callback_(nullptr)
+    , frame_callback_(nullptr)
     , attendance_service_(nullptr)
 {
 }
@@ -39,33 +40,33 @@ FaceRecognitionApp::~FaceRecognitionApp() {
 
 int FaceRecognitionApp::initialize(const AppConfig& config) {
     if (initialized_) {
-        std::cerr << "App already initialized" << std::endl;
+        spdlog::error("App already initialized");
         return -1;
     }
 
     config_ = config;
 
     // 1. 初始化模型
-    std::cout << "Initializing models..." << std::endl;
+    spdlog::info("Initializing models...");
     if (model_manager_.init_face_detector(config_.retinaface_model_path.c_str()) != 0) {
-        std::cerr << "Failed to initialize YOLOv8-face model" << std::endl;
+        spdlog::error("Failed to initialize YOLOv8-face model");
         return -1;
     }
 
     if (model_manager_.init_facenet(config_.facenet_model_path.c_str()) != 0) {
-        std::cerr << "Failed to initialize FaceNet model" << std::endl;
+        spdlog::error("Failed to initialize FaceNet model");
         return -1;
     }
 
     // 2. 加载特征库
-    std::cout << "Loading feature library..." << std::endl;
+    spdlog::info("Loading feature library...");
     int feature_count = 0;
 
     if (config_.use_database) {
         // 从数据库加载
-        auto db_manager = db::DatabaseManager::instance();
+        auto* db_manager = &db::DatabaseManager::instance();
         if (!db_manager->initialize(config_.database_path)) {
-            std::cerr << "Failed to initialize database" << std::endl;
+            spdlog::error("Failed to initialize database");
             return -1;
         }
 
@@ -76,20 +77,20 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
     }
 
     if (feature_count < 0) {
-        std::cerr << "Failed to load feature library" << std::endl;
+        spdlog::error("Failed to load feature library");
         return -1;
     }
 
     if (feature_count == 0) {
-        std::cout << "Warning: No features loaded, system will work but cannot recognize anyone" << std::endl;
+        spdlog::warn("No features loaded, system will work but cannot recognize anyone");
     } else {
-        std::cout << "Loaded " << feature_count << " features" << std::endl;
+        spdlog::info("Loaded {} features", feature_count);
     }
 
     // 3. 初始化摄像头
-    std::cout << "Initializing camera..." << std::endl;
+    spdlog::info("Initializing camera...");
     if (init_camera() != 0) {
-        std::cerr << "Failed to initialize camera" << std::endl;
+        spdlog::error("Failed to initialize camera");
         return -1;
     }
 
@@ -123,18 +124,20 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
     };
     memcpy(dst_landmark_.data, dst_landmark_data, 2 * 5 * sizeof(float));
 
-    // 6. 创建并启动线程（流水线架构）
-    std::cout << "Starting pipeline threads..." << std::endl;
-    
+    // 6. 创建并启动线程（流水线架构）- 使用智能指针
+    spdlog::info("Starting pipeline threads...");
+
     // 线程1: 采集 + RGA预处理
-    preprocess_thread_ = new PreprocessingThread(resize_w_, resize_h_, 
-                                                 config_.camera_width, config_.camera_height,
-                                                 config_.camera_type, config_.use_async_usb);
-    
+    preprocess_thread_ = std::make_unique<PreprocessingThread>(
+        resize_w_, resize_h_,
+        config_.camera_width, config_.camera_height,
+        config_.camera_type, config_.use_async_usb);
+
     // 线程3: 识别 + 渲染
-    recognition_thread_ = new RecognitionThread(&model_manager_, &feature_library_,
-                                                 dst_landmark_, config_.facenet_threshold);
-    
+    recognition_thread_ = std::make_unique<RecognitionThread>(
+        &model_manager_, &feature_library_,
+        dst_landmark_, config_.facenet_threshold);
+
     preprocess_thread_->start();
     recognition_thread_->start();
 
@@ -142,33 +145,33 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
     perf_monitor_ = PerformanceMonitor(config_.perf_report_interval);
 
     initialized_ = true;
-    std::cout << "App initialized successfully" << std::endl;
-    std::cout << "post process config: box_conf_threshold = " << config_.box_conf_threshold 
-              << ", nms_threshold = " << config_.nms_threshold << std::endl;
+    spdlog::info("App initialized successfully");
+    spdlog::info("Post process config: box_conf_threshold = {:.2f}, nms_threshold = {:.2f}",
+                 config_.box_conf_threshold, config_.nms_threshold);
 
     return 0;
 }
 
 int FaceRecognitionApp::init_camera() {
     int ret = 0;
-    
+
     if (config_.camera_type == "usb") {
         if (config_.use_async_usb) {
-            ret = load_usb_camera_async(config_.device_number, 
+            ret = load_usb_camera_async(config_.device_number,
                                        config_.camera_width, config_.camera_height);
             if (ret == EXIT_SUCCESS) {
                 start_usb_capture_thread();
-                std::cout << "USB camera async mode enabled" << std::endl;
+                spdlog::info("USB camera async mode enabled");
             }
         } else {
-            ret = load_usb_camera(config_.device_number, 
+            ret = load_usb_camera(config_.device_number,
                                  config_.camera_width, config_.camera_height);
         }
     } else if (config_.camera_type == "mipi") {
-        ret = load_mipi_camera(config_.device_number, 
+        ret = load_mipi_camera(config_.device_number,
                               config_.camera_width, config_.camera_height);
     } else {
-        std::cerr << "Unsupported camera type: " << config_.camera_type << std::endl;
+        spdlog::error("Unsupported camera type: {}", config_.camera_type);
         return -1;
     }
 
@@ -177,15 +180,15 @@ int FaceRecognitionApp::init_camera() {
 
 int FaceRecognitionApp::run() {
     if (!initialized_) {
-        std::cerr << "App not initialized" << std::endl;
+        spdlog::error("App not initialized");
         return -1;
     }
 
     running_ = true;
-    std::cout << "Starting pipeline mode..." << std::endl;
-    std::cout << "  Thread 1: Camera + RGA preprocess" << std::endl;
-    std::cout << "  Thread 2: YOLO detection (main loop)" << std::endl;
-    std::cout << "  Thread 3: FaceNet + Match + Render" << std::endl;
+    spdlog::info("Starting pipeline mode...");
+    spdlog::info("  Thread 1: Camera + RGA preprocess");
+    spdlog::info("  Thread 2: YOLO detection (main loop)");
+    spdlog::info("  Thread 3: FaceNet + Match + Render");
 
     struct timeval t_start, t_detect_end;
 
@@ -279,19 +282,17 @@ void FaceRecognitionApp::cleanup() {
         return;
     }
 
-    std::cout << "Cleaning up..." << std::endl;
+    spdlog::info("Cleaning up...");
 
-    // 停止线程
+    // 停止线程 - 智能指针自动管理内存
     if (preprocess_thread_) {
         preprocess_thread_->stop();
-        delete preprocess_thread_;
-        preprocess_thread_ = nullptr;
+        preprocess_thread_.reset();
     }
 
     if (recognition_thread_) {
         recognition_thread_->stop();
-        delete recognition_thread_;
-        recognition_thread_ = nullptr;
+        recognition_thread_.reset();
     }
 
     // 关闭摄像头
@@ -312,7 +313,7 @@ void FaceRecognitionApp::cleanup() {
     feature_library_.clear();
 
     initialized_ = false;
-    std::cout << "Cleanup complete" << std::endl;
+    spdlog::info("Cleanup complete");
 }
 
 void FaceRecognitionApp::set_recognition_callback(RecognitionCallback callback) {
@@ -728,7 +729,7 @@ bool FaceRecognitionApp::process_single_frame(cv::Mat& frame, std::vector<Recogn
     return true;
 }
 
-void FaceRecognitionApp::set_attendance_service(void* service) {
+void FaceRecognitionApp::set_attendance_service(service::AttendanceService* service) {
     attendance_service_ = service;
 }
 

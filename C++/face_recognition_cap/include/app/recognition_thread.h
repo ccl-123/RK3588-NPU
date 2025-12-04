@@ -97,7 +97,7 @@ private:
 private:
     std::thread thread_;
     std::atomic<bool> running_;
-    
+
     std::mutex mutex_;
     std::queue<RecognitionTask> queue_;
 
@@ -112,7 +112,7 @@ private:
     std::atomic<float> avg_align_time_;
     std::atomic<float> avg_facenet_time_;
     std::atomic<float> avg_match_time_;
-    
+
     // 检测精度统计
     std::atomic<int> stat_faces_detected_;
     std::atomic<int> stat_faces_recognized_;

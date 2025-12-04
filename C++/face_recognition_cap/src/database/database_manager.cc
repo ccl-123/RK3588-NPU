@@ -12,10 +12,6 @@
 
 namespace db {
 
-// 静态成员初始化
-DatabaseManager* DatabaseManager::instance_ = nullptr;
-std::mutex DatabaseManager::instance_mutex_;
-
 // ============================================
 // PreparedStatement 实现
 // ============================================
@@ -127,14 +123,11 @@ DatabaseManager::~DatabaseManager() {
     close();
 }
 
-DatabaseManager* DatabaseManager::instance() {
-    if (instance_ == nullptr) {
-        std::lock_guard<std::mutex> lock(instance_mutex_);
-        if (instance_ == nullptr) {
-            instance_ = new DatabaseManager();
-        }
-    }
-    return instance_;
+DatabaseManager& DatabaseManager::instance() {
+    // Meyer's Singleton: 静态局部变量，线程安全（C++11保证）
+    // 程序退出时自动调用析构函数释放资源
+    static DatabaseManager instance;
+    return instance;
 }
 
 bool DatabaseManager::initialize(const std::string& db_path) {

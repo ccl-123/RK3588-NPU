@@ -3,6 +3,11 @@
  * @brief 人脸特征库管理器实现(支持数据库)
  * @author CL
  * @date 2025-11-20
+ *
+ * 优化说明：
+ * - 使用 std::vector<float> 替代 float* 原始指针，自动内存管理
+ * - 添加 shared_mutex 实现线程安全的读写锁
+ * - 统一使用 spdlog 日志系统
  */
 
 #include "app/feature_library.h"
@@ -10,13 +15,13 @@
 #include "database/database_manager.h"
 #include "database/face_feature_dao.h"
 #include "database/user_dao.h"
+#include <spdlog/spdlog.h>
 #include <dirent.h>
 #include <fstream>
-#include <iostream>
 #include <cstring>
 
 FeatureLibrary::FeatureLibrary()
-    : feature_dim_(512)
+    : feature_dim_(Config::Model::FEATURE_DIM)
     , db_manager_(nullptr)
 {
 }
@@ -26,12 +31,16 @@ FeatureLibrary::~FeatureLibrary() {
 }
 
 int FeatureLibrary::load_from_directory(const std::string& lib_path, int feature_dim) {
+    std::unique_lock<std::shared_mutex> lock(mutex_);  // 写锁
+
     feature_dim_ = feature_dim;
-    clear();  // 清空现有数据
+    lib_feature_.clear();
+    lib_face_name_.clear();
+    lib_user_ids_.clear();
 
     DIR* pDir = opendir(lib_path.c_str());
     if (!pDir) {
-        std::cerr << "Feature library directory doesn't exist: " << lib_path << std::endl;
+        spdlog::error("Feature library directory doesn't exist: {}", lib_path);
         return -1;
     }
 
@@ -46,25 +55,23 @@ int FeatureLibrary::load_from_directory(const std::string& lib_path, int feature
         std::string file_path = lib_path + "/" + ptr->d_name;
         std::ifstream infile(file_path);
         if (!infile.is_open()) {
-            std::cerr << "Failed to open feature file: " << file_path << std::endl;
+            spdlog::warn("Failed to open feature file: {}", file_path);
             continue;
         }
 
-        // 读取特征向量
-        float* feature = new float[feature_dim_];
+        // 读取特征向量到 vector（自动内存管理）
+        std::vector<float> feature;
+        feature.reserve(feature_dim_);
         std::string line;
-        int i = 0;
 
-        while (std::getline(infile, line) && i < feature_dim_) {
-            feature[i] = atof(line.c_str());
-            i++;
+        while (std::getline(infile, line) && static_cast<int>(feature.size()) < feature_dim_) {
+            feature.push_back(std::stof(line));
         }
         infile.close();
 
-        if (i != feature_dim_) {
-            std::cerr << "Warning: Feature dimension mismatch in " << file_path 
-                      << " (expected " << feature_dim_ << ", got " << i << ")" << std::endl;
-            delete[] feature;
+        if (static_cast<int>(feature.size()) != feature_dim_) {
+            spdlog::warn("Feature dimension mismatch in {} (expected {}, got {})",
+                        file_path, feature_dim_, feature.size());
             continue;
         }
 
@@ -75,26 +82,31 @@ int FeatureLibrary::load_from_directory(const std::string& lib_path, int feature
             name = name.substr(0, dot_pos);
         }
 
-        lib_feature_.push_back(feature);
+        lib_feature_.push_back(std::move(feature));
         lib_face_name_.push_back(name);
+        lib_user_ids_.push_back(count);  // 文件模式使用序号作为ID
         count++;
     }
 
     closedir(pDir);
 
-    std::cout << "Loaded " << count << " face features from " << lib_path << std::endl;
+    spdlog::info("Loaded {} face features from {}", count, lib_path);
     return count;
 }
 
 int FeatureLibrary::load_from_database(db::DatabaseManager* db_manager, int feature_dim) {
+    std::unique_lock<std::shared_mutex> lock(mutex_);  // 写锁
+
     if (!db_manager || !db_manager->is_initialized()) {
-        std::cerr << "Database manager not initialized" << std::endl;
+        spdlog::error("Database manager not initialized");
         return -1;
     }
 
     feature_dim_ = feature_dim;
     db_manager_ = db_manager;
-    clear();  // 清空现有数据
+    lib_feature_.clear();
+    lib_face_name_.clear();
+    lib_user_ids_.clear();
 
     // 创建DAO对象
     db::FaceFeatureDAO feature_dao(db_manager);
@@ -104,7 +116,7 @@ int FeatureLibrary::load_from_database(db::DatabaseManager* db_manager, int feat
     auto features = feature_dao.find_all_active();
 
     if (features.empty()) {
-        std::cerr << "No face features found in database" << std::endl;
+        spdlog::warn("No face features found in database");
         return 0;
     }
 
@@ -113,21 +125,18 @@ int FeatureLibrary::load_from_database(db::DatabaseManager* db_manager, int feat
         // 查询用户信息
         db::UserInfo user;
         if (!user_dao.find_by_id(feature.user_id, user)) {
-            std::cerr << "Warning: User not found for feature_id: " << feature.feature_id << std::endl;
+            spdlog::warn("User not found for feature_id: {}", feature.feature_id);
             continue;
         }
 
-        // 复制特征向量到内存
-        float* feature_copy = new float[feature_dim_];
-        std::memcpy(feature_copy, feature.feature_vector.data(), feature_dim_ * sizeof(float));
-
-        lib_feature_.push_back(feature_copy);
+        // 使用 vector 自动管理内存（直接复制）
+        lib_feature_.push_back(feature.feature_vector);
         lib_face_name_.push_back(user.user_name);
         lib_user_ids_.push_back(user.user_id);
         count++;
     }
 
-    std::cout << "Loaded " << count << " face features from database" << std::endl;
+    spdlog::info("Loaded {} face features from database", count);
     return count;
 }
 
@@ -139,13 +148,15 @@ bool FeatureLibrary::match_feature(const float* feature, float threshold,
 
 bool FeatureLibrary::match_feature_with_id(const float* feature, float threshold,
                                            int& user_id, std::string& matched_name, float& max_score) {
+    std::shared_lock<std::shared_mutex> lock(mutex_);  // 读锁
+
     max_score = 0.0f;
     matched_name = "stranger";
     user_id = 0;
     bool found = false;
 
     for (size_t i = 0; i < lib_feature_.size(); i++) {
-        float similarity = compute_cosine_similarity(feature, lib_feature_[i]);
+        float similarity = compute_cosine_similarity(feature, lib_feature_[i].data());
 
         if (similarity >= threshold && similarity > max_score) {
             max_score = similarity;
@@ -161,26 +172,27 @@ bool FeatureLibrary::match_feature_with_id(const float* feature, float threshold
 bool FeatureLibrary::add_feature(int user_id, const std::string& name, const float* feature) {
     if (!feature) return false;
 
-    // 复制特征向量
-    float* feature_copy = new float[feature_dim_];
-    std::memcpy(feature_copy, feature, feature_dim_ * sizeof(float));
+    std::unique_lock<std::shared_mutex> lock(mutex_);  // 写锁
 
-    lib_feature_.push_back(feature_copy);
+    // 使用 vector 自动管理内存
+    std::vector<float> feature_copy(feature, feature + feature_dim_);
+
+    lib_feature_.push_back(std::move(feature_copy));
     lib_face_name_.push_back(name);
     lib_user_ids_.push_back(user_id);
 
+    spdlog::debug("Added feature for user: {} (ID: {})", name, user_id);
     return true;
 }
 
 bool FeatureLibrary::remove_feature(int user_id) {
+    std::unique_lock<std::shared_mutex> lock(mutex_);  // 写锁
+
     bool removed = false;
 
     for (size_t i = 0; i < lib_user_ids_.size(); ) {
         if (lib_user_ids_[i] == user_id) {
-            // 释放内存
-            delete[] lib_feature_[i];
-
-            // 删除元素
+            // vector 自动释放内存，无需手动 delete
             lib_feature_.erase(lib_feature_.begin() + i);
             lib_face_name_.erase(lib_face_name_.begin() + i);
             lib_user_ids_.erase(lib_user_ids_.begin() + i);
@@ -192,13 +204,16 @@ bool FeatureLibrary::remove_feature(int user_id) {
         }
     }
 
+    if (removed) {
+        spdlog::debug("Removed feature(s) for user ID: {}", user_id);
+    }
     return removed;
 }
 
 void FeatureLibrary::clear() {
-    for (auto feature : lib_feature_) {
-        delete[] feature;
-    }
+    std::unique_lock<std::shared_mutex> lock(mutex_);  // 写锁
+
+    // vector 自动释放内存，无需手动循环 delete
     lib_feature_.clear();
     lib_face_name_.clear();
     lib_user_ids_.clear();

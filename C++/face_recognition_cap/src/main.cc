@@ -84,7 +84,7 @@ int main(int argc, char** argv)
 
     // 4. 如果启用数据库模式，设置考勤回调
     if (use_database) {
-        auto db_manager = db::DatabaseManager::instance();
+        auto* db_manager = &db::DatabaseManager::instance();
         g_attendance_service = new service::AttendanceService(db_manager);
         app.set_recognition_callback(on_recognition_callback);
 

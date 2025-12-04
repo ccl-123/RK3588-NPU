@@ -11,6 +11,7 @@
 #include <string>
 #include <functional>
 #include <chrono>
+#include <memory>
 #include <opencv2/opencv.hpp>
 #include "config/config.h"
 #include "core/postprocess.h"
@@ -19,6 +20,11 @@
 #include "app/preprocessing_thread.h"
 #include "app/recognition_thread.h"
 #include "app/performance_monitor.h"
+
+// 前向声明
+namespace service {
+    class AttendanceService;
+}
 
 /**
  * @brief 识别结果结构(新增)
@@ -124,9 +130,9 @@ public:
 
     /**
      * @brief 设置考勤服务(新增)
-     * @param service 考勤服务指针
+     * @param service 考勤服务指针（类型安全）
      */
-    void set_attendance_service(void* service);
+    void set_attendance_service(service::AttendanceService* service);
 
     /**
      * @brief 获取特征库引用(新增)
@@ -242,16 +248,16 @@ private:
     // 模块实例
     ModelManager model_manager_;
     FeatureLibrary feature_library_;
-    PreprocessingThread* preprocess_thread_;
-    RecognitionThread* recognition_thread_;
+    std::unique_ptr<PreprocessingThread> preprocess_thread_;   // 智能指针管理
+    std::unique_ptr<RecognitionThread> recognition_thread_;     // 智能指针管理
     PerformanceMonitor perf_monitor_;
 
     // 回调函数(新增)
     RecognitionCallback recognition_callback_;
     FrameCallback frame_callback_;  // 帧回调函数(新增 - 用于GUI)
 
-    // 考勤服务指针(新增)
-    void* attendance_service_;
+    // 考勤服务指针（类型安全）
+    service::AttendanceService* attendance_service_;
 
     // 人脸对齐目标点
     cv::Mat dst_landmark_;

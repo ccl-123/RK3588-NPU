@@ -3,6 +3,10 @@
  * @brief 人脸特征库管理器 - 负责特征库的加载和匹配(支持数据库)
  * @author CL
  * @date 2025-11-20
+ *
+ * 优化说明：
+ * - 使用 std::vector<float> 替代 float* 原始指针，自动内存管理
+ * - 添加 shared_mutex 实现线程安全的读写锁
  */
 
 #ifndef _FEATURE_LIBRARY_H_
@@ -10,6 +14,7 @@
 
 #include <vector>
 #include <string>
+#include <shared_mutex>
 #include "config/config.h"
 
 // 前向声明
@@ -122,11 +127,12 @@ private:
     float compute_cosine_similarity(const float* feature1, const float* feature2) const;
 
 private:
-    std::vector<float*> lib_feature_;        // 特征向量列表
-    std::vector<std::string> lib_face_name_; // 对应的人名列表
-    std::vector<int> lib_user_ids_;          // 对应的用户ID列表(新增)
-    int feature_dim_;                         // 特征向量维度
-    db::DatabaseManager* db_manager_;        // 数据库管理器(新增)
+    mutable std::shared_mutex mutex_;                    // 读写锁，保证线程安全
+    std::vector<std::vector<float>> lib_feature_;        // 特征向量列表（使用 vector 自动管理内存）
+    std::vector<std::string> lib_face_name_;             // 对应的人名列表
+    std::vector<int> lib_user_ids_;                      // 对应的用户ID列表
+    int feature_dim_;                                     // 特征向量维度
+    db::DatabaseManager* db_manager_;                    // 数据库管理器
 };
 
 #endif // _FEATURE_LIBRARY_H_

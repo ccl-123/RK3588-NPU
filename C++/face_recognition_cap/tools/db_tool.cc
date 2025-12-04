@@ -35,31 +35,31 @@ void print_usage(const char* prog_name) {
 
 int cmd_init(const std::string& db_path) {
     std::cout << "Initializing database: " << db_path << std::endl;
-    
-    auto db_manager = db::DatabaseManager::instance();
+
+    auto* db_manager = &db::DatabaseManager::instance();
     if (!db_manager->initialize(db_path)) {
         std::cerr << "Failed to initialize database" << std::endl;
         return -1;
     }
-    
+
     std::cout << "Database initialized successfully" << std::endl;
     return 0;
 }
 
 int cmd_add_user(const std::string& db_path, const std::string& name, const std::string& dept) {
-    auto db_manager = db::DatabaseManager::instance();
+    auto* db_manager = &db::DatabaseManager::instance();
     if (!db_manager->initialize(db_path)) {
         std::cerr << "Failed to open database" << std::endl;
         return -1;
     }
-    
+
     FeatureLibrary feature_lib;
     service::UserService user_service(db_manager, &feature_lib);
-    
+
     auto result = user_service.register_user(name, "", dept);
-    
+
     if (result.success) {
-        std::cout << "User added successfully: " << name 
+        std::cout << "User added successfully: " << name
                   << " (ID: " << result.user_id << ")" << std::endl;
         return 0;
     } else {
@@ -69,58 +69,58 @@ int cmd_add_user(const std::string& db_path, const std::string& name, const std:
 }
 
 int cmd_list_users(const std::string& db_path) {
-    auto db_manager = db::DatabaseManager::instance();
+    auto* db_manager = &db::DatabaseManager::instance();
     if (!db_manager->initialize(db_path)) {
         std::cerr << "Failed to open database" << std::endl;
         return -1;
     }
-    
+
     FeatureLibrary feature_lib;
     service::UserService user_service(db_manager, &feature_lib);
-    
+
     auto users = user_service.get_all_users();
-    
+
     std::cout << "\n=== User List ===" << std::endl;
     std::cout << "Total: " << users.size() << " users" << std::endl;
     std::cout << std::string(80, '-') << std::endl;
     std::cout << "ID\tName\t\tDepartment\tStatus" << std::endl;
     std::cout << std::string(80, '-') << std::endl;
-    
+
     for (const auto& user : users) {
         std::cout << user.user_id << "\t"
                   << user.user_name << "\t\t"
                   << user.department << "\t\t"
                   << (user.status == 1 ? "Enabled" : "Disabled") << std::endl;
     }
-    
+
     return 0;
 }
 
 int cmd_stats(const std::string& db_path) {
-    auto db_manager = db::DatabaseManager::instance();
+    auto* db_manager = &db::DatabaseManager::instance();
     if (!db_manager->initialize(db_path)) {
         std::cerr << "Failed to open database" << std::endl;
         return -1;
     }
-    
+
     db::UserDAO user_dao(db_manager);
     db::FaceFeatureDAO feature_dao(db_manager);
     db::AttendanceRecordDAO record_dao(db_manager);
-    
+
     int user_count = user_dao.count();
     int feature_count = feature_dao.count();
     int record_count = record_dao.count();
-    
+
     std::cout << "\n=== Database Statistics ===" << std::endl;
     std::cout << "Users:              " << user_count << std::endl;
     std::cout << "Face Features:      " << feature_count << std::endl;
     std::cout << "Attendance Records: " << record_count << std::endl;
-    
+
     return 0;
 }
 
 int cmd_attendance(const std::string& db_path, const std::string& date) {
-    auto db_manager = db::DatabaseManager::instance();
+    auto* db_manager = &db::DatabaseManager::instance();
     if (!db_manager->initialize(db_path)) {
         std::cerr << "Failed to open database" << std::endl;
         return -1;
@@ -142,7 +142,7 @@ int cmd_attendance(const std::string& db_path, const std::string& date) {
 }
 
 int cmd_import_features(const std::string& db_path, const std::string& feat_dir) {
-    auto db_manager = db::DatabaseManager::instance();
+    auto* db_manager = &db::DatabaseManager::instance();
     if (!db_manager->initialize(db_path)) {
         std::cerr << "Failed to open database" << std::endl;
         return -1;

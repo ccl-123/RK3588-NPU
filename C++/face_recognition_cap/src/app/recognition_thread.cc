@@ -50,12 +50,12 @@ void RecognitionThread::stop() {
 
 bool RecognitionThread::submit_task(const RecognitionTask& task) {
     std::lock_guard<std::mutex> lock(mutex_);
-    
+
     // 丢弃旧帧，只保留最新
     while (queue_.size() >= MAX_QUEUE_SIZE) {
         queue_.pop();
     }
-    
+
     queue_.push(task);
     return true;
 }
@@ -80,17 +80,18 @@ void RecognitionThread::get_recognition_stats(int& faces_detected, int& faces_re
 void RecognitionThread::thread_func() {
     while (running_) {
         RecognitionTask task;
-        
-        // 尝试获取任务（非阻塞轮询）
+
+        // 尝试获取任务（恢复轮询方式，避免条件变量开销）
         {
             std::lock_guard<std::mutex> lock(mutex_);
             if (queue_.empty()) {
-                continue;
+                continue;  // 忙等待，但对性能影响应该很小
             }
+
             task = queue_.front();
             queue_.pop();
         }
-        
+
         process_task(task);
     }
 }
