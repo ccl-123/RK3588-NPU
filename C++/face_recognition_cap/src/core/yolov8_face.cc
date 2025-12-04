@@ -88,14 +88,16 @@ int create_yolov8_face(char* model_name, rknn_context* ctx,
     printf("Loading YOLOv8-face model...\n");
     int model_data_size = 0;
     model_data = load_model(model_name, &model_data_size);
-    ret = rknn_init(ctx, model_data, model_data_size, 0, NULL);
+    // 启用高优先级
+    uint32_t flag = RKNN_FLAG_PRIOR_HIGH;
+    ret = rknn_init(ctx, model_data, model_data_size, flag, NULL);
     if (ret < 0) {
         printf("rknn_init error ret=%d\n", ret);
         return -1;
     }
 
-    // 设置 NPU 核心
-    rknn_core_mask core_mask = RKNN_NPU_CORE_AUTO;
+    // 设置 NPU 核心 - 使用所有核心提高性能
+    rknn_core_mask core_mask = RKNN_NPU_CORE_0_1_2;  // 使用核心0、1、2
     ret = rknn_set_core_mask(*ctx, core_mask);
     if (ret < 0) {
         printf("rknn_set_core_mask error ret=%d\n", ret);
