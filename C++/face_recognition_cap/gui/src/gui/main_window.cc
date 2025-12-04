@@ -49,6 +49,7 @@ constexpr int MainWindow::STRANGER_AUDIO_COOLDOWN_MS;
 constexpr int MainWindow::STRANGER_CONFIRM_DURATION_MS;
 constexpr int MainWindow::STRANGER_DETECTION_TIMEOUT_MS;
 
+
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
     , db_manager_(nullptr)
@@ -108,6 +109,13 @@ MainWindow::MainWindow(QWidget* parent)
 
 MainWindow::~MainWindow() {
     stop_recognition();
+
+    // 清理动态分配的对话框
+    if (registration_dialog_) {
+        delete registration_dialog_;
+        registration_dialog_ = nullptr;
+    }
+
     spdlog::info("MainWindow destroyed");
 }
 
@@ -120,7 +128,6 @@ bool MainWindow::initialize(const std::string& retinaface_model,
     facenet_model_ = facenet_model;
     camera_source_ = camera_source;
     camera_id_ = camera_id;
-    db_path_ = db_path;
     
     // 初始化数据库
     db_manager_ = db::DatabaseManager::instance();
@@ -439,6 +446,7 @@ void MainWindow::updateAudioPlayTime(AudioType audio_type) {
     spdlog::debug("Updated audio play time for type {}", static_cast<int>(audio_type));
 }
 
+
 void MainWindow::load_today_attendance() {
     if (!attendance_service_ || !attendance_table_) {
         spdlog::warn("Cannot load today attendance: service or table is null");
@@ -481,6 +489,7 @@ void MainWindow::load_today_attendance() {
     
     spdlog::info("Today's attendance table updated: {} rows", attendance_table_->rowCount());
 }
+
 
 void MainWindow::load_users() {
     if (!user_service_) {
@@ -816,7 +825,7 @@ void MainWindow::update_status() {
     if (fps_label_) {
     fps_label_->setText(QString("FPS: %1").arg(fps_, 0, 'f', 1));
     }
-    
+
     // 更新状态栏的时钟和日期
     if (recognition_page_) {
         QDateTime current_datetime = QDateTime::currentDateTime();
@@ -1028,13 +1037,6 @@ void MainWindow::on_action_open_camera() {
 
 void MainWindow::on_action_close_camera() {
     stop_recognition();
-}
-
-void MainWindow::on_action_settings() {
-    // 跳转到设置页面（使用新的 SettingsPage）
-    if (router_) {
-        router_->navigateTo("settings");
-    }
 }
 
 void MainWindow::on_action_exit() {

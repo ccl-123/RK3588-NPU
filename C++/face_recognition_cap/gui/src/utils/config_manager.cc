@@ -8,6 +8,7 @@
 #include "utils/config_manager.h"
 #include "config/config.h"
 #include <QCoreApplication>
+#include <mutex>
 #include <spdlog/spdlog.h>
 
 ConfigManager* ConfigManager::instance_ = nullptr;
@@ -32,8 +33,16 @@ ConfigManager::~ConfigManager() {
 }
 
 ConfigManager* ConfigManager::instance() {
+    static std::mutex instance_mutex;
+    std::lock_guard<std::mutex> lock(instance_mutex);
+
     if (!instance_) {
         instance_ = new ConfigManager();
+        // 确保单例对象在程序结束时被正确销毁
+        std::atexit([]() {
+            delete instance_;
+            instance_ = nullptr;
+        });
     }
     return instance_;
 }

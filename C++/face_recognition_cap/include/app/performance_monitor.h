@@ -37,7 +37,7 @@ public:
     // FPS 统计
     void update_fps(double current_fps);
     double get_smoothed_fps() const { return smoothed_fps_; }
-    
+
     // 报告
     bool should_print_report();
     void print_report();
@@ -45,7 +45,7 @@ public:
 
 private:
     double get_average(const std::vector<double>& data) const;
-    
+
     // 资源监控 (Linux /proc)
     double get_cpu_usage();
     double get_memory_usage_mb();

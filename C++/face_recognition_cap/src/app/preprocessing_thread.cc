@@ -80,17 +80,17 @@ void PreprocessingThread::thread_func() {
         
         // 3. 执行 RGA 预处理（翻转 + 缩放）
         process_with_rga(task);
-        
+
         // 4. 放入输出队列（丢弃旧帧，只保留最新）
         {
             std::lock_guard<std::mutex> lock(mutex_);
             while (output_queue_.size() >= MAX_QUEUE_SIZE) {
                 output_queue_.pop();
             }
-            output_queue_.push(task);
+                output_queue_.push(task);
+            }
         }
     }
-}
 
 bool PreprocessingThread::read_frame(cv::Mat& frame) {
     if (camera_type_ == "usb") {

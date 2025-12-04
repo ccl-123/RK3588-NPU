@@ -133,7 +133,7 @@ void PerformanceMonitor::print_report() {
     double avg_align = get_average(alignment_times_);
     double avg_facenet = get_average(recognition_times_);
     double avg_match = get_average(matching_times_);
-    
+
     double thread3_total = avg_align + avg_facenet + avg_match;
     double bottleneck = std::max(avg_detect, thread3_total);
     double theoretical_fps = (bottleneck > 0) ? (1000.0 / bottleneck) : 0.0;

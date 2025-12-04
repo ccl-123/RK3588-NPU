@@ -17,6 +17,7 @@
 #include <QDir>
 #include <QCoreApplication>
 #include <QUrl>
+#include <mutex>
 #include <spdlog/spdlog.h>
 
 // 静态成员初始化
@@ -65,21 +66,38 @@ AudioManager::AudioManager(QObject* parent)
 }
 
 AudioManager::~AudioManager() {
+    // 先停止播放（可能会触发信号，所以在获取锁之前调用）
+    stopPlayback();
+
     QMutexLocker locker(&mutex_);
-    
+
+    // 清理播放器
     if (player_) {
-        player_->stop();
-        delete player_;
-        player_ = nullptr;
+        try {
+            player_->stop();
+            delete player_;
+            player_ = nullptr;
+        } catch (const std::exception& e) {
+            spdlog::error("AudioManager: Error cleaning up player in destructor: {}", e.what());
+        }
     }
-    
+
+    // 清理队列
     audio_queue_.clear();
     spdlog::info("AudioManager destroyed");
 }
 
 AudioManager* AudioManager::instance() {
+    static std::mutex instance_mutex;
+    std::lock_guard<std::mutex> lock(instance_mutex);
+
     if (instance_ == nullptr) {
         instance_ = new AudioManager();
+        // 确保单例对象在程序结束时被正确销毁
+        std::atexit([]() {
+            delete instance_;
+            instance_ = nullptr;
+        });
     }
     return instance_;
 }
@@ -118,7 +136,8 @@ void AudioManager::playSound(const QString& audioFile) {
     
     // 如果当前没有播放，异步开始播放
     if (!is_playing_) {
-        locker.unlock();  // 释放锁
+        // 不在这里释放锁，直接使用QTimer::singleShot异步调用
+        // 避免竞态条件：playNext()会重新获取锁
         QTimer::singleShot(0, this, [this]() {
             playNext();
         });
@@ -258,6 +277,23 @@ int AudioManager::queueSize() const {
     return audio_queue_.size();
 }
 
+void AudioManager::stopPlayback() {
+    QMutexLocker locker(&mutex_);
+
+    try {
+        if (player_ && player_->state() == QMediaPlayer::PlayingState) {
+            player_->stop();
+        }
+    } catch (const std::exception& e) {
+        spdlog::error("AudioManager: Error stopping playback: {}", e.what());
+    }
+
+    // 清理状态
+    is_playing_ = false;
+    current_playing_.clear();
+    spdlog::debug("AudioManager: Playback stopped");
+}
+
 void AudioManager::onPlayerStateChanged(QMediaPlayer::State state) {
     spdlog::debug("AudioManager: Player state changed: {}", static_cast<int>(state));
     
@@ -343,13 +379,16 @@ void AudioManager::playNext() {
     try {
         player_->setMedia(QMediaContent(url));
         player_->play();
-        is_playing_ = true;
+        // 注意：is_playing_状态由onPlayerStateChanged信号处理，不要在这里设置
+        // 避免竞态条件
     } catch (const std::exception& e) {
         spdlog::error("AudioManager: Failed to play audio: {}", e.what());
-        locker.relock();
+
+        // 重新获取锁并清理状态
+        QMutexLocker error_locker(&mutex_);
         is_playing_ = false;
         current_playing_.clear();
-        locker.unlock();
+
         // 尝试播放下一个
         QTimer::singleShot(100, this, [this]() {
             playNext();

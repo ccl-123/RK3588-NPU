@@ -76,7 +76,7 @@ protected:
 public slots:
     // 数据刷新槽（公开，供子窗口调用）
     void load_users();
-    
+
     // 加载今日考勤记录
     void load_today_attendance();
     
@@ -87,7 +87,6 @@ public slots:
 private slots:
     void on_action_open_camera();
     void on_action_close_camera();
-    void on_action_settings();
     void on_action_exit();
     void on_action_register_face();
     void on_action_query_attendance();
@@ -153,6 +152,7 @@ private:
     double fps_;
     std::chrono::steady_clock::time_point last_fps_time_;
 
+
     // 主题状态
     bool is_dark_theme_;
     
@@ -205,12 +205,12 @@ private:
      */
     void updateAudioPlayTime(AudioType audio_type);
 
+
     // 配置
     std::string retinaface_model_;
     std::string facenet_model_;
     std::string camera_source_;
     int camera_id_;
-    std::string db_path_;
 };
 
 #endif // MAIN_WINDOW_H

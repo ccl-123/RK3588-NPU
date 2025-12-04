@@ -130,6 +130,11 @@ public:
      */
     int queueSize() const;
 
+    /**
+     * @brief 安全停止当前播放
+     */
+    void stopPlayback();
+
 signals:
     /**
      * @brief 音频播放开始信号
