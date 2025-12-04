@@ -16,6 +16,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include "config/config.h"
 #include "app/face_recognition_app.h"
 #include "service/attendance_service.h"
 #include "database/database_manager.h"
@@ -58,8 +59,8 @@ int main(int argc, char** argv)
     if (argc < 5) {
         printf("Usage: %s <yolov8-face model> <facenet model> <usb or mipi> <device number> [--db]\n", argv[0]);
         printf("\nExample:\n");
-        printf("  File mode:     %s data/model/yolov8n-face.rknn data/model/w600k_mbf.rknn usb 21\n", argv[0]);
-        printf("  Database mode: %s data/model/yolov8n-face.rknn data/model/w600k_mbf.rknn usb 21 --db\n", argv[0]);
+        printf("  File mode:     %s %s %s usb 21\n", argv[0], Config::Path::YOLO_MODEL, Config::Path::FACENET_MODEL);
+        printf("  Database mode: %s %s %s usb 21 --db\n", argv[0], Config::Path::YOLO_MODEL, Config::Path::FACENET_MODEL);
         return -1;
     }
 
@@ -75,7 +76,7 @@ int main(int argc, char** argv)
     if (argc >= 6 && strcmp(argv[5], "--db") == 0) {
         use_database = true;
         config.use_database = true;
-        config.database_path = "./data/database/face_recognition.db";
+        config.database_path = Config::Path::DATABASE;
     }
 
     // 3. 创建应用实例

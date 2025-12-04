@@ -12,6 +12,7 @@
 #include <functional>
 #include <chrono>
 #include <opencv2/opencv.hpp>
+#include "config/config.h"
 #include "core/postprocess.h"
 #include "app/model_manager.h"
 #include "app/feature_library.h"
@@ -53,15 +54,15 @@ struct AppConfig {
     int perf_report_interval;           // 性能报告间隔(帧数)
 
     AppConfig()
-        : camera_width(1280)
-        , camera_height(720)
-        , box_conf_threshold(0.5f)   // 人脸检测阈值
-        , nms_threshold(0.45f)       // NMS阈值
-        , facenet_threshold(0.5f)
-        , use_async_usb(true)
-        , perf_report_interval(50)
-        , feature_lib_path("./data/face_feature_lib/")
-        , database_path("./data/database/face_recognition.db")
+        : camera_width(Config::Camera::WIDTH)
+        , camera_height(Config::Camera::HEIGHT)
+        , box_conf_threshold(Config::Detection::BOX_CONF_THRESHOLD)
+        , nms_threshold(Config::Detection::NMS_THRESHOLD)
+        , facenet_threshold(Config::Default::RECOGNITION_THRESHOLD)  // UI 可配置
+        , use_async_usb(Config::Camera::USE_ASYNC_USB)
+        , perf_report_interval(Config::Performance::REPORT_INTERVAL)
+        , feature_lib_path(Config::Path::FEATURE_LIB)
+        , database_path(Config::Path::DATABASE)
         , use_database(false)
     {}
 };

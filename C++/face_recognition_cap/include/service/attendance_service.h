@@ -11,6 +11,7 @@
 #include "database/database_manager.h"
 #include "database/attendance_record_dao.h"
 #include "database/user_dao.h"
+#include "config/config.h"
 #include <string>
 #include <vector>
 #include <ctime>
@@ -57,7 +58,7 @@ public:
      * @param interval_seconds 时间间隔(秒)
      * @return true重复, false不重复
      */
-    bool is_duplicate_check(int user_id, int interval_seconds = 300);
+    bool is_duplicate_check(int user_id, int interval_seconds = Config::Default::DUPLICATE_CHECK_INTERVAL);
     
     /**
      * @brief 检查今天是否已有指定类型的打卡记录
@@ -97,7 +98,7 @@ public:
                           int late_threshold,
                           int early_leave_threshold,
                           bool allow_multiple_checkin = false,
-                          int duplicate_check_interval = 300);
+                          int duplicate_check_interval = Config::Default::DUPLICATE_CHECK_INTERVAL);
     
     /**
      * @brief 查询用户考勤记录

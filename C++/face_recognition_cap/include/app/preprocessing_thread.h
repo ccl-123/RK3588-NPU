@@ -21,6 +21,7 @@
 #include <atomic>
 #include <sys/time.h>
 #include <string>
+#include "config/config.h"
 
 /*-------------------------------------------
     预处理任务结构
@@ -92,7 +93,7 @@ private:
     cv::Mat flipped_buffer_;
 
     // 队列大小限制（只保留最新帧）
-    static const int MAX_QUEUE_SIZE = 2;
+    static const int MAX_QUEUE_SIZE = Config::Performance::QUEUE_MAX_SIZE;
 };
 
 #endif // _PREPROCESSING_THREAD_H_

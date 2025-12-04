@@ -22,6 +22,7 @@
 #include <chrono>
 #include <sys/time.h>
 
+#include "config/config.h"
 #include "core/postprocess.h"
 #include "app/model_manager.h"
 #include "app/feature_library.h"
@@ -116,7 +117,7 @@ private:
     std::atomic<int> stat_faces_detected_;
     std::atomic<int> stat_faces_recognized_;
 
-    static const int MAX_QUEUE_SIZE = 2;
+    static const int MAX_QUEUE_SIZE = Config::Performance::QUEUE_MAX_SIZE;
 };
 
 #endif // _RECOGNITION_THREAD_H_

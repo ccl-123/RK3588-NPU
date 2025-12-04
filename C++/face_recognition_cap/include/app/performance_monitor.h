@@ -19,10 +19,11 @@
 
 #include <vector>
 #include <cstdint>
+#include "config/config.h"
 
 class PerformanceMonitor {
 public:
-    PerformanceMonitor(int report_interval = 50);
+    PerformanceMonitor(int report_interval = Config::Performance::REPORT_INTERVAL);
     ~PerformanceMonitor() = default;
 
     // 线程2：YOLO检测耗时

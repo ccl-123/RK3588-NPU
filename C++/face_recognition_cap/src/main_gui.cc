@@ -18,6 +18,7 @@
 #include "gui/main_window.h"
 #include "utils/config_manager.h"
 #include "themes/theme_manager.h"
+#include "config/config.h"
 
 void setup_logger() {
     try {
@@ -67,17 +68,16 @@ int main(int argc, char* argv[]) {
     QString appDir = QCoreApplication::applicationDirPath();
     spdlog::info("Application directory: {}", appDir.toStdString());
     
-    // 解析命令行参数
-    // 使用相对于可执行文件的路径
-    std::string yolov8_face_model = (appDir + "/data/model/yolov8n-face.rknn").toStdString();
-    std::string facenet_model = (appDir + "/data/model/w600k_mbf.rknn").toStdString();
+    // 使用固定配置的模型路径 (相对于可执行文件目录)
+    std::string yolov8_face_model = (appDir + "/" + Config::Path::YOLO_MODEL).toStdString();
+    std::string facenet_model = (appDir + "/" + Config::Path::FACENET_MODEL).toStdString();
     
     // 从配置文件加载摄像头设置（固定 USB + 异步）
     std::string camera_source = "usb";
     int camera_id = ConfigManager::instance()->getCameraId();
     
-    // 数据库使用相对于可执行文件的路径，确保唯一性
-    std::string db_path = (appDir + "/data/database/face_recognition.db").toStdString();
+    // 数据库路径 (相对于可执行文件目录)
+    std::string db_path = (appDir + "/" + Config::Path::DATABASE).toStdString();
     
     // 确保数据库目录存在
     QDir dbDir = QFileInfo(QString::fromStdString(db_path)).dir();

@@ -6,6 +6,7 @@
  */
 
 #include "utils/config_manager.h"
+#include "config/config.h"
 #include <QCoreApplication>
 #include <spdlog/spdlog.h>
 
@@ -39,7 +40,7 @@ ConfigManager* ConfigManager::instance() {
 
 // 识别设置
 float ConfigManager::getRecognitionThreshold() const {
-    return settings_->value("recognition/threshold", 0.60).toDouble();
+    return settings_->value("recognition/threshold", Config::Default::RECOGNITION_THRESHOLD).toDouble();
 }
 
 void ConfigManager::setRecognitionThreshold(float threshold) {
@@ -48,7 +49,7 @@ void ConfigManager::setRecognitionThreshold(float threshold) {
 }
 
 int ConfigManager::getDuplicateCheckInterval() const {
-    return settings_->value("recognition/duplicate_interval", 300).toInt();
+    return settings_->value("recognition/duplicate_interval", Config::Default::DUPLICATE_CHECK_INTERVAL).toInt();
 }
 
 void ConfigManager::setDuplicateCheckInterval(int seconds) {
@@ -57,7 +58,7 @@ void ConfigManager::setDuplicateCheckInterval(int seconds) {
 }
 
 int ConfigManager::getRecognitionConfirmCount() const {
-    return settings_->value("recognition/confirm_count", 5).toInt();
+    return settings_->value("recognition/confirm_count", Config::Default::RECOGNITION_CONFIRM_COUNT).toInt();
 }
 
 void ConfigManager::setRecognitionConfirmCount(int count) {
@@ -66,7 +67,7 @@ void ConfigManager::setRecognitionConfirmCount(int count) {
 }
 
 int ConfigManager::getUserConfirmDuration() const {
-    return settings_->value("recognition/user_confirm_duration_ms", 1000).toInt();
+    return settings_->value("recognition/user_confirm_duration_ms", Config::Default::USER_CONFIRM_DURATION_MS).toInt();
 }
 
 void ConfigManager::setUserConfirmDuration(int milliseconds) {
@@ -76,7 +77,7 @@ void ConfigManager::setUserConfirmDuration(int milliseconds) {
 
 // 音频设置
 bool ConfigManager::isAudioEnabled() const {
-    return settings_->value("audio/enabled", true).toBool();
+    return settings_->value("audio/enabled", Config::Default::AUDIO_ENABLED).toBool();
 }
 
 void ConfigManager::setAudioEnabled(bool enabled) {
@@ -85,7 +86,7 @@ void ConfigManager::setAudioEnabled(bool enabled) {
 }
 
 int ConfigManager::getAudioVolume() const {
-    return settings_->value("audio/volume", 70).toInt();
+    return settings_->value("audio/volume", Config::Default::AUDIO_VOLUME).toInt();
 }
 
 void ConfigManager::setAudioVolume(int volume) {
@@ -150,7 +151,7 @@ void ConfigManager::setWorkEndTime(const QString& time) {
 }
 
 int ConfigManager::getLateThreshold() const {
-    return settings_->value("attendance/late_threshold", 30).toInt();
+    return settings_->value("attendance/late_threshold", Config::Default::LATE_THRESHOLD).toInt();
 }
 
 void ConfigManager::setLateThreshold(int minutes) {
@@ -159,7 +160,7 @@ void ConfigManager::setLateThreshold(int minutes) {
 }
 
 int ConfigManager::getEarlyLeaveThreshold() const {
-    return settings_->value("attendance/early_leave_threshold", 30).toInt();
+    return settings_->value("attendance/early_leave_threshold", Config::Default::EARLY_LEAVE_THRESHOLD).toInt();
 }
 
 void ConfigManager::setEarlyLeaveThreshold(int minutes) {
@@ -196,7 +197,7 @@ void ConfigManager::setShowCheckinReminder(bool show) {
 
 // 摄像头设置（简化：固定 USB + 异步）
 int ConfigManager::getCameraId() const {
-    return settings_->value("camera/id", 21).toInt();
+    return settings_->value("camera/id", Config::Default::CAMERA_ID).toInt();
 }
 
 void ConfigManager::setCameraId(int id) {

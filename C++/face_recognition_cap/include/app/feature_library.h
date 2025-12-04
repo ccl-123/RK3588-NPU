@@ -10,6 +10,7 @@
 
 #include <vector>
 #include <string>
+#include "config/config.h"
 
 // 前向声明
 namespace db {
@@ -36,7 +37,7 @@ public:
      * @param feature_dim 特征向量维度 (默认512)
      * @return 加载的特征数量, -1表示失败
      */
-    int load_from_directory(const std::string& lib_path, int feature_dim = 512);
+    int load_from_directory(const std::string& lib_path, int feature_dim = Config::Model::FEATURE_DIM);
 
     /**
      * @brief 从数据库加载特征库(数据库模式)
@@ -44,7 +45,7 @@ public:
      * @param feature_dim 特征向量维度 (默认512)
      * @return 加载的特征数量, -1表示失败
      */
-    int load_from_database(db::DatabaseManager* db_manager, int feature_dim = 512);
+    int load_from_database(db::DatabaseManager* db_manager, int feature_dim = Config::Model::FEATURE_DIM);
 
     /**
      * @brief 匹配人脸特征
