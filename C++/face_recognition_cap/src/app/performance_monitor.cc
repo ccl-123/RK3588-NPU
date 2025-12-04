@@ -3,10 +3,11 @@
  * @brief 性能监控器实现 - 流水线多线程架构性能统计
  * @author CL
  * @date 2025-11-20
- * 
+ *
  * 开发板部署监控:
  * - RK3588 NPU: int8 量化模型推理
  * - 资源占用: CPU/内存/NPU内存
+ * - RGA加速: 可通过 Config::Performance::USE_RGA 控制
  */
 
 #include "app/performance_monitor.h"

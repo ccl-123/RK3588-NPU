@@ -112,6 +112,15 @@ void PreprocessingThread::process_with_rga(PreprocessTask& task) {
     // 分配处理后的图像缓冲区
     task.processed_img = cv::Mat(resize_h_, resize_w_, CV_8UC3);
 
+    // 检查是否启用RGA硬件加速
+    if (!Config::Performance::USE_RGA) {
+        // 完全使用OpenCV，避免RGA库的Valgrind警告
+        cv::flip(task.orig_img, flipped_buffer_, 1);
+        cv::resize(flipped_buffer_, task.processed_img, cv::Size(resize_w_, resize_h_), 0, 0, cv::INTER_LINEAR);
+        task.orig_img = flipped_buffer_.clone();
+        return;
+    }
+
     // 第一步: RGA翻转
     rga_buffer_t flip_src = wrapbuffer_virtualaddr(task.orig_img.data, img_width_, img_height_, RK_FORMAT_BGR_888);
     rga_buffer_t flip_dst = wrapbuffer_virtualaddr(flipped_buffer_.data, img_width_, img_height_, RK_FORMAT_BGR_888);
