@@ -19,7 +19,7 @@
 
 FaceRecognitionApp::FaceRecognitionApp()
     : preprocess_thread_(nullptr)
-    , render_thread_(nullptr)
+    , recognition_thread_(nullptr)
     , perf_monitor_(10)
     , scale_w_(0)
     , scale_h_(0)
@@ -123,14 +123,20 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
     };
     memcpy(dst_landmark_.data, dst_landmark_data, 2 * 5 * sizeof(float));
 
-    // 6. 创建并启动线程
-    std::cout << "Starting threads..." << std::endl;
+    // 6. 创建并启动线程（流水线架构）
+    std::cout << "Starting pipeline threads..." << std::endl;
+    
+    // 线程1: 采集 + RGA预处理
     preprocess_thread_ = new PreprocessingThread(resize_w_, resize_h_, 
-                                                 config_.camera_width, config_.camera_height);
-    render_thread_ = new RenderingThread("Image Window");
+                                                 config_.camera_width, config_.camera_height,
+                                                 config_.camera_type, config_.use_async_usb);
+    
+    // 线程3: 识别 + 渲染
+    recognition_thread_ = new RecognitionThread(&model_manager_, &feature_library_,
+                                                 dst_landmark_, config_.facenet_threshold);
     
     preprocess_thread_->start();
-    render_thread_->start();
+    recognition_thread_->start();
 
     // 7. 初始化性能监控
     perf_monitor_ = PerformanceMonitor(config_.perf_report_interval);
@@ -176,84 +182,46 @@ int FaceRecognitionApp::run() {
     }
 
     running_ = true;
-    std::cout << "Starting main loop..." << std::endl;
+    std::cout << "Starting pipeline mode..." << std::endl;
+    std::cout << "  Thread 1: Camera + RGA preprocess" << std::endl;
+    std::cout << "  Thread 2: YOLO detection (main loop)" << std::endl;
+    std::cout << "  Thread 3: FaceNet + Match + Render" << std::endl;
 
-    cv::Mat orig_img;
-    struct timeval start_time, stop_time;
-    struct timeval t1, t2, t3, t4, t5;
+    struct timeval t_start, t_detect_end;
 
     while (running_) {
-        gettimeofday(&start_time, NULL);
-
-        // 1. 摄像头读取
-        gettimeofday(&t1, NULL);
-        if (config_.camera_type == "usb") {
-            if (config_.use_async_usb) {
-                read_usb_frame_async(&orig_img);
-            } else {
-                read_usb_frame(&orig_img);
-            }
-        } else if (config_.camera_type == "mipi") {
-            read_mipi_frame(&orig_img);
+        // 1. 从预处理线程获取结果（采集+RGA已在线程1完成）
+        PreprocessTask task;
+        if (!preprocess_thread_->get_result(task)) {
+            continue;
         }
-        gettimeofday(&t2, NULL);
+        
+        gettimeofday(&t_start, NULL);
 
-        // 2. 提交预处理任务
-        gettimeofday(&t3, NULL);
-        preprocess_thread_->submit_task(orig_img, t3);
+        // 2. 人脸检测（主线程只做YOLO检测）
+        detect_result_group_t detect_result;
+        detect_faces(task.processed_img, detect_result);
+        
+        gettimeofday(&t_detect_end, NULL);
+        float detect_time = (get_us(t_detect_end) - get_us(t_start)) / 1000.0;
+        
+        // 3. 性能统计
+        perf_monitor_.update_fps(1000.0 / detect_time);
+        perf_monitor_.record_detection_time(detect_time);
+        perf_monitor_.record_alignment_time(recognition_thread_->get_avg_align_time());
+        perf_monitor_.record_recognition_time(recognition_thread_->get_avg_facenet_time());
+        perf_monitor_.record_matching_time(recognition_thread_->get_avg_match_time());
 
-        // 3. 获取预处理结果
-        PreprocessTask processed_task;
-        if (!preprocess_thread_->get_result(processed_task)) {
-            continue;  // 没有预处理好的图像，跳过本帧
-        }
+        // 4. 提交到识别线程
+        RecognitionTask rec_task;
+        rec_task.orig_img = task.orig_img;
+        rec_task.detect_result = detect_result;
+        rec_task.timestamp = task.timestamp;
+        rec_task.current_fps = perf_monitor_.get_smoothed_fps();
+        rec_task.frame_time = detect_time;
+        recognition_thread_->submit_task(rec_task);
 
-        cv::Mat img = processed_task.processed_img;
-        orig_img = processed_task.orig_img;  // 使用翻转后的原图
-        gettimeofday(&t4, NULL);
-
-        // 4. 人脸检测
-        detect_result_group_t detect_result_group;
-        detect_faces(img, detect_result_group);
-        gettimeofday(&t5, NULL);
-
-        // 5. 人脸识别和匹配
-        cv::Mat render_img = orig_img.clone();
-        std::vector<RecognitionResult> recognition_results;
-        recognize_and_match(orig_img, detect_result_group, render_img,
-                           frame_callback_ ? &recognition_results : nullptr);
-
-        // 6. 性能统计
-        gettimeofday(&stop_time, NULL);
-        float current_frame_time = (get_us(stop_time) - get_us(start_time)) / 1000.0;
-        float current_fps = 1000.0 / current_frame_time;
-
-        perf_monitor_.update_fps(current_fps);
-        perf_monitor_.record_camera_time((get_us(t2) - get_us(t1)) / 1000);
-        perf_monitor_.record_preprocess_time((get_us(t4) - get_us(t3)) / 1000);
-        perf_monitor_.record_detection_time((get_us(t5) - get_us(t4)) / 1000);
-
-        // 7. 渲染
-        char fps_text[64];
-        snprintf(fps_text, sizeof(fps_text), "FPS: %.1f (%.1f ms)",
-                 perf_monitor_.get_smoothed_fps(), current_frame_time);
-
-
-        struct timeval t_render_start, t_render_end;
-        gettimeofday(&t_render_start, NULL);
-
-        // 如果设置了帧回调（GUI模式），调用回调而不是渲染线程
-        if (frame_callback_) {
-            frame_callback_(render_img, recognition_results);
-        } else {
-            // 命令行模式：使用渲染线程显示
-            render_thread_->submit_task(render_img, fps_text);
-        }
-
-        gettimeofday(&t_render_end, NULL);
-        perf_monitor_.record_render_time((get_us(t_render_end) - get_us(t_render_start)) / 1000);
-
-        // 8. 打印性能报告
+        // 5. 打印性能报告
         if (perf_monitor_.should_print_report()) {
             perf_monitor_.print_report();
         }
@@ -262,13 +230,7 @@ int FaceRecognitionApp::run() {
     return 0;
 }
 
-// ==================== 实时识别核心函数（Private） ====================
-// 以下函数用于实时识别线程，使用 similarTransform + warpPerspective 对齐
-// 经过充分测试，稳定可靠，不要轻易修改
-
 void FaceRecognitionApp::detect_faces(const cv::Mat& img, detect_result_group_t& result_group) {
-    // 输入：已缩放到 resize_w_ x resize_h_ 的图像
-    // 输出：RKNN 原始格式的检测结果
     cv::Mat padded_img = img.clone();
     int img_width, img_height;
 
@@ -308,140 +270,6 @@ void FaceRecognitionApp::detect_faces(const cv::Mat& img, detect_result_group_t&
     );
 }
 
-void FaceRecognitionApp::recognize_and_match(const cv::Mat& orig_img,
-                                             const detect_result_group_t& result_group,
-                                             cv::Mat& render_img,
-                                             std::vector<RecognitionResult>* results) {
-    // 输入：原始图像（未缩放）+ 检测结果
-    // 输出：绘制了人脸框和识别结果的图像 + 可选的识别结果列表
-    // 功能：人脸对齐（similarTransform + warpPerspective）、特征提取、匹配、绘制
-
-    // 清空结果列表
-    if (results) {
-        results->clear();
-    }
-    struct timeval t_align_start, t_align_end;
-    struct timeval t_facenet_start, t_facenet_end;
-    struct timeval t_match_start, t_match_end;
-    float total_align_time = 0;
-    float total_facenet_time = 0;
-    float total_match_time = 0;
-
-    int facenet_width, facenet_height, facenet_channel;
-    model_manager_.get_facenet_size(facenet_width, facenet_height, facenet_channel);
-
-    for (int i = 0; i < result_group.count; i++) {
-        // 人脸对齐
-        gettimeofday(&t_align_start, NULL);
-
-        float landmark[5][2] = {
-            {(float)result_group.results[i].point.point_1_x, (float)result_group.results[i].point.point_1_y},
-            {(float)result_group.results[i].point.point_2_x, (float)result_group.results[i].point.point_2_y},
-            {(float)result_group.results[i].point.point_3_x, (float)result_group.results[i].point.point_3_y},
-            {(float)result_group.results[i].point.point_4_x, (float)result_group.results[i].point.point_4_y},
-            {(float)result_group.results[i].point.point_5_x, (float)result_group.results[i].point.point_5_y}
-        };
-
-        cv::Mat src(5, 2, CV_32FC1, landmark);
-        memcpy(src.data, landmark, 2 * 5 * sizeof(float));
-
-        cv::Mat M = similarTransform(src, dst_landmark_);
-        cv::Mat warp;
-        cv::warpPerspective(orig_img, warp, M, cv::Size(facenet_width, facenet_height));
-        cv::cvtColor(warp, warp, cv::COLOR_BGR2RGB);
-
-        gettimeofday(&t_align_end, NULL);
-
-        // FaceNet 特征提取
-        gettimeofday(&t_facenet_start, NULL);
-        float* facenet_result = nullptr;
-        facenet_inference(
-            model_manager_.get_facenet_ctx(),
-            warp,
-            model_manager_.get_facenet_io_num(),
-            model_manager_.get_facenet_inputs(),
-            model_manager_.get_facenet_outputs(),
-            &facenet_result
-        );
-        gettimeofday(&t_facenet_end, NULL);
-
-        // 特征匹配
-        gettimeofday(&t_match_start, NULL);
-        std::string name;
-        float max_score;
-        int user_id = 0;
-        feature_library_.match_feature_with_id(facenet_result, config_.facenet_threshold,
-                                               user_id, name, max_score);
-        gettimeofday(&t_match_end, NULL);
-
-        // 创建识别结果
-        RecognitionResult result;
-        result.user_id = user_id;
-        result.user_name = name;
-        result.similarity = max_score;
-        result.timestamp = std::chrono::system_clock::now();
-
-        // 提取人脸图像和框
-        int x1 = result_group.results[i].box.left;
-        int y1 = result_group.results[i].box.top;
-        int x2 = result_group.results[i].box.right;
-        int y2 = result_group.results[i].box.bottom;
-
-        // 确保坐标在图像范围内
-        x1 = std::max(0, x1);
-        y1 = std::max(0, y1);
-        x2 = std::min(orig_img.cols, x2);
-        y2 = std::min(orig_img.rows, y2);
-
-        if (x2 > x1 && y2 > y1) {
-            result.face_image = orig_img(cv::Rect(x1, y1, x2 - x1, y2 - y1)).clone();
-            result.face_box = cv::Rect(x1, y1, x2 - x1, y2 - y1);
-        }
-
-        // 添加到结果列表（用于GUI回调）
-        if (results) {
-            results->push_back(result);
-        }
-
-        // 触发识别回调（用于考勤等业务逻辑，包括陌生人检测）
-        if (recognition_callback_) {
-            recognition_callback_(result);
-        }
-
-        // 释放输出
-        facenet_output_release(
-            model_manager_.get_facenet_ctx(),
-            model_manager_.get_facenet_io_num(),
-            model_manager_.get_facenet_outputs()
-        );
-
-        // 绘制结果（使用之前已声明的 x1, y1, x2, y2）
-        // 根据识别结果选择颜色：识别成功用绿色，陌生人用红色
-        cv::Scalar color = (name != "stranger" && max_score >= config_.facenet_threshold) ?
-                          cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255);
-        
-        cv::rectangle(render_img, cv::Point(x1, y1), cv::Point(x2, y2), color, 2);
-
-        // 显示姓名和置信度（在检测框上方）
-        char label[256];
-        snprintf(label, sizeof(label), "%s (%.2f)", name.c_str(), max_score);
-
-        // 显示文本在检测框上方（使用与人脸框相同的颜色）
-        cv::putText(render_img, label, cv::Point(x1, y1 - 10),
-                   cv::FONT_HERSHEY_SIMPLEX, 0.7, color, 2);
-
-        // 累计时间
-        total_align_time += (get_us(t_align_end) - get_us(t_align_start)) / 1000;
-        total_facenet_time += (get_us(t_facenet_end) - get_us(t_facenet_start)) / 1000;
-        total_match_time += (get_us(t_match_end) - get_us(t_match_start)) / 1000;
-    }
-
-    // 记录性能数据
-    perf_monitor_.record_alignment_time(total_align_time);
-    perf_monitor_.record_recognition_time(total_facenet_time);
-    perf_monitor_.record_matching_time(total_match_time);
-}
-
 void FaceRecognitionApp::stop() {
     running_ = false;
 }
@@ -460,10 +288,10 @@ void FaceRecognitionApp::cleanup() {
         preprocess_thread_ = nullptr;
     }
 
-    if (render_thread_) {
-        render_thread_->stop();
-        delete render_thread_;
-        render_thread_ = nullptr;
+    if (recognition_thread_) {
+        recognition_thread_->stop();
+        delete recognition_thread_;
+        recognition_thread_ = nullptr;
     }
 
     // 关闭摄像头
@@ -489,10 +317,48 @@ void FaceRecognitionApp::cleanup() {
 
 void FaceRecognitionApp::set_recognition_callback(RecognitionCallback callback) {
     recognition_callback_ = callback;
+    
+    // 转发到识别线程（多线程模式）
+    if (recognition_thread_ && callback) {
+        recognition_thread_->set_recognition_callback(
+            [callback](const RecognitionResultData& data) {
+                // 转换 RecognitionResultData 到 RecognitionResult
+                RecognitionResult result;
+                result.user_id = data.user_id;
+                result.user_name = data.user_name;
+                result.similarity = data.similarity;
+                result.face_image = data.face_image;
+                result.face_box = data.face_box;
+                result.timestamp = data.timestamp;
+                callback(result);
+            }
+        );
+    }
 }
 
 void FaceRecognitionApp::set_frame_callback(FrameCallback callback) {
     frame_callback_ = callback;
+    
+    // 转发到识别线程（多线程模式）
+    if (recognition_thread_ && callback) {
+        recognition_thread_->set_frame_callback(
+            [callback](const cv::Mat& frame, const std::vector<RecognitionResultData>& data_results) {
+                // 转换 RecognitionResultData 到 RecognitionResult
+                std::vector<RecognitionResult> results;
+                for (const auto& data : data_results) {
+                    RecognitionResult result;
+                    result.user_id = data.user_id;
+                    result.user_name = data.user_name;
+                    result.similarity = data.similarity;
+                    result.face_image = data.face_image;
+                    result.face_box = data.face_box;
+                    result.timestamp = data.timestamp;
+                    results.push_back(result);
+                }
+                callback(frame, results);
+            }
+        );
+    }
 }
 
 bool FaceRecognitionApp::get_current_frame(cv::Mat& frame) {
@@ -868,5 +734,11 @@ void FaceRecognitionApp::set_attendance_service(void* service) {
 
 void FaceRecognitionApp::set_recognition_threshold(float threshold) {
     config_.facenet_threshold = threshold;
+    
+    // 同步到识别线程（多线程模式）
+    if (recognition_thread_) {
+        recognition_thread_->set_threshold(threshold);
+    }
+    
     spdlog::info("Recognition threshold updated to: {:.2f}", threshold);
 }

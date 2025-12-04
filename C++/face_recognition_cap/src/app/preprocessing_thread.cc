@@ -1,21 +1,27 @@
 /**
  * @file preprocessing_thread.cc
- * @brief 预处理线程实现
+ * @brief 采集预处理线程实现 - 摄像头采集 + RGA硬件加速预处理
  * @author CL
  * @date 2025-11-20
  */
 
 #include "app/preprocessing_thread.h"
+#include "hardware/camera_util.h"
 #include "RgaUtils.h"
 #include "im2d.h"
 #include "rga.h"
 
-PreprocessingThread::PreprocessingThread(int resize_w, int resize_h, int img_width, int img_height)
+PreprocessingThread::PreprocessingThread(int resize_w, int resize_h, 
+                                         int img_width, int img_height,
+                                         const std::string& camera_type,
+                                         bool use_async_usb)
     : running_(false)
     , resize_w_(resize_w)
     , resize_h_(resize_h)
     , img_width_(img_width)
     , img_height_(img_height)
+    , camera_type_(camera_type)
+    , use_async_usb_(use_async_usb)
     , flipped_buffer_(img_height, img_width, CV_8UC3)
 {
 }
@@ -34,28 +40,10 @@ void PreprocessingThread::start() {
 void PreprocessingThread::stop() {
     if (running_) {
         running_ = false;
-        cv_.notify_all();
         if (thread_.joinable()) {
             thread_.join();
         }
     }
-}
-
-bool PreprocessingThread::submit_task(const cv::Mat& orig_img, struct timeval timestamp) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    if (input_queue_.size() >= MAX_QUEUE_SIZE) {
-        return false;  // 队列已满
-    }
-
-    PreprocessTask task;
-    task.orig_img = orig_img.clone();
-    task.timestamp = timestamp;
-    
-    input_queue_.push(task);
-    cv_.notify_one();
-    
-    return true;
 }
 
 bool PreprocessingThread::get_result(PreprocessTask& task) {
@@ -71,43 +59,53 @@ bool PreprocessingThread::get_result(PreprocessTask& task) {
     return true;
 }
 
-size_t PreprocessingThread::input_queue_size() const {
-    std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(mutex_));
-    return input_queue_.size();
-}
-
 size_t PreprocessingThread::output_queue_size() const {
-    std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(mutex_));
+    std::lock_guard<std::mutex> lock(mutex_);
     return output_queue_.size();
 }
 
 void PreprocessingThread::thread_func() {
+    cv::Mat frame;
+    
     while (running_) {
-        PreprocessTask task;
-
-        // 从输入队列获取任务
-        {
-            std::unique_lock<std::mutex> lock(mutex_);
-            cv_.wait(lock, [this]{ return !input_queue_.empty() || !running_; });
-
-            if (!running_ && input_queue_.empty()) break;
-            if (input_queue_.empty()) continue;
-
-            task = input_queue_.front();
-            input_queue_.pop();
+        // 1. 从摄像头读取一帧
+        if (!read_frame(frame)) {
+            continue;
         }
-
-        // 执行RGA处理
+        
+        // 2. 创建预处理任务
+        PreprocessTask task;
+        task.orig_img = frame;
+        gettimeofday(&task.timestamp, NULL);
+        
+        // 3. 执行 RGA 预处理（翻转 + 缩放）
         process_with_rga(task);
-
-        // 放入输出队列
+        
+        // 4. 放入输出队列（丢弃旧帧，只保留最新）
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            if (output_queue_.size() < MAX_QUEUE_SIZE) {
-                output_queue_.push(task);
+            while (output_queue_.size() >= MAX_QUEUE_SIZE) {
+                output_queue_.pop();
             }
+            output_queue_.push(task);
         }
     }
+}
+
+bool PreprocessingThread::read_frame(cv::Mat& frame) {
+    if (camera_type_ == "usb") {
+        if (use_async_usb_) {
+            read_usb_frame_async(&frame);
+        } else {
+            read_usb_frame(&frame);
+        }
+    } else if (camera_type_ == "mipi") {
+        read_mipi_frame(&frame);
+    } else {
+        return false;
+    }
+    
+    return !frame.empty();
 }
 
 void PreprocessingThread::process_with_rga(PreprocessTask& task) {
@@ -120,7 +118,7 @@ void PreprocessingThread::process_with_rga(PreprocessTask& task) {
 
     IM_STATUS flip_status = imflip(flip_src, flip_dst, IM_HAL_TRANSFORM_FLIP_H);
     if (flip_status != IM_STATUS_SUCCESS) {
-        // RGA失败,降级到OpenCV
+        // RGA失败，降级到OpenCV
         cv::flip(task.orig_img, flipped_buffer_, 1);
     }
 
@@ -135,11 +133,10 @@ void PreprocessingThread::process_with_rga(PreprocessTask& task) {
 
     IM_STATUS resize_status = improcess(src_buf, dst_buf, pat_buf, src_rect, dst_rect, pat_rect, 0);
     if (resize_status != IM_STATUS_SUCCESS) {
-        // RGA失败,降级到OpenCV
+        // RGA失败，降级到OpenCV
         cv::resize(flipped_buffer_, task.processed_img, cv::Size(resize_w_, resize_h_), 0, 0, cv::INTER_LINEAR);
     }
 
     // 更新原图为翻转后的图像
     task.orig_img = flipped_buffer_.clone();
 }
-

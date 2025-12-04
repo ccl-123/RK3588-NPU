@@ -16,7 +16,7 @@
 #include "app/model_manager.h"
 #include "app/feature_library.h"
 #include "app/preprocessing_thread.h"
-#include "app/rendering_thread.h"
+#include "app/recognition_thread.h"
 #include "app/performance_monitor.h"
 
 /**
@@ -81,12 +81,10 @@ using FrameCallback = std::function<void(const cv::Mat& frame, const std::vector
 /**
  * @brief 人脸识别应用主类
  *
- * 职责:
- * - 初始化所有模块 (模型、摄像头、线程等)
- * - 控制主循环流程
- * - 协调各模块协同工作
- * - 资源清理和释放
- * - 支持识别结果回调(新增)
+ * 流水线架构：
+ * - 线程1: 采集 + RGA预处理
+ * - 线程2: YOLO检测 (主线程)
+ * - 线程3: 对齐 + FaceNet + 匹配 + 渲染
  */
 class FaceRecognitionApp {
 public:
@@ -169,8 +167,6 @@ public:
     bool is_running() const { return running_; }
 
     // ==================== GUI 人脸注册接口 ====================
-    // 注意：以下接口专为 GUI 人脸注册功能设计，返回友好的数据结构
-    // 实时识别线程使用 private 版本的 detect_faces() 和 recognize_and_match()
 
     /**
      * @brief 从原始帧中检测人脸（GUI 注册专用）
@@ -222,41 +218,9 @@ private:
     int init_camera();
 
     /**
-     * @brief 处理单帧图像（实时识别线程使用）
-     */
-    void process_frame();
-
-    // ==================== 实时识别核心函数 ====================
-    // 注意：以下函数用于实时识别线程，经过充分测试，稳定可靠
-    // 使用 similarTransform + warpPerspective 进行人脸对齐
-    // GUI 人脸注册使用 public 版本的接口
-
-    /**
-     * @brief 人脸检测（实时识别专用）
-     * @param img 输入图像（已缩放到 resize_w_ x resize_h_）
-     * @param result_group 输出检测结果（RKNN 原始格式）
-     *
-     * @note 此函数用于实时识别线程，输入图像已经过预处理
-     * @note 使用 similarTransform + warpPerspective 进行人脸对齐
-     * @note 不要在 GUI 注册功能中使用此函数
+     * @brief 人脸检测（主线程调用）
      */
     void detect_faces(const cv::Mat& img, detect_result_group_t& result_group);
-
-    /**
-     * @brief 人脸识别和匹配（实时识别专用）
-     * @param orig_img 原始图像（未缩放）
-     * @param result_group 检测结果
-     * @param render_img 输出渲染图像（绘制人脸框和识别结果）
-     * @param results 输出识别结果列表（可选，用于GUI回调）
-     *
-     * @note 此函数用于实时识别线程，包含人脸对齐、特征提取、匹配、绘制
-     * @note 使用 similarTransform + warpPerspective 进行人脸对齐
-     * @note 不要在 GUI 注册功能中使用此函数
-     */
-    void recognize_and_match(const cv::Mat& orig_img,
-                            const detect_result_group_t& result_group,
-                            cv::Mat& render_img,
-                            std::vector<RecognitionResult>* results = nullptr);
 
     /**
      * @brief 清理资源
@@ -278,7 +242,7 @@ private:
     ModelManager model_manager_;
     FeatureLibrary feature_library_;
     PreprocessingThread* preprocess_thread_;
-    RenderingThread* render_thread_;
+    RecognitionThread* recognition_thread_;
     PerformanceMonitor perf_monitor_;
 
     // 回调函数(新增)
