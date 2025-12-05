@@ -44,8 +44,6 @@ endif()
 set(RGA_LIB ${RGA_PATH}/lib/Linux/${LIB_ARCH}/librga.so)
 include_directories( ${RGA_PATH}/include)
 
-set(CMAKE_INSTALL_RPATH "lib")
-
 # SQLite3
 find_package(SQLite3 REQUIRED)
 include_directories(${SQLite3_INCLUDE_DIRS})
@@ -203,8 +201,10 @@ if(Qt5_FOUND)
         ${SERVICE_SOURCES}
         ${APP_SOURCES}
         ${GUI_SOURCES}
-        ${GUI_HEADERS}
     )
+
+    # 保持头文件可见性但不参与编译
+    target_sources(${TARGET_NAME}_gui PRIVATE ${GUI_HEADERS})
 
     # 为 GUI 目标启用 AUTOMOC
     set_target_properties(${TARGET_NAME}_gui PROPERTIES

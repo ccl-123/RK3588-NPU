@@ -6,6 +6,7 @@
  */
 
 #include "ui/recognition_page.h"
+#include "config/config.h"
 
 #include "gui/video_display_widget.h"
 #include "widgets/card_widget.h"
