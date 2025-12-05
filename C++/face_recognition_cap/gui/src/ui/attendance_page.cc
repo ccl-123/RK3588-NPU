@@ -360,7 +360,9 @@ void AttendancePage::filter_records() {
     // Update table
     records_table_->setRowCount(0);
     
-    for (const auto& record : filtered_records_) {
+    // 最新记录在最上方：倒序遍历
+    for (auto it = filtered_records_.rbegin(); it != filtered_records_.rend(); ++it) {
+        const auto& record = *it;
         int row = records_table_->rowCount();
         records_table_->insertRow(row);
 

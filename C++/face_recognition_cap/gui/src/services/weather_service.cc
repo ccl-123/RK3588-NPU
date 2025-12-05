@@ -205,7 +205,7 @@ void WeatherService::onWeatherReplyFinished(QNetworkReply* reply) {
             cached_temp_ = tempStr;
             cached_desc_ = weatherDesc;
             has_weather_cache_ = true;
-
+            
             emit weatherUpdated(current_city_, tempStr, weatherDesc);
         }
     }
@@ -227,7 +227,7 @@ void WeatherService::onAqiReplyFinished(QNetworkReply* reply) {
             cached_aqi_ = aqi;
             cached_aqi_level_ = level;
             has_aqi_cache_ = true;
-
+            
             emit aqiUpdated(aqi, level);
         }
     }
@@ -248,7 +248,7 @@ void WeatherService::onUvReplyFinished(QNetworkReply* reply) {
             cached_uv_ = uv;
             cached_uv_level_ = level;
             has_uv_cache_ = true;
-
+            
             emit uvUpdated(uv, level);
         }
     }
@@ -280,7 +280,7 @@ void WeatherService::onDailySentenceReplyFinished(QNetworkReply* reply) {
             cached_sentence_en_ = hitokoto;
             cached_sentence_from_ = from.isEmpty() ? "" : QString("—— %1").arg(from);
             has_sentence_cache_ = true;
-
+            
             emit dailySentenceUpdated(hitokoto, from.isEmpty() ? "" : QString("—— %1").arg(from));
         }
     }
