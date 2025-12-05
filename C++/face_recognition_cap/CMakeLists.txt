@@ -95,6 +95,7 @@ set(SERVICE_SOURCES
 
 set(APP_SOURCES
     src/app/preprocessing_thread.cc
+    src/app/postprocess_thread.cc
     src/app/recognition_thread.cc
     src/app/performance_monitor.cc
     src/app/model_manager.cc

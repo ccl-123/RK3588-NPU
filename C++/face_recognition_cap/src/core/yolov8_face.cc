@@ -10,6 +10,9 @@
 #include <string.h>
 #include <sys/time.h>
 #include <iostream>
+#include <vector>
+#include <array>
+#include <cstring>
 
 #define _BASETSD_H
 
@@ -167,18 +170,22 @@ int create_yolov8_face(char* model_name, rknn_context* ctx,
     return ret;
 }
 
-int yolov8_face_inference(rknn_context* ctx, cv::Mat img,
-                          int width, int height, int channel,
-                          float box_conf_threshold, float nms_threshold,
-                          int img_width, int img_height,
-                          rknn_input_output_num io_num,
-                          rknn_input* inputs, rknn_output* outputs,
-                          rknn_tensor_attr* output_attrs,
-                          detect_result_group_t* detect_result_group) {
+int yolov8_face_run(rknn_context* ctx, const cv::Mat& img,
+                    int width, int height, int channel,
+                    int img_width, int img_height,
+                    const rknn_input_output_num& io_num,
+                    rknn_input* inputs, rknn_output* outputs,
+                    rknn_tensor_attr* output_attrs,
+                    std::array<std::vector<uint8_t>, YOLOV8_FACE_OUTPUT_NUM>& output_buffers) {
     int ret;
+    (void)channel;
+    (void)img_height;
+    (void)img_width;
+    (void)width;
+    (void)height;
+    (void)output_attrs;
 
-    // 设置输入
-    inputs[0].buf = (void*)img.data;
+    inputs[0].buf = const_cast<void*>(reinterpret_cast<const void*>(img.data));
 
     ret = rknn_inputs_set(*ctx, io_num.n_input, inputs);
     if (ret < 0) {
@@ -186,36 +193,58 @@ int yolov8_face_inference(rknn_context* ctx, cv::Mat img,
         return ret;
     }
 
-    // 运行推理
     ret = rknn_run(*ctx, NULL);
     if (ret < 0) {
         printf("rknn_run error ret=%d\n", ret);
         return ret;
     }
 
-    // 获取输出
     ret = rknn_outputs_get(*ctx, io_num.n_output, outputs, NULL);
     if (ret < 0) {
         printf("rknn_outputs_get error ret=%d\n", ret);
         return ret;
     }
 
-    // 后处理 - 计算缩放比例
-    float scale_w = (float)width / img_width;
-    float scale_h = (float)height / img_height;
+    // 拷贝输出到自管 buffer，便于跨线程传递
+    for (int i = 0; i < io_num.n_output; ++i) {
+        output_buffers[i].resize(outputs[i].size);
+        if (!output_buffers[i].empty() && outputs[i].buf) {
+            memcpy(output_buffers[i].data(), outputs[i].buf, outputs[i].size);
+        }
+    }
+
+    ret = rknn_outputs_release(*ctx, io_num.n_output, outputs);
+    return ret;
+}
+
+int yolov8_face_postprocess(
+    const std::array<std::vector<uint8_t>, YOLOV8_FACE_OUTPUT_NUM>& output_buffers,
+    rknn_tensor_attr* output_attrs,
+    int n_output,
+    int model_in_h, int model_in_w,
+    int img_width, int img_height,
+    float box_conf_threshold, float nms_threshold,
+    detect_result_group_t* detect_result_group) {
+
+    // 构造临时 rknn_output 指向已拷贝的数据
+    rknn_output outputs[YOLOV8_FACE_OUTPUT_NUM];
+    memset(outputs, 0, sizeof(outputs));
+    for (int i = 0; i < n_output; ++i) {
+        outputs[i].is_prealloc = 1;
+        outputs[i].want_float = 0;
+        outputs[i].buf = const_cast<uint8_t*>(output_buffers[i].data());
+        outputs[i].size = output_buffers[i].size();
+    }
+
+    float scale_w = static_cast<float>(model_in_w) / img_width;
+    float scale_h = static_cast<float>(model_in_h) / img_height;
 
     memset(detect_result_group, 0, sizeof(detect_result_group_t));
-
-    // 调用 YOLOv8-face 后处理
-    ret = post_process_yolov8_face(outputs, output_attrs, io_num.n_output,
-                                   height, width,
-                                   box_conf_threshold, nms_threshold,
-                                   scale_w, scale_h,
-                                   detect_result_group);
-
-    // 释放输出
-    ret = rknn_outputs_release(*ctx, io_num.n_output, outputs);
-
+    int ret = post_process_yolov8_face(outputs, output_attrs, n_output,
+                                       model_in_h, model_in_w,
+                                       box_conf_threshold, nms_threshold,
+                                       scale_w, scale_h,
+                                       detect_result_group);
     return ret;
 }
 

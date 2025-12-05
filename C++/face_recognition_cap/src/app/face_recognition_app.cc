@@ -13,6 +13,7 @@
 #include "database/database_manager.h"
 #include "service/attendance_service.h"
 #include <spdlog/spdlog.h>
+#include <array>
 #include <sys/time.h>
 #include <iostream>
 #include <cstring>
@@ -131,6 +132,7 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
     preprocess_thread_ = std::make_unique<PreprocessingThread>(
         resize_w_, resize_h_,
         config_.camera_width, config_.camera_height,
+        &perf_monitor_,
         config_.camera_type, config_.use_async_usb);
 
     // 线程3: 识别 + 渲染
@@ -138,7 +140,13 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
         &model_manager_, &feature_library_,
         dst_landmark_, config_.facenet_threshold);
 
+    // 线程2.5: YOLO后处理
+    postprocess_thread_ = std::make_unique<PostprocessThread>(
+        &model_manager_, recognition_thread_.get(), &perf_monitor_,
+        config_.box_conf_threshold, config_.nms_threshold);
+
     preprocess_thread_->start();
+    postprocess_thread_->start();
     recognition_thread_->start();
 
     // 7. 初始化性能监控
@@ -191,6 +199,8 @@ int FaceRecognitionApp::run() {
     spdlog::info("  Thread 3: FaceNet + Match + Render");
 
     struct timeval t_start, t_detect_end;
+    int detector_width, detector_height, detector_channel;
+    model_manager_.get_face_detector_size(detector_width, detector_height, detector_channel);
 
     while (running_) {
         // 1. 从预处理线程获取结果（采集+RGA已在线程1完成）
@@ -201,12 +211,30 @@ int FaceRecognitionApp::run() {
 
         gettimeofday(&t_start, NULL);
 
-        // 2. 人脸检测（主线程只做YOLO检测）
-        detect_result_group_t detect_result;
-        detect_faces(task.processed_img, detect_result);
+        // 2. 人脸检测（仅NPU推理）
+        std::array<std::vector<uint8_t>, YOLOV8_FACE_OUTPUT_NUM> yolo_outputs;
+        int ret = yolov8_face_run(
+            model_manager_.get_face_detector_ctx(),
+            task.processed_img,
+            detector_width,
+            detector_height,
+            detector_channel,
+            task.processed_img.cols,
+            task.processed_img.rows,
+            model_manager_.get_face_detector_io_num(),
+            model_manager_.get_face_detector_inputs(),
+            model_manager_.get_face_detector_outputs(),
+            model_manager_.get_face_detector_output_attrs(),
+            yolo_outputs
+        );
         
         gettimeofday(&t_detect_end, NULL);
         float detect_time = (get_us(t_detect_end) - get_us(t_start)) / 1000.0;
+
+        if (ret < 0) {
+            spdlog::warn("YOLO inference failed, ret={}", ret);
+            continue;
+        }
         
         // 3. 性能统计
         perf_monitor_.update_fps(1000.0 / detect_time);
@@ -215,14 +243,19 @@ int FaceRecognitionApp::run() {
         perf_monitor_.record_recognition_time(recognition_thread_->get_avg_facenet_time());
         perf_monitor_.record_matching_time(recognition_thread_->get_avg_match_time());
 
-        // 4. 提交到识别线程
-        RecognitionTask rec_task;
-        rec_task.orig_img = task.orig_img;
-        rec_task.detect_result = detect_result;
-        rec_task.timestamp = task.timestamp;
-        rec_task.current_fps = perf_monitor_.get_smoothed_fps();
-        rec_task.frame_time = detect_time;
-        recognition_thread_->submit_task(rec_task);
+        // 4. 提交到后处理线程
+        PostprocessTask pp_task;
+        pp_task.orig_img = std::move(task.orig_img);
+        pp_task.yolo_outputs = std::move(yolo_outputs);
+        // 将模型坐标映射回原始相机坐标所需的尺度（考虑resize后再padding）
+        pp_task.img_width = static_cast<int>(
+            (static_cast<float>(detector_width) * config_.camera_width) / resize_w_);
+        pp_task.img_height = static_cast<int>(
+            (static_cast<float>(detector_height) * config_.camera_height) / resize_h_);
+        pp_task.timestamp = task.timestamp;
+        pp_task.current_fps = perf_monitor_.get_smoothed_fps();
+        pp_task.frame_time = detect_time;
+        postprocess_thread_->submit_task(std::move(pp_task));
 
         // 5. 打印性能报告
         if (perf_monitor_.should_print_report()) {
@@ -235,40 +268,56 @@ int FaceRecognitionApp::run() {
 
 void FaceRecognitionApp::detect_faces(const cv::Mat& img, detect_result_group_t& result_group) {
     cv::Mat padded_img = img.clone();
-    int img_width, img_height;
-
-    // 添加padding
-    if (config_.camera_width > config_.camera_height) {
-        cv::copyMakeBorder(padded_img, padded_img, 0, padding_, 0, 0,
-                          cv::BorderTypes::BORDER_CONSTANT, cv::Scalar(0, 0, 0));
-        img_width = config_.camera_width;
-        img_height = config_.camera_width;
-    } else {
-        cv::copyMakeBorder(padded_img, padded_img, 0, 0, 0, padding_,
-                          cv::BorderTypes::BORDER_CONSTANT, cv::Scalar(0, 0, 0));
-        img_width = config_.camera_height;
-        img_height = config_.camera_height;
-    }
-
-    // 获取模型参数
     int detector_width, detector_height, detector_channel;
     model_manager_.get_face_detector_size(detector_width, detector_height, detector_channel);
 
-    // 执行 YOLOv8-face 推理
-    yolov8_face_inference(
+    int img_width = static_cast<int>(
+        (static_cast<float>(detector_width) * config_.camera_width) / resize_w_);
+    int img_height = static_cast<int>(
+        (static_cast<float>(detector_height) * config_.camera_height) / resize_h_);
+
+    // 添加padding到正方形
+    if (img.cols > img.rows) {
+        int pad = img.cols - img.rows;
+        cv::copyMakeBorder(padded_img, padded_img, 0, pad, 0, 0,
+                          cv::BorderTypes::BORDER_CONSTANT, cv::Scalar(0, 0, 0));
+    } else if (img.rows > img.cols) {
+        int pad = img.rows - img.cols;
+        cv::copyMakeBorder(padded_img, padded_img, 0, 0, 0, pad,
+                          cv::BorderTypes::BORDER_CONSTANT, cv::Scalar(0, 0, 0));
+    }
+
+    std::array<std::vector<uint8_t>, YOLOV8_FACE_OUTPUT_NUM> yolo_outputs;
+    int ret = yolov8_face_run(
         model_manager_.get_face_detector_ctx(),
         padded_img,
         detector_width,
         detector_height,
         detector_channel,
-        config_.box_conf_threshold,
-        config_.nms_threshold,
         img_width,
         img_height,
         model_manager_.get_face_detector_io_num(),
         model_manager_.get_face_detector_inputs(),
         model_manager_.get_face_detector_outputs(),
         model_manager_.get_face_detector_output_attrs(),
+        yolo_outputs
+    );
+
+    if (ret != 0) {
+        memset(&result_group, 0, sizeof(detect_result_group_t));
+        return;
+    }
+
+    yolov8_face_postprocess(
+        yolo_outputs,
+        model_manager_.get_face_detector_output_attrs(),
+        YOLOV8_FACE_OUTPUT_NUM,
+        detector_height,
+        detector_width,
+        img_width,
+        img_height,
+        config_.box_conf_threshold,
+        config_.nms_threshold,
         &result_group
     );
 }
@@ -288,6 +337,11 @@ void FaceRecognitionApp::cleanup() {
     if (preprocess_thread_) {
         preprocess_thread_->stop();
         preprocess_thread_.reset();
+    }
+
+    if (postprocess_thread_) {
+        postprocess_thread_->stop();
+        postprocess_thread_.reset();
     }
 
     if (recognition_thread_) {
@@ -411,23 +465,17 @@ int FaceRecognitionApp::detect_faces(const cv::Mat& frame,
     cv::Mat resized_img;
     cv::resize(frame, resized_img, cv::Size(resize_w_, resize_h_));
 
-    // 添加 padding 使其成为正方形（与旧版本 detect_faces 一致）
+    // 添加 padding 使其成为正方形（与旧版本一致）
     cv::Mat padded_img = resized_img.clone();
-    int img_width, img_height;
-
-    if (config_.camera_width > config_.camera_height) {
-        // 1280x720 -> 640x360，需要在底部添加 padding 到 640x640
+    if (resize_w_ >= resize_h_) {
         cv::copyMakeBorder(padded_img, padded_img, 0, padding_, 0, 0,
                           cv::BorderTypes::BORDER_CONSTANT, cv::Scalar(0, 0, 0));
-        img_width = resize_w_;
-        img_height = resize_w_;  // 640x640
     } else {
-        // 竖屏模式，在右侧添加 padding
         cv::copyMakeBorder(padded_img, padded_img, 0, 0, 0, padding_,
                           cv::BorderTypes::BORDER_CONSTANT, cv::Scalar(0, 0, 0));
-        img_width = resize_h_;
-        img_height = resize_h_;
     }
+    int img_width = config_.camera_width;
+    int img_height = config_.camera_height;
 
     // YOLOv8-face 检测
     detect_result_group_t detect_result_group;
@@ -436,20 +484,36 @@ int FaceRecognitionApp::detect_faces(const cv::Mat& frame,
     int detector_width, detector_height, detector_channel;
     model_manager_.get_face_detector_size(detector_width, detector_height, detector_channel);
 
-    yolov8_face_inference(
+    std::array<std::vector<uint8_t>, YOLOV8_FACE_OUTPUT_NUM> yolo_outputs;
+    int ret = yolov8_face_run(
         model_manager_.get_face_detector_ctx(),
         padded_img,
         detector_width,
         detector_height,
         detector_channel,
-        config_.box_conf_threshold,
-        config_.nms_threshold,
         img_width,
         img_height,
         model_manager_.get_face_detector_io_num(),
         model_manager_.get_face_detector_inputs(),
         model_manager_.get_face_detector_outputs(),
         model_manager_.get_face_detector_output_attrs(),
+        yolo_outputs
+    );
+
+    if (ret != 0) {
+        return 0;
+    }
+
+    yolov8_face_postprocess(
+        yolo_outputs,
+        model_manager_.get_face_detector_output_attrs(),
+        YOLOV8_FACE_OUTPUT_NUM,
+        detector_height,
+        detector_width,
+        img_width,
+        img_height,
+        config_.box_conf_threshold,
+        config_.nms_threshold,
         &detect_result_group
     );
 

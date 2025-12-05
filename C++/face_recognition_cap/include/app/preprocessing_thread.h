@@ -22,13 +22,14 @@
 #include <sys/time.h>
 #include <string>
 #include "config/config.h"
+#include "app/performance_monitor.h"
 
 /*-------------------------------------------
     预处理任务结构
 -------------------------------------------*/
 struct PreprocessTask {
     cv::Mat orig_img;           // 原始图像（翻转后）
-    cv::Mat processed_img;      // 处理后的图像（缩放后）
+    cv::Mat processed_img;      // 处理后的图像（缩放+padding，尺寸等于模型输入）
     struct timeval timestamp;   // 时间戳
 };
 
@@ -48,6 +49,7 @@ public:
      * @param use_async_usb 是否使用异步USB读取
      */
     PreprocessingThread(int resize_w, int resize_h, int img_width, int img_height,
+                        PerformanceMonitor* perf_monitor,
                         const std::string& camera_type = "usb", bool use_async_usb = true);
     ~PreprocessingThread();
 
@@ -88,9 +90,19 @@ private:
     int img_height_;
     std::string camera_type_;
     bool use_async_usb_;
+    PerformanceMonitor* perf_monitor_;
 
     // 静态缓冲区（避免重复分配）
     cv::Mat flipped_buffer_;
+    cv::Mat resized_buffer_;    // 非方形缩放结果，后续再padding
+
+    // padding 目标尺寸与边界
+    int target_w_;
+    int target_h_;
+    int pad_top_;
+    int pad_bottom_;
+    int pad_left_;
+    int pad_right_;
 
     // 队列大小限制（只保留最新帧）
     static const int MAX_QUEUE_SIZE = Config::Performance::QUEUE_MAX_SIZE;

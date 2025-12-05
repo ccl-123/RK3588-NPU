@@ -10,9 +10,11 @@
 #include "RgaUtils.h"
 #include "im2d.h"
 #include "rga.h"
+#include <algorithm>
 
 PreprocessingThread::PreprocessingThread(int resize_w, int resize_h, 
                                          int img_width, int img_height,
+                                         PerformanceMonitor* perf_monitor,
                                          const std::string& camera_type,
                                          bool use_async_usb)
     : running_(false)
@@ -22,8 +24,22 @@ PreprocessingThread::PreprocessingThread(int resize_w, int resize_h,
     , img_height_(img_height)
     , camera_type_(camera_type)
     , use_async_usb_(use_async_usb)
+    , perf_monitor_(perf_monitor)
     , flipped_buffer_(img_height, img_width, CV_8UC3)
+    , resized_buffer_(resize_h, resize_w, CV_8UC3)
 {
+    // 计算 padding 目标尺寸与边界（输出为正方形，适配模型输入）
+    target_w_ = std::max(resize_w_, resize_h_);
+    target_h_ = target_w_;
+    pad_top_ = 0;
+    pad_left_ = 0;
+    if (resize_w_ >= resize_h_) {
+        pad_bottom_ = target_h_ - resize_h_;
+        pad_right_ = 0;
+    } else {
+        pad_bottom_ = 0;
+        pad_right_ = target_w_ - resize_w_;
+    }
 }
 
 PreprocessingThread::~PreprocessingThread() {
@@ -68,6 +84,7 @@ void PreprocessingThread::thread_func() {
     cv::Mat frame;
     
     while (running_) {
+        auto t0 = std::chrono::steady_clock::now();
         // 1. 从摄像头读取一帧
         if (!read_frame(frame)) {
             continue;
@@ -89,7 +106,12 @@ void PreprocessingThread::thread_func() {
             }
                 output_queue_.push(task);
             }
+        auto t1 = std::chrono::steady_clock::now();
+        if (perf_monitor_) {
+            double ms = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count() / 1000.0;
+            perf_monitor_->record_preprocess_time(ms);
         }
+    }
     }
 
 bool PreprocessingThread::read_frame(cv::Mat& frame) {
@@ -109,15 +131,19 @@ bool PreprocessingThread::read_frame(cv::Mat& frame) {
 }
 
 void PreprocessingThread::process_with_rga(PreprocessTask& task) {
-    // 分配处理后的图像缓冲区
-    task.processed_img = cv::Mat(resize_h_, resize_w_, CV_8UC3);
+    // 目标方形缓冲区（匹配模型输入尺寸）
+    task.processed_img = cv::Mat(target_h_, target_w_, CV_8UC3);
 
     // 检查是否启用RGA硬件加速
     if (!Config::Performance::USE_RGA) {
         // 完全使用OpenCV，避免RGA库的Valgrind警告
         cv::flip(task.orig_img, flipped_buffer_, 1);
-        cv::resize(flipped_buffer_, task.processed_img, cv::Size(resize_w_, resize_h_), 0, 0, cv::INTER_LINEAR);
-        task.orig_img = flipped_buffer_.clone();
+        cv::resize(flipped_buffer_, resized_buffer_, cv::Size(resize_w_, resize_h_), 0, 0, cv::INTER_LINEAR);
+        // padding 到方形
+        cv::copyMakeBorder(resized_buffer_, task.processed_img,
+                           pad_top_, pad_bottom_, pad_left_, pad_right_,
+                           cv::BORDER_CONSTANT, cv::Scalar(0, 0, 0));
+        task.orig_img = flipped_buffer_.clone();  // 保留翻转后的原图用于渲染
         return;
     }
 
@@ -131,9 +157,9 @@ void PreprocessingThread::process_with_rga(PreprocessTask& task) {
         cv::flip(task.orig_img, flipped_buffer_, 1);
     }
 
-    // 第二步: RGA缩放
+    // 第二步: RGA缩放到非方形 resized_buffer_
     rga_buffer_t src_buf = wrapbuffer_virtualaddr(flipped_buffer_.data, img_width_, img_height_, RK_FORMAT_BGR_888);
-    rga_buffer_t dst_buf = wrapbuffer_virtualaddr(task.processed_img.data, resize_w_, resize_h_, RK_FORMAT_BGR_888);
+    rga_buffer_t dst_buf = wrapbuffer_virtualaddr(resized_buffer_.data, resize_w_, resize_h_, RK_FORMAT_BGR_888);
 
     im_rect src_rect = {0, 0, img_width_, img_height_};
     im_rect dst_rect = {0, 0, resize_w_, resize_h_};
@@ -143,8 +169,13 @@ void PreprocessingThread::process_with_rga(PreprocessTask& task) {
     IM_STATUS resize_status = improcess(src_buf, dst_buf, pat_buf, src_rect, dst_rect, pat_rect, 0);
     if (resize_status != IM_STATUS_SUCCESS) {
         // RGA失败，降级到OpenCV
-        cv::resize(flipped_buffer_, task.processed_img, cv::Size(resize_w_, resize_h_), 0, 0, cv::INTER_LINEAR);
+        cv::resize(flipped_buffer_, resized_buffer_, cv::Size(resize_w_, resize_h_), 0, 0, cv::INTER_LINEAR);
     }
+
+    // 第三步: padding 到方形模型输入
+    cv::copyMakeBorder(resized_buffer_, task.processed_img,
+                       pad_top_, pad_bottom_, pad_left_, pad_right_,
+                       cv::BORDER_CONSTANT, cv::Scalar(0, 0, 0));
 
     // 更新原图为翻转后的图像
     task.orig_img = flipped_buffer_.clone();

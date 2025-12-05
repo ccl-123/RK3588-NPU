@@ -17,6 +17,7 @@
 #include <fstream>
 #include <sstream>
 #include <cstring>
+#include <algorithm>
 
 PerformanceMonitor::PerformanceMonitor(int report_interval)
     : smoothed_fps_(0.0)
@@ -27,8 +28,16 @@ PerformanceMonitor::PerformanceMonitor(int report_interval)
 {
 }
 
+void PerformanceMonitor::record_preprocess_time(double ms) {
+    preprocess_times_.push_back(ms);
+}
+
 void PerformanceMonitor::record_detection_time(double ms) {
     detection_times_.push_back(ms);
+}
+
+void PerformanceMonitor::record_postprocess_time(double ms) {
+    postprocess_times_.push_back(ms);
 }
 
 void PerformanceMonitor::record_alignment_time(double ms) {
@@ -129,16 +138,18 @@ double PerformanceMonitor::get_npu_memory_mb() {
 void PerformanceMonitor::print_report() {
     if (detection_times_.empty()) return;
 
+    double avg_pre   = get_average(preprocess_times_);
     double avg_detect = get_average(detection_times_);
+    double avg_post = get_average(postprocess_times_);
     double avg_align = get_average(alignment_times_);
     double avg_facenet = get_average(recognition_times_);
     double avg_match = get_average(matching_times_);
 
     double thread3_total = avg_align + avg_facenet + avg_match;
-    double bottleneck = std::max(avg_detect, thread3_total);
+    double bottleneck = std::max({avg_pre, avg_detect, avg_post, thread3_total});
     double theoretical_fps = (bottleneck > 0) ? (1000.0 / bottleneck) : 0.0;
     
-    // 计算线程2理论 FPS (瓶颈线程)
+    // 线程2 FPS（仅检测线程需要显示 FPS）
     double thread2_fps = (avg_detect > 0) ? (1000.0 / avg_detect) : 0.0;
     
     // 获取资源占用
@@ -153,9 +164,10 @@ void PerformanceMonitor::print_report() {
     
     // 线程耗时
     std::cout << "║ 【线程耗时】                                             ║" << std::endl;
-    std::cout << "║  线程1 [采集+RGA]:          异步 (不阻塞)                ║" << std::endl;
-    std::cout << "║  线程2 [YOLO检测]:    " << std::setw(6) << avg_detect << " ms  (" 
+    std::cout << "║  线程1 [采集+RGA]:    " << std::setw(6) << avg_pre << " ms                        ║" << std::endl;
+    std::cout << "║  线程2 [YOLO推理]:    " << std::setw(6) << avg_detect << " ms  (" 
               << std::setw(5) << thread2_fps << " FPS)             ║" << std::endl;
+    std::cout << "║  线程2.5 [后处理]:    " << std::setw(6) << avg_post << " ms                        ║" << std::endl;
     std::cout << "║  线程3 [识别+渲染]:   " << std::setw(6) << thread3_total << " ms                          ║" << std::endl;
     std::cout << "║    ├─ 人脸对齐:       " << std::setw(6) << avg_align << " ms                       ║" << std::endl;
     std::cout << "║    ├─ FaceNet:        " << std::setw(6) << avg_facenet << " ms                       ║" << std::endl;
@@ -177,7 +189,10 @@ void PerformanceMonitor::print_report() {
     std::cout << "║  实际 FPS:            " << std::setw(6) << smoothed_fps_ << "                            ║" << std::endl;
     std::cout << "║  理论最大 FPS:        " << std::setw(6) << theoretical_fps << "                            ║" << std::endl;
     std::cout << "║  流水线瓶颈:          " 
-              << (avg_detect >= thread3_total ? "线程2 (YOLO检测)            " : "线程3 (识别+渲染)           ")
+              << (bottleneck == avg_pre   ? "线程1 (采集+RGA)            "
+                  : (bottleneck == avg_detect ? "线程2 (YOLO推理)            "
+                  : (bottleneck == avg_post ? "线程2.5 (后处理)            "
+                  : "线程3 (识别+渲染)           ")))
               << "║" << std::endl;
     
     std::cout << "╚══════════════════════════════════════════════════════════╝" << std::endl;
@@ -186,7 +201,9 @@ void PerformanceMonitor::print_report() {
 }
 
 void PerformanceMonitor::reset() {
+    preprocess_times_.clear();
     detection_times_.clear();
+    postprocess_times_.clear();
     alignment_times_.clear();
     recognition_times_.clear();
     matching_times_.clear();

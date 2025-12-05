@@ -7,6 +7,7 @@
  * 流水线架构：
  * - 线程1: 采集 + RGA预处理
  * - 线程2: YOLO检测 (主线程)
+ * - 线程2.5: YOLO后处理 (DFL/NMS)
  * - 线程3: 对齐 + FaceNet + 匹配 + 渲染
  * 
  * 监控内容：
@@ -26,8 +27,14 @@ public:
     PerformanceMonitor(int report_interval = Config::Performance::REPORT_INTERVAL);
     ~PerformanceMonitor() = default;
 
+    // 线程1：预处理耗时
+    void record_preprocess_time(double ms);
+
     // 线程2：YOLO检测耗时
     void record_detection_time(double ms);
+
+    // 线程2.5：YOLO后处理耗时
+    void record_postprocess_time(double ms);
     
     // 线程3：识别阶段耗时
     void record_alignment_time(double ms);
@@ -52,7 +59,9 @@ private:
     double get_npu_memory_mb();
 
 private:
+    std::vector<double> preprocess_times_;
     std::vector<double> detection_times_;
+    std::vector<double> postprocess_times_;
     std::vector<double> alignment_times_;
     std::vector<double> recognition_times_;
     std::vector<double> matching_times_;

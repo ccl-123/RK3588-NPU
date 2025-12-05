@@ -20,6 +20,7 @@
 #include "app/preprocessing_thread.h"
 #include "app/recognition_thread.h"
 #include "app/performance_monitor.h"
+#include "app/postprocess_thread.h"
 
 // 前向声明
 namespace service {
@@ -249,6 +250,7 @@ private:
     ModelManager model_manager_;
     FeatureLibrary feature_library_;
     std::unique_ptr<PreprocessingThread> preprocess_thread_;   // 智能指针管理
+    std::unique_ptr<PostprocessThread> postprocess_thread_;    // YOLO后处理线程
     std::unique_ptr<RecognitionThread> recognition_thread_;     // 智能指针管理
     PerformanceMonitor perf_monitor_;
 

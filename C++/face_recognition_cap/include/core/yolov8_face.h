@@ -11,6 +11,7 @@
 
 #include <stdint.h>
 #include <vector>
+#include <array>
 #include "rknn_api.h"
 #include "core/postprocess.h"
 
@@ -36,31 +37,51 @@ int create_yolov8_face(char* model_name, rknn_context* ctx,
                        unsigned char*& model_data);  // 引用传递，确保内存正确释放
 
 /**
- * @brief YOLOv8-face 推理
- * @param ctx                   RKNN 上下文
- * @param img                   输入图像 (已预处理到模型输入尺寸)
- * @param width                 模型输入宽度
- * @param height                模型输入高度
- * @param channel               模型输入通道数
- * @param box_conf_threshold    置信度阈值
- * @param nms_threshold         NMS 阈值
- * @param img_width             原图宽度 (padding 后的正方形)
- * @param img_height            原图高度 (padding 后的正方形)
- * @param io_num                输入输出数量
- * @param inputs                输入数组
- * @param outputs               输出数组
- * @param output_attrs          输出属性数组
- * @param detect_result_group   检测结果
+ * @brief YOLOv8-face 推理（仅 NPU 运行 + 取输出）
+ * @param ctx          RKNN 上下文
+ * @param img          输入图像 (已预处理到模型输入尺寸)
+ * @param width        模型输入宽度
+ * @param height       模型输入高度
+ * @param channel      模型输入通道数
+ * @param img_width    padding 后的宽
+ * @param img_height   padding 后的高
+ * @param io_num       输入输出数量
+ * @param inputs       输入数组
+ * @param outputs      输出数组
+ * @param output_attrs 输出属性数组
+ * @param output_buffers 输出原始数据拷贝（int8）
  * @return 0 成功, 其他失败
  */
-int yolov8_face_inference(rknn_context* ctx, cv::Mat img,
-                          int width, int height, int channel,
-                          float box_conf_threshold, float nms_threshold,
-                          int img_width, int img_height,
-                          rknn_input_output_num io_num,
-                          rknn_input* inputs, rknn_output* outputs,
-                          rknn_tensor_attr* output_attrs,
-                          detect_result_group_t* detect_result_group);
+int yolov8_face_run(rknn_context* ctx, const cv::Mat& img,
+                    int width, int height, int channel,
+                    int img_width, int img_height,
+                    const rknn_input_output_num& io_num,
+                    rknn_input* inputs, rknn_output* outputs,
+                    rknn_tensor_attr* output_attrs,
+                    std::array<std::vector<uint8_t>, YOLOV8_FACE_OUTPUT_NUM>& output_buffers);
+
+/**
+ * @brief YOLOv8-face 后处理（独立线程使用）
+ * @param output_buffers   YOLO 原始输出拷贝
+ * @param output_attrs     输出属性
+ * @param n_output         输出数量
+ * @param model_in_h       模型输入高
+ * @param model_in_w       模型输入宽
+ * @param img_width        padding 后的宽
+ * @param img_height       padding 后的高
+ * @param box_conf_threshold 置信度阈值
+ * @param nms_threshold    NMS 阈值
+ * @param detect_result_group 检测结果
+ * @return 0 成功, 其他失败
+ */
+int yolov8_face_postprocess(
+    const std::array<std::vector<uint8_t>, YOLOV8_FACE_OUTPUT_NUM>& output_buffers,
+    rknn_tensor_attr* output_attrs,
+    int n_output,
+    int model_in_h, int model_in_w,
+    int img_width, int img_height,
+    float box_conf_threshold, float nms_threshold,
+    detect_result_group_t* detect_result_group);
 
 /**
  * @brief 释放 YOLOv8-face 模型资源
