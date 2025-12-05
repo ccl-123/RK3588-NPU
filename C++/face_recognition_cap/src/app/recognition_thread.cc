@@ -12,12 +12,14 @@
 RecognitionThread::RecognitionThread(ModelManager* model_manager,
                                      FeatureLibrary* feature_library,
                                      const cv::Mat& dst_landmark,
-                                     float facenet_threshold)
+                                     float facenet_threshold,
+                                     PerformanceMonitor* perf_monitor)
     : running_(false)
     , model_manager_(model_manager)
     , feature_library_(feature_library)
     , dst_landmark_(dst_landmark.clone())
     , facenet_threshold_(facenet_threshold)
+    , perf_monitor_(perf_monitor)
     , recognition_callback_(nullptr)
     , frame_callback_(nullptr)
     , avg_align_time_(0)
@@ -100,6 +102,7 @@ void RecognitionThread::process_task(RecognitionTask& task) {
     struct timeval t_align_start, t_align_end;
     struct timeval t_facenet_start, t_facenet_end;
     struct timeval t_match_start, t_match_end;
+    struct timeval t_render_start, t_render_end;
     
     float total_align_time = 0;
     float total_facenet_time = 0;
@@ -218,7 +221,8 @@ void RecognitionThread::process_task(RecognitionTask& task) {
     stat_faces_detected_ += task.detect_result.count;
     stat_faces_recognized_ += recognized_count;
     
-    // 输出
+    // 输出 / 渲染
+    gettimeofday(&t_render_start, NULL);
     if (frame_callback_) {
         // GUI 模式：通过回调返回帧
         frame_callback_(render_img, recognition_results);
@@ -231,5 +235,14 @@ void RecognitionThread::process_task(RecognitionTask& task) {
                    cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 0), 2);
         cv::imshow("Face Recognition", render_img);
         cv::waitKey(1);
+    }
+    gettimeofday(&t_render_end, NULL);
+
+    if (perf_monitor_) {
+        auto get_us = [](struct timeval t) -> double {
+            return t.tv_sec * 1000000.0 + t.tv_usec;
+        };
+        double render_ms = (get_us(t_render_end) - get_us(t_render_start)) / 1000.0;
+        perf_monitor_->record_render_time(render_ms);
     }
 }

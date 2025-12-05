@@ -18,6 +18,13 @@
 // YOLOv8-face RKOPT 输出数量
 #define YOLOV8_FACE_OUTPUT_NUM 4
 
+struct YoloRunTimings {
+    double inputs_set_ms{0.0};
+    double run_ms{0.0};
+    double outputs_get_ms{0.0};
+    double copy_ms{0.0};
+};
+
 /**
  * @brief 创建 YOLOv8-face 模型
  * @param model_name      模型文件路径
@@ -58,7 +65,8 @@ int yolov8_face_run(rknn_context* ctx, const cv::Mat& img,
                     const rknn_input_output_num& io_num,
                     rknn_input* inputs, rknn_output* outputs,
                     rknn_tensor_attr* output_attrs,
-                    std::array<std::vector<uint8_t>, YOLOV8_FACE_OUTPUT_NUM>& output_buffers);
+                    std::array<std::vector<uint8_t>, YOLOV8_FACE_OUTPUT_NUM>& output_buffers,
+                    YoloRunTimings* timings = nullptr);
 
 /**
  * @brief YOLOv8-face 后处理（独立线程使用）

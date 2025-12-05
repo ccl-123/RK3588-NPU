@@ -26,6 +26,7 @@
 #include "core/postprocess.h"
 #include "app/model_manager.h"
 #include "app/feature_library.h"
+#include "app/performance_monitor.h"
 
 /*-------------------------------------------
     识别结果结构
@@ -66,7 +67,8 @@ public:
     RecognitionThread(ModelManager* model_manager,
                       FeatureLibrary* feature_library,
                       const cv::Mat& dst_landmark,
-                      float facenet_threshold);
+                      float facenet_threshold,
+                      PerformanceMonitor* perf_monitor = nullptr);
     ~RecognitionThread();
 
     void start();
@@ -105,6 +107,7 @@ private:
     FeatureLibrary* feature_library_;
     cv::Mat dst_landmark_;
     std::atomic<float> facenet_threshold_;
+    PerformanceMonitor* perf_monitor_;
 
     RecognitionCallbackFunc recognition_callback_;
     FrameCallbackFunc frame_callback_;

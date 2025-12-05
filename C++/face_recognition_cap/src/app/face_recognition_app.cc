@@ -58,6 +58,12 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
         spdlog::error("Failed to initialize FaceNet model");
         return -1;
     }
+    // 初始化性能监控（先配置上报周期，再绑定 NPU 上下文避免数据被覆盖）
+    perf_monitor_ = PerformanceMonitor(config_.perf_report_interval);
+    // 设置 NPU 内存查询上下文
+    perf_monitor_.set_npu_contexts(
+        *model_manager_.get_face_detector_ctx(),
+        *model_manager_.get_facenet_ctx());
 
     // 2. 加载特征库
     spdlog::info("Loading feature library...");
@@ -138,7 +144,8 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
     // 线程3: 识别 + 渲染
     recognition_thread_ = std::make_unique<RecognitionThread>(
         &model_manager_, &feature_library_,
-        dst_landmark_, config_.facenet_threshold);
+        dst_landmark_, config_.facenet_threshold,
+        &perf_monitor_);
 
     // 线程2.5: YOLO后处理
     postprocess_thread_ = std::make_unique<PostprocessThread>(
@@ -148,9 +155,6 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
     preprocess_thread_->start();
     postprocess_thread_->start();
     recognition_thread_->start();
-
-    // 7. 初始化性能监控
-    perf_monitor_ = PerformanceMonitor(config_.perf_report_interval);
 
     initialized_ = true;
     spdlog::info("App initialized successfully");
@@ -213,6 +217,7 @@ int FaceRecognitionApp::run() {
 
         // 2. 人脸检测（仅NPU推理）
         std::array<std::vector<uint8_t>, YOLOV8_FACE_OUTPUT_NUM> yolo_outputs;
+        YoloRunTimings yolo_timing;
         int ret = yolov8_face_run(
             model_manager_.get_face_detector_ctx(),
             task.processed_img,
@@ -225,7 +230,8 @@ int FaceRecognitionApp::run() {
             model_manager_.get_face_detector_inputs(),
             model_manager_.get_face_detector_outputs(),
             model_manager_.get_face_detector_output_attrs(),
-            yolo_outputs
+            yolo_outputs,
+            &yolo_timing
         );
         
         gettimeofday(&t_detect_end, NULL);
@@ -239,6 +245,10 @@ int FaceRecognitionApp::run() {
         // 3. 性能统计
         perf_monitor_.update_fps(1000.0 / detect_time);
         perf_monitor_.record_detection_time(detect_time);
+        perf_monitor_.record_detection_inputs_time(yolo_timing.inputs_set_ms);
+        perf_monitor_.record_detection_run_time(yolo_timing.run_ms);
+        perf_monitor_.record_detection_outputs_time(yolo_timing.outputs_get_ms);
+        perf_monitor_.record_detection_copy_time(yolo_timing.copy_ms);
         perf_monitor_.record_alignment_time(recognition_thread_->get_avg_align_time());
         perf_monitor_.record_recognition_time(recognition_thread_->get_avg_facenet_time());
         perf_monitor_.record_matching_time(recognition_thread_->get_avg_match_time());

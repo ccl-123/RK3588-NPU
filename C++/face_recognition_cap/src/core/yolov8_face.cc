@@ -25,6 +25,7 @@
 #include "core/yolov8_face.h"
 #include "rga.h"
 #include "rknn_api.h"
+#include <chrono>
 
 static void dump_tensor_attr(rknn_tensor_attr* attr) {
     printf("  index=%d, name=%s, n_dims=%d, dims=[%d, %d, %d, %d], n_elems=%d, size=%d, fmt=%s, type=%s, qnt_type=%s, "
@@ -176,7 +177,8 @@ int yolov8_face_run(rknn_context* ctx, const cv::Mat& img,
                     const rknn_input_output_num& io_num,
                     rknn_input* inputs, rknn_output* outputs,
                     rknn_tensor_attr* output_attrs,
-                    std::array<std::vector<uint8_t>, YOLOV8_FACE_OUTPUT_NUM>& output_buffers) {
+                    std::array<std::vector<uint8_t>, YOLOV8_FACE_OUTPUT_NUM>& output_buffers,
+                    YoloRunTimings* timings) {
     int ret;
     (void)channel;
     (void)img_height;
@@ -185,21 +187,25 @@ int yolov8_face_run(rknn_context* ctx, const cv::Mat& img,
     (void)height;
     (void)output_attrs;
 
+    auto t_start = std::chrono::steady_clock::now();
     inputs[0].buf = const_cast<void*>(reinterpret_cast<const void*>(img.data));
 
     ret = rknn_inputs_set(*ctx, io_num.n_input, inputs);
+    auto t_after_inputs = std::chrono::steady_clock::now();
     if (ret < 0) {
         printf("rknn_inputs_set error ret=%d\n", ret);
         return ret;
     }
 
     ret = rknn_run(*ctx, NULL);
+    auto t_after_run = std::chrono::steady_clock::now();
     if (ret < 0) {
         printf("rknn_run error ret=%d\n", ret);
         return ret;
     }
 
     ret = rknn_outputs_get(*ctx, io_num.n_output, outputs, NULL);
+    auto t_after_outputs = std::chrono::steady_clock::now();
     if (ret < 0) {
         printf("rknn_outputs_get error ret=%d\n", ret);
         return ret;
@@ -211,6 +217,14 @@ int yolov8_face_run(rknn_context* ctx, const cv::Mat& img,
         if (!output_buffers[i].empty() && outputs[i].buf) {
             memcpy(output_buffers[i].data(), outputs[i].buf, outputs[i].size);
         }
+    }
+    auto t_after_copy = std::chrono::steady_clock::now();
+
+    if (timings) {
+        timings->inputs_set_ms = std::chrono::duration_cast<std::chrono::microseconds>(t_after_inputs - t_start).count() / 1000.0;
+        timings->run_ms = std::chrono::duration_cast<std::chrono::microseconds>(t_after_run - t_after_inputs).count() / 1000.0;
+        timings->outputs_get_ms = std::chrono::duration_cast<std::chrono::microseconds>(t_after_outputs - t_after_run).count() / 1000.0;
+        timings->copy_ms = std::chrono::duration_cast<std::chrono::microseconds>(t_after_copy - t_after_outputs).count() / 1000.0;
     }
 
     ret = rknn_outputs_release(*ctx, io_num.n_output, outputs);

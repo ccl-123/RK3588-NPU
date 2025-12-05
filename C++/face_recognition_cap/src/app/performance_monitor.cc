@@ -25,6 +25,8 @@ PerformanceMonitor::PerformanceMonitor(int report_interval)
     , frame_count_(0)
     , last_total_time_(0)
     , last_idle_time_(0)
+    , detector_ctx_(0)
+    , facenet_ctx_(0)
 {
 }
 
@@ -34,6 +36,22 @@ void PerformanceMonitor::record_preprocess_time(double ms) {
 
 void PerformanceMonitor::record_detection_time(double ms) {
     detection_times_.push_back(ms);
+}
+
+void PerformanceMonitor::record_detection_inputs_time(double ms) {
+    detect_inputs_times_.push_back(ms);
+}
+
+void PerformanceMonitor::record_detection_run_time(double ms) {
+    detect_run_times_.push_back(ms);
+}
+
+void PerformanceMonitor::record_detection_outputs_time(double ms) {
+    detect_outputs_times_.push_back(ms);
+}
+
+void PerformanceMonitor::record_detection_copy_time(double ms) {
+    detect_copy_times_.push_back(ms);
 }
 
 void PerformanceMonitor::record_postprocess_time(double ms) {
@@ -50,6 +68,10 @@ void PerformanceMonitor::record_recognition_time(double ms) {
 
 void PerformanceMonitor::record_matching_time(double ms) {
     matching_times_.push_back(ms);
+}
+
+void PerformanceMonitor::record_render_time(double ms) {
+    render_times_.push_back(ms);
 }
 
 void PerformanceMonitor::update_fps(double current_fps) {
@@ -117,22 +139,39 @@ double PerformanceMonitor::get_memory_usage_mb() {
 }
 
 double PerformanceMonitor::get_npu_memory_mb() {
-    // 尝试读取 RKNN NPU 内存使用 (RK3588)
-    // 方法1: 通过 /sys/kernel/debug/rknpu/load 读取
-    std::ifstream file("/sys/kernel/debug/rknpu/load");
-    if (file.is_open()) {
-        std::string content;
-        std::getline(file, content);
-        file.close();
-        // 解析 NPU 负载信息
-        // 格式可能是: "NPU load: core0 xx%, core1 xx%, ..."
-        return 0.0;  // NPU 内存占用需要通过 RKNN API 获取
+    auto query_mem = [](rknn_context ctx, uint32_t& weight_kb, uint32_t& internal_kb, uint32_t& total_kb) -> bool {
+        if (ctx == 0) return false;
+        rknn_mem_size mem_size;
+        memset(&mem_size, 0, sizeof(mem_size));
+        int ret = rknn_query(ctx, RKNN_QUERY_MEM_SIZE, &mem_size, sizeof(mem_size));
+        if (ret < 0) {
+            std::cerr << "RKNN_QUERY_MEM_SIZE failed: " << ret << std::endl;
+            return false;
+        }
+        weight_kb = mem_size.total_weight_size / 1024;
+        internal_kb = mem_size.total_internal_size / 1024;
+        total_kb = (mem_size.total_weight_size + mem_size.total_internal_size) / 1024;
+        return true;
+    };
+
+    uint32_t total_kb_sum = 0;
+    uint32_t w = 0, in = 0, t = 0;
+    bool ok = false;
+    if (query_mem(detector_ctx_, w, in, t)) {
+        total_kb_sum += t;
+        ok = true;
     }
-    
-    // 方法2: 估算 - 基于加载的模型
-    // YOLOv8-face (int8): ~15-20 MB
-    // MobileFaceNet (int8): ~5-8 MB
-    return 25.0;  // 估算值
+    if (query_mem(facenet_ctx_, w, in, t)) {
+        total_kb_sum += t;
+        ok = true;
+    }
+    if (!ok) return -1.0;
+    return total_kb_sum / 1024.0;
+}
+
+void PerformanceMonitor::set_npu_contexts(rknn_context detector_ctx, rknn_context facenet_ctx) {
+    detector_ctx_ = detector_ctx;
+    facenet_ctx_ = facenet_ctx;
 }
 
 void PerformanceMonitor::print_report() {
@@ -140,12 +179,17 @@ void PerformanceMonitor::print_report() {
 
     double avg_pre   = get_average(preprocess_times_);
     double avg_detect = get_average(detection_times_);
+    double avg_in = get_average(detect_inputs_times_);
+    double avg_run = get_average(detect_run_times_);
+    double avg_out = get_average(detect_outputs_times_);
+    double avg_copy = get_average(detect_copy_times_);
     double avg_post = get_average(postprocess_times_);
     double avg_align = get_average(alignment_times_);
     double avg_facenet = get_average(recognition_times_);
     double avg_match = get_average(matching_times_);
+    double avg_render = get_average(render_times_);
 
-    double thread3_total = avg_align + avg_facenet + avg_match;
+    double thread3_total = avg_align + avg_facenet + avg_match + avg_render;
     double bottleneck = std::max({avg_pre, avg_detect, avg_post, thread3_total});
     double theoretical_fps = (bottleneck > 0) ? (1000.0 / bottleneck) : 0.0;
     
@@ -167,11 +211,16 @@ void PerformanceMonitor::print_report() {
     std::cout << "║  线程1 [采集+RGA]:    " << std::setw(6) << avg_pre << " ms                        ║" << std::endl;
     std::cout << "║  线程2 [YOLO推理]:    " << std::setw(6) << avg_detect << " ms  (" 
               << std::setw(5) << thread2_fps << " FPS)             ║" << std::endl;
+    std::cout << "║    ├─ inputs_set:     " << std::setw(6) << avg_in   << " ms                       ║" << std::endl;
+    std::cout << "║    ├─ rknn_run:       " << std::setw(6) << avg_run  << " ms                       ║" << std::endl;
+    std::cout << "║    ├─ outputs_get:    " << std::setw(6) << avg_out  << " ms                       ║" << std::endl;
+    std::cout << "║    └─ memcpy_out:     " << std::setw(6) << avg_copy << " ms                       ║" << std::endl;
     std::cout << "║  线程2.5 [后处理]:    " << std::setw(6) << avg_post << " ms                        ║" << std::endl;
     std::cout << "║  线程3 [识别+渲染]:   " << std::setw(6) << thread3_total << " ms                          ║" << std::endl;
     std::cout << "║    ├─ 人脸对齐:       " << std::setw(6) << avg_align << " ms                       ║" << std::endl;
     std::cout << "║    ├─ FaceNet:        " << std::setw(6) << avg_facenet << " ms                       ║" << std::endl;
-    std::cout << "║    └─ 特征匹配:       " << std::setw(6) << avg_match << " ms                       ║" << std::endl;
+    std::cout << "║    ├─ 特征匹配:       " << std::setw(6) << avg_match << " ms                       ║" << std::endl;
+    std::cout << "║    └─ 渲染显示:       " << std::setw(6) << avg_render << " ms                       ║" << std::endl;
     
     std::cout << "╠══════════════════════════════════════════════════════════╣" << std::endl;
     
@@ -179,7 +228,7 @@ void PerformanceMonitor::print_report() {
     std::cout << "║ 【资源占用】                                             ║" << std::endl;
     std::cout << "║  CPU 使用率:          " << std::setw(6) << cpu_usage << " %                        ║" << std::endl;
     std::cout << "║  进程内存 (RSS):      " << std::setw(6) << mem_usage << " MB                       ║" << std::endl;
-    std::cout << "║  NPU 内存 (估算):     " << std::setw(6) << npu_mem << " MB                       ║" << std::endl;
+    std::cout << "║  NPU 内存 (RKNN):     " << std::setw(6) << npu_mem << " MB                       ║" << std::endl;
     std::cout << "║  模型量化:            int8 (RKNN)                        ║" << std::endl;
     
     std::cout << "╠══════════════════════════════════════════════════════════╣" << std::endl;
@@ -203,10 +252,15 @@ void PerformanceMonitor::print_report() {
 void PerformanceMonitor::reset() {
     preprocess_times_.clear();
     detection_times_.clear();
+    detect_inputs_times_.clear();
+    detect_run_times_.clear();
+    detect_outputs_times_.clear();
+    detect_copy_times_.clear();
     postprocess_times_.clear();
     alignment_times_.clear();
     recognition_times_.clear();
     matching_times_.clear();
+    render_times_.clear();
 }
 
 double PerformanceMonitor::get_average(const std::vector<double>& data) const {

@@ -21,6 +21,7 @@
 #include <vector>
 #include <cstdint>
 #include "config/config.h"
+#include "rknn_api.h"
 
 class PerformanceMonitor {
 public:
@@ -32,6 +33,10 @@ public:
 
     // 线程2：YOLO检测耗时
     void record_detection_time(double ms);
+    void record_detection_inputs_time(double ms);
+    void record_detection_run_time(double ms);
+    void record_detection_outputs_time(double ms);
+    void record_detection_copy_time(double ms);
 
     // 线程2.5：YOLO后处理耗时
     void record_postprocess_time(double ms);
@@ -40,6 +45,7 @@ public:
     void record_alignment_time(double ms);
     void record_recognition_time(double ms);
     void record_matching_time(double ms);
+    void record_render_time(double ms);
 
     // FPS 统计
     void update_fps(double current_fps);
@@ -49,6 +55,9 @@ public:
     bool should_print_report();
     void print_report();
     void reset();
+    
+    // 设置 NPU 上下文，用于查询真实内存占用
+    void set_npu_contexts(rknn_context detector_ctx, rknn_context facenet_ctx);
 
 private:
     double get_average(const std::vector<double>& data) const;
@@ -61,10 +70,15 @@ private:
 private:
     std::vector<double> preprocess_times_;
     std::vector<double> detection_times_;
+    std::vector<double> detect_inputs_times_;
+    std::vector<double> detect_run_times_;
+    std::vector<double> detect_outputs_times_;
+    std::vector<double> detect_copy_times_;
     std::vector<double> postprocess_times_;
     std::vector<double> alignment_times_;
     std::vector<double> recognition_times_;
     std::vector<double> matching_times_;
+    std::vector<double> render_times_;
 
     double smoothed_fps_;
     int report_interval_;
@@ -73,6 +87,10 @@ private:
     // CPU 使用率计算 (上次采样值)
     uint64_t last_total_time_;
     uint64_t last_idle_time_;
+
+    // NPU 上下文（值存储，避免悬空指针）
+    rknn_context detector_ctx_;
+    rknn_context facenet_ctx_;
 };
 
 #endif // _PERFORMANCE_MONITOR_H_
