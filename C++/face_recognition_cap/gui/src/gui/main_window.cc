@@ -890,14 +890,14 @@ void MainWindow::update_status() {
         
         // 每10分钟刷新一次天气
         static int weather_update_counter = 0;
-        if (++weather_update_counter >= 600) {  // 600秒 = 10分钟
+        if (++weather_update_counter >= Config::UI::WEATHER_REFRESH_INTERVAL_SEC) {
             weather_update_counter = 0;
             recognition_page_->refreshWeather();
         }
         
         // 每1分钟刷新一次每日一句
         static int sentence_update_counter = 0;
-        if (++sentence_update_counter >= 60) {  // 60秒 = 1分钟
+        if (++sentence_update_counter >= Config::UI::SENTENCE_REFRESH_INTERVAL_SEC) {
             sentence_update_counter = 0;
             recognition_page_->refreshDailySentence();
         }

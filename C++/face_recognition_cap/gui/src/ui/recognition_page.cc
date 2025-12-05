@@ -736,7 +736,7 @@ QWidget* RecognitionPage::createStatusBar() {
     auto face_card = new QWidget(status_bar);
     face_card->setObjectName("FaceDetectionCard");
     face_card->setAttribute(Qt::WA_StyledBackground, true);
-    face_card->setFixedWidth(160);  // 固定宽度防止抖动
+    face_card->setFixedWidth(Config::UI::FACE_CARD_WIDTH);  // 固定宽度防止抖动
     auto face_card_layout = new QVBoxLayout(face_card);
     face_card_layout->setContentsMargins(16, 12, 16, 12);
     face_card_layout->setSpacing(4);
