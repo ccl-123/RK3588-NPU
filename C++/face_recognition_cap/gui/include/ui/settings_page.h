@@ -10,7 +10,7 @@
 #include <QComboBox>
 #include <QPushButton>
 #include <QLineEdit>
-
+#include "config/config.h"
 class SettingsPage : public QWidget {
     Q_OBJECT
 public:
@@ -31,6 +31,7 @@ private:
     void setup_ui();
     void load_settings();
     void save_settings();
+    void update_db_size();
     
     // UI 组件 - 系统信息
     QLabel* version_label_;

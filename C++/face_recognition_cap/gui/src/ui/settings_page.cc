@@ -715,43 +715,7 @@ void SettingsPage::load_settings() {
     ConfigManager* config = ConfigManager::instance();
     
     // 更新数据库大小信息
-    if (db_size_label_) {
-        QStringList db_paths = {
-            "/home/firefly/open_project/edge2-npu/C++/face_recognition_cap/install/face_recognition_cap/data/database/face_recognition.db",
-            "data/database/face_recognition.db",
-            "../data/database/face_recognition.db",
-            "../../data/database/face_recognition.db",
-            "install/face_recognition_cap/data/database/face_recognition.db",
-            "../install/face_recognition_cap/data/database/face_recognition.db",
-            "data/database/attendance.db"
-        };
-        
-        bool db_found = false;
-        for (const QString& path : db_paths) {
-            QFileInfo db_file(path);
-            if (db_file.exists()) {
-                qint64 size_bytes = db_file.size();
-                qint64 size_kb = size_bytes / 1024;
-                
-                if (size_kb > 1024) {
-                    db_size_label_->setText(QString("%1 MB").arg(size_kb / 1024.0, 0, 'f', 2));
-                } else if (size_kb > 0) {
-                    db_size_label_->setText(QString("%1 KB").arg(size_kb));
-                } else {
-                    db_size_label_->setText(QString("%1 字节").arg(size_bytes));
-                }
-                
-                spdlog::info("Database found: {} (size: {} bytes)", path.toStdString(), size_bytes);
-                db_found = true;
-                break;
-            }
-        }
-        
-        if (!db_found) {
-            db_size_label_->setText("未找到");
-            spdlog::warn("Database file not found in any expected location");
-        }
-    }
+    update_db_size();
     
     // 加载识别设置
     if (recognition_threshold_spin_) {
@@ -829,6 +793,47 @@ void SettingsPage::load_settings() {
     on_auto_location_changed(config->isAutoLocationEnabled());
     
     spdlog::info("Settings loaded");
+}
+
+void SettingsPage::update_db_size() {
+    if (!db_size_label_) return;
+
+    QStringList db_prefixes = {
+        "/home/firefly/open_project/edge2-npu/C++/face_recognition_cap/install/face_recognition_cap/",
+        "/home/firefly/open_project/edge2-npu/C++/face_recognition_cap/",
+        "/home/firefly/open_project/edge2-npu/",
+        "./",
+        "../",
+        "../../"
+    };
+
+    bool db_found = false;
+    for (const QString& prefix : db_prefixes) {
+        QString db_path = QDir(prefix).filePath(Config::Path::DATABASE);
+
+        QFileInfo db_file(db_path);
+        if (!db_file.exists()) continue;
+
+        qint64 size_bytes = db_file.size();
+        qint64 size_kb = size_bytes / 1024;
+
+        if (size_kb > 1024) {
+            db_size_label_->setText(QString("%1 MB").arg(size_kb / 1024.0, 0, 'f', 2));
+        } else if (size_kb > 0) {
+            db_size_label_->setText(QString("%1 KB").arg(size_kb));
+        } else {
+            db_size_label_->setText(QString("%1 字节").arg(size_bytes));
+        }
+
+        spdlog::info("Database found: {} (size: {} bytes)", db_path.toStdString(), size_bytes);
+        db_found = true;
+        break;
+    }
+
+    if (!db_found) {
+        db_size_label_->setText("未找到");
+        spdlog::warn("Database file not found in any expected location");
+    }
 }
 
 void SettingsPage::scan_usb_cameras() {
@@ -1024,6 +1029,7 @@ void SettingsPage::on_theme_toggle_clicked() {
 
 void SettingsPage::on_save_clicked() {
     save_settings();
+    update_db_size();  // 保存后重新刷新数据库大小显示
     QMessageBox::information(this, tr("成功"), tr("设置已保存"));
 }
 
