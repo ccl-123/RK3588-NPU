@@ -10,7 +10,9 @@
 #include <QJsonObject>
 #include <QNetworkRequest>
 #include <QUrl>
+#include <QTimer>
 #include <spdlog/spdlog.h>
+#include <functional>
 
 WeatherService* WeatherService::instance_ = nullptr;
 
@@ -32,17 +34,94 @@ void WeatherService::setCity(const QString& city) {
     current_city_ = city;
 }
 
+void WeatherService::abortIfRunning(QPointer<QNetworkReply>& slot) {
+    if (slot) {
+        slot->abort();
+        slot->deleteLater();
+        slot.clear();
+    }
+}
+
+void WeatherService::sendGet(const QUrl& url,
+                             const std::function<void(QNetworkReply*)>& on_ok,
+                             QPointer<QNetworkReply>& slot,
+                             int retries_left,
+                             const QString& tag) {
+    // 单类型请求只保留一个：先取消在途，再发起
+    abortIfRunning(slot);
+
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::UserAgentHeader, "FaceRecognitionApp/1.0");
+    request.setRawHeader("Referer", "https://open-meteo.com/");
+
+    slot = network_manager_->get(request);
+
+    // 超时控制（QTimer + abort）
+    QTimer* timer = new QTimer(this);
+    timer->setSingleShot(true);
+    connect(timer, &QTimer::timeout, this, [this, tag, reply = slot]() {
+        if (reply) {
+            spdlog::warn("{} request timeout", tag.toStdString());
+            reply->abort();
+        }
+    });
+    timer->start(kRequestTimeoutMs);
+
+    connect(slot, &QNetworkReply::finished, this,
+            [this, on_ok, retries_left, tag, url, timer, reply = slot, &slot]() mutable {
+        timer->stop();
+        timer->deleteLater();
+
+        if (!reply) {
+            slot.clear();
+            return;
+        }
+
+        if (reply->error() == QNetworkReply::NoError) {
+            on_ok(reply);
+            reply->deleteLater();
+            slot.clear();
+            return;
+        }
+
+        // 失败处理与重试
+        QString err = reply->errorString();
+        reply->deleteLater();
+        slot.clear();
+
+        if (retries_left > 0) {
+            int backoff = kRetryDelayMs * (1 << (kMaxRetries - retries_left));
+            spdlog::warn("{} failed: {}, retry in {} ms", tag.toStdString(), err.toStdString(), backoff);
+            QTimer::singleShot(backoff, this, [this, url, on_ok, retries_left, tag, &slot]() mutable {
+                sendGet(url, on_ok, slot, retries_left - 1, tag);
+            });
+            return;
+        }
+
+        spdlog::warn("{} failed after retries: {}", tag.toStdString(), err.toStdString());
+        emit errorOccurred(QString("%1 failed: %2").arg(tag, err));
+
+        // 回退到最近一次成功的缓存
+        if (tag == "weather" && has_weather_cache_) {
+            emit weatherUpdated(current_city_, cached_temp_, cached_desc_);
+        } else if (tag == "aqi" && has_aqi_cache_) {
+            emit aqiUpdated(cached_aqi_, cached_aqi_level_);
+        } else if (tag == "uv" && has_uv_cache_) {
+            emit uvUpdated(cached_uv_, cached_uv_level_);
+        } else if (tag == "daily" && has_sentence_cache_) {
+            emit dailySentenceUpdated(cached_sentence_en_, cached_sentence_from_);
+        }
+    });
+}
+
 void WeatherService::requestLocation() {
     // 使用 ip-api.com 获取设备位置
     QUrl url("http://ip-api.com/json/?lang=zh-CN");
-    QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::UserAgentHeader, "FaceRecognitionApp/1.0");
-    
-    QNetworkReply* reply = network_manager_->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        onLocationReplyFinished(reply);
-    });
-    
+    sendGet(url,
+            [this](QNetworkReply* reply) { onLocationReplyFinished(reply); },
+            location_reply_,
+            kMaxRetries,
+            "location");
     spdlog::debug("Location request sent to ip-api.com");
 }
 
@@ -80,37 +159,31 @@ void WeatherService::requestWeather(double lat, double lon) {
     QString weatherUrlStr = QString("https://api.open-meteo.com/v1/forecast?latitude=%1&longitude=%2&current_weather=true")
                         .arg(lat, 0, 'f', 4)
                         .arg(lon, 0, 'f', 4);
-    QNetworkRequest weatherReq((QUrl(weatherUrlStr)));
-    weatherReq.setHeader(QNetworkRequest::UserAgentHeader, "FaceRecognitionApp/1.0");
-    
-    QNetworkReply* weatherReply = network_manager_->get(weatherReq);
-    connect(weatherReply, &QNetworkReply::finished, this, [this, weatherReply]() {
-        onWeatherReplyFinished(weatherReply);
-    });
+    sendGet(QUrl(weatherUrlStr),
+            [this](QNetworkReply* reply) { onWeatherReplyFinished(reply); },
+            weather_reply_,
+            kMaxRetries,
+            "weather");
 
     // 2. AQI 请求
     QString aqiUrlStr = QString("https://air-quality-api.open-meteo.com/v1/air-quality?latitude=%1&longitude=%2&current=us_aqi,pm2_5")
                         .arg(lat, 0, 'f', 4)
                         .arg(lon, 0, 'f', 4);
-    QNetworkRequest aqiReq((QUrl(aqiUrlStr)));
-    aqiReq.setHeader(QNetworkRequest::UserAgentHeader, "FaceRecognitionApp/1.0");
-
-    QNetworkReply* aqiReply = network_manager_->get(aqiReq);
-    connect(aqiReply, &QNetworkReply::finished, this, [this, aqiReply]() {
-        onAqiReplyFinished(aqiReply);
-    });
+    sendGet(QUrl(aqiUrlStr),
+            [this](QNetworkReply* reply) { onAqiReplyFinished(reply); },
+            aqi_reply_,
+            kMaxRetries,
+            "aqi");
 
     // 3. UV 请求
     QString uvUrlStr = QString("https://api.open-meteo.com/v1/forecast?latitude=%1&longitude=%2&current=uv_index&timezone=Asia/Shanghai")
                         .arg(lat, 0, 'f', 4)
                         .arg(lon, 0, 'f', 4);
-    QNetworkRequest uvReq((QUrl(uvUrlStr)));
-    uvReq.setHeader(QNetworkRequest::UserAgentHeader, "FaceRecognitionApp/1.0");
-    
-    QNetworkReply* uvReply = network_manager_->get(uvReq);
-    connect(uvReply, &QNetworkReply::finished, this, [this, uvReply]() {
-        onUvReplyFinished(uvReply);
-    });
+    sendGet(QUrl(uvUrlStr),
+            [this](QNetworkReply* reply) { onUvReplyFinished(reply); },
+            uv_reply_,
+            kMaxRetries,
+            "uv");
 }
 
 void WeatherService::onWeatherReplyFinished(QNetworkReply* reply) {
@@ -128,6 +201,11 @@ void WeatherService::onWeatherReplyFinished(QNetworkReply* reply) {
             QString weatherDesc = weatherCodeToString(weatherCode);
             QString tempStr = QString("%1°").arg(temp, 0, 'f', 0);
             
+            // 缓存成功结果
+            cached_temp_ = tempStr;
+            cached_desc_ = weatherDesc;
+            has_weather_cache_ = true;
+
             emit weatherUpdated(current_city_, tempStr, weatherDesc);
         }
     }
@@ -146,6 +224,10 @@ void WeatherService::onAqiReplyFinished(QNetworkReply* reply) {
             int aqi = current["us_aqi"].toInt();
             QString level = aqiToLevel(aqi);
             
+            cached_aqi_ = aqi;
+            cached_aqi_level_ = level;
+            has_aqi_cache_ = true;
+
             emit aqiUpdated(aqi, level);
         }
     }
@@ -163,6 +245,10 @@ void WeatherService::onUvReplyFinished(QNetworkReply* reply) {
             double uv = current["uv_index"].toDouble();
             QString level = uvToLevel(uv);
             
+            cached_uv_ = uv;
+            cached_uv_level_ = level;
+            has_uv_cache_ = true;
+
             emit uvUpdated(uv, level);
         }
     }
@@ -174,10 +260,11 @@ void WeatherService::requestDailySentence() {
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::UserAgentHeader, "FaceRecognitionApp/1.0");
     
-    QNetworkReply* reply = network_manager_->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        onDailySentenceReplyFinished(reply);
-    });
+    sendGet(url,
+            [this](QNetworkReply* reply) { onDailySentenceReplyFinished(reply); },
+            sentence_reply_,
+            kMaxRetries,
+            "daily");
 }
 
 void WeatherService::onDailySentenceReplyFinished(QNetworkReply* reply) {
@@ -190,6 +277,10 @@ void WeatherService::onDailySentenceReplyFinished(QNetworkReply* reply) {
             QString hitokoto = root["hitokoto"].toString();
             QString from = root["from"].toString();
             
+            cached_sentence_en_ = hitokoto;
+            cached_sentence_from_ = from.isEmpty() ? "" : QString("—— %1").arg(from);
+            has_sentence_cache_ = true;
+
             emit dailySentenceUpdated(hitokoto, from.isEmpty() ? "" : QString("—— %1").arg(from));
         }
     }
