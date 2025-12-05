@@ -64,10 +64,10 @@ int ModelManager::init_face_detector(const char* model_path) {
     face_detector_inputs_[0].pass_through = 0;
 
     // 配置输出 - YOLOv8-face 有 4 个输出
-    // 模型是 int8 量化的，设置 want_float=1 让 RKNN 自动反量化为 float
+    // 使用 int8 原始输出，后处理阶段自行反量化，避免 RKNN 内部拷贝
     memset(face_detector_outputs_, 0, sizeof(face_detector_outputs_));
     for (int i = 0; i < YOLOV8_FACE_OUTPUT_NUM; i++) {
-        face_detector_outputs_[i].want_float = 1;
+        face_detector_outputs_[i].want_float = 0;  // int8 原始输出
         }
 
     face_detector_initialized_ = true;

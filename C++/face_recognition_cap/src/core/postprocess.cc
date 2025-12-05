@@ -143,87 +143,21 @@ static int quick_sort_indice_inverse(std::vector<float>& input, int left, int ri
 }
 
 // ============================================
-// 处理单个特征图 (fp32)
-// ============================================
-static int process_fp32(float* input, int grid_h, int grid_w, int stride,
-                        std::vector<float>& boxes, std::vector<float>& boxScores,
-                        std::vector<int>& classId, float threshold, int index) {
-    int input_loc_len = 64;  // DFL: 4 * 16
-  int validCount = 0;
-    float thres_fp = unsigmoid(threshold);
-
-    for (int h = 0; h < grid_h; h++) {
-        for (int w = 0; w < grid_w; w++) {
-            // 置信度在第65通道 (索引64) - 格式: [1, 65, H, W]
-            float conf = input[64 * grid_h * grid_w + h * grid_w + w];
-
-            if (conf >= thres_fp) {
-                float box_conf_f32 = sigmoid(conf);
-
-                // 提取 DFL 数据
-                float loc[input_loc_len];
-                for (int i = 0; i < input_loc_len; ++i) {
-                    loc[i] = input[i * grid_h * grid_w + h * grid_w + w];
-                }
-
-                // DFL 解码: 先 softmax，后加权求和
-                for (int i = 0; i < 4; ++i) {
-                    softmax(&loc[i * 16], 16);
-                }
-
-                float xywh_[4] = {0, 0, 0, 0};
-                for (int dfl = 0; dfl < 16; ++dfl) {
-                    xywh_[0] += loc[0 * 16 + dfl] * dfl;  // left
-                    xywh_[1] += loc[1 * 16 + dfl] * dfl;  // top
-                    xywh_[2] += loc[2 * 16 + dfl] * dfl;  // right
-                    xywh_[3] += loc[3 * 16 + dfl] * dfl;  // bottom
-                }
-
-                // 转换为边界框坐标
-                float x1_grid = (w + 0.5f) - xywh_[0];
-                float y1_grid = (h + 0.5f) - xywh_[1];
-                float x2_grid = (w + 0.5f) + xywh_[2];
-                float y2_grid = (h + 0.5f) + xywh_[3];
-
-                // 转换为像素坐标
-                float cx = ((x1_grid + x2_grid) / 2) * stride;
-                float cy = ((y1_grid + y2_grid) / 2) * stride;
-                float bw = (x2_grid - x1_grid) * stride;
-                float bh = (y2_grid - y1_grid) * stride;
-                float x1 = cx - bw / 2;
-                float y1 = cy - bh / 2;
-
-                boxes.push_back(x1);      // x
-                boxes.push_back(y1);      // y
-                boxes.push_back(bw);      // w
-                boxes.push_back(bh);      // h
-                boxes.push_back(float(index + h * grid_w + w));  // keypoint index
-
-                boxScores.push_back(box_conf_f32);
-                classId.push_back(0);  // class 0: face
-  					validCount++;
-  				}
-  			}
-  		}
-
-    return validCount;
-}
-
-// ============================================
 // 处理单个特征图 (int8 量化)
 // ============================================
 static int process_i8(int8_t* input, int grid_h, int grid_w, int stride,
                       std::vector<float>& boxes, std::vector<float>& boxScores,
                       std::vector<int>& classId, float threshold,
                       int32_t zp, float scale, int index) {
-    int input_loc_len = 64;
+    int input_loc_len = 64;  // DFL: 4 * 16
     int validCount = 0;
     int8_t thres_i8 = qnt_f32_to_affine(unsigmoid(threshold), zp, scale);
 
     for (int h = 0; h < grid_h; h++) {
         for (int w = 0; w < grid_w; w++) {
+            int offset = h * grid_w + w;
             // 置信度在第65通道
-            int8_t conf_i8 = input[64 * grid_h * grid_w + h * grid_w + w];
+            int8_t conf_i8 = input[64 * grid_h * grid_w + offset];
 
             if (conf_i8 >= thres_i8) {
                 float box_conf_f32 = sigmoid(deqnt_affine_to_f32(conf_i8, zp, scale));
@@ -231,7 +165,7 @@ static int process_i8(int8_t* input, int grid_h, int grid_w, int stride,
                 // 提取并反量化 DFL 数据
                 float loc[input_loc_len];
                 for (int i = 0; i < input_loc_len; ++i) {
-                    loc[i] = deqnt_affine_to_f32(input[i * grid_h * grid_w + h * grid_w + w], zp, scale);
+                    loc[i] = deqnt_affine_to_f32(input[i * grid_h * grid_w + offset], zp, scale);
   }
   
                 // DFL 解码
@@ -275,6 +209,7 @@ static int process_i8(int8_t* input, int grid_h, int grid_w, int stride,
     return validCount;
 }
 
+
 // ============================================
 // YOLOv8-face 主后处理函数
 // ============================================
@@ -297,24 +232,20 @@ int post_process_yolov8_face(rknn_output* outputs, rknn_tensor_attr* output_attr
     int validCount = 0;
     int index = 0;
 
-    // 处理前3个输出 (bbox + conf)
-    // 注意: 当 want_float=1 时，RKNN 已将数据转为 float，直接用 process_fp32
+    // 处理前3个输出 (bbox + conf)，强制使用 INT8 路径
     for (int i = 0; i < 3; i++) {
         int grid_h = output_attrs[i].dims[2];
         int grid_w = output_attrs[i].dims[3];
         int stride = model_in_h / grid_h;
 
-        // 通过 buf 大小判断数据类型：want_float=1 时数据已经是 float
-        bool is_float_output = (outputs[i].size == output_attrs[i].n_elems * sizeof(float));
-        
-        if (!is_float_output && output_attrs[i].type == RKNN_TENSOR_INT8) {
+        if (output_attrs[i].type != RKNN_TENSOR_INT8) {
+            printf("Error: YOLO output %d not INT8 (type=%d)\n", i, output_attrs[i].type);
+            return -1;
+        }
+
             validCount += process_i8((int8_t*)outputs[i].buf, grid_h, grid_w, stride,
                                      filterBoxes, objProbs, classId, conf_threshold,
                                      output_attrs[i].zp, output_attrs[i].scale, index);
-        } else {
-            validCount += process_fp32((float*)outputs[i].buf, grid_h, grid_w, stride,
-                                       filterBoxes, objProbs, classId, conf_threshold, index);
-        }
         index += grid_h * grid_w;
     }
 
