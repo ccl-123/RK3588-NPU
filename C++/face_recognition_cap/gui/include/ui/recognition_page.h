@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QWidget>
+#include "services/weather_service.h"
 
 class CardWidget;
 class QLabel;
@@ -8,8 +9,6 @@ class QProgressBar;
 class ModernTableView;
 class StatusTag;
 class VideoDisplayWidget;
-class QNetworkAccessManager;
-class QNetworkReply;
 
 /**
  * @brief RecognitionPage 人脸识别主页面。
@@ -64,23 +63,7 @@ signals:
     void stopRecognitionRequested();
     void registerFaceRequested();
 
-private slots:
-    void onLocationReplyFinished(QNetworkReply* reply);
-    void onWeatherReplyFinished(QNetworkReply* reply);
-    void onAqiReplyFinished(QNetworkReply* reply);
-    void onUvReplyFinished(QNetworkReply* reply);
-    void onDailySentenceReplyFinished(QNetworkReply* reply);
-
 private:
-    void requestLocation();                 // 请求 IP 定位
-    void requestWeather(double lat, double lon);  // 用经纬度请求天气
-    void requestAqi(double lat, double lon);      // 请求空气质量
-    void requestUv(double lat, double lon);       // 请求紫外线指数
-    void requestDailySentence();            // 请求一言（随机）
-    QString weatherCodeToString(int code);  // 天气代码转中文
-    QString aqiToLevel(int aqi);            // AQI 转等级描述
-    QString uvToLevel(double uv);           // UV 转等级描述
-    
     CardWidget* createVideoCard();
     QWidget* createInfoBar();       // 新增：信息栏（天气 + 考勤统计）
     QWidget* createStatusBar();
@@ -117,20 +100,16 @@ private:
     QLabel* late_count_label_;
     QLabel* check_mode_label_;
     
-    // 网络请求（IP定位 + 天气 + AQI + UV）
-    QNetworkAccessManager* network_manager_;
-    QNetworkAccessManager* location_manager_;
-    QNetworkAccessManager* aqi_manager_;
-    QNetworkAccessManager* uv_manager_;
-    
     // AQI 和 UV 显示标签
     QLabel* aqi_label_;
     QLabel* uv_label_;
     
     // 一言（每次随机）
-    QNetworkAccessManager* sentence_manager_;
     QLabel* sentence_en_label_;   // 一言句子
     QLabel* sentence_cn_label_;   // 一言来源
+    
+    // 服务引用
+    WeatherService* weather_service_;
     
     // 位置信息缓存
     QString current_city_;      // 当前城市名
@@ -138,4 +117,3 @@ private:
     double current_lon_;        // 经度
     bool location_fetched_;     // 是否已获取位置
 };
-
