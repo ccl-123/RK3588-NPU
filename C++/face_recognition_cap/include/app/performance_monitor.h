@@ -20,6 +20,7 @@
 
 #include <vector>
 #include <cstdint>
+#include <chrono>
 #include "config/config.h"
 #include "rknn_api.h"
 
@@ -83,6 +84,7 @@ private:
     double smoothed_fps_;
     int report_interval_;
     int frame_count_;
+    std::chrono::steady_clock::time_point last_report_time_;
     
     // CPU 使用率计算 (上次采样值)
     uint64_t last_total_time_;

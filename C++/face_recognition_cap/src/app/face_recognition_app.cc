@@ -484,8 +484,9 @@ int FaceRecognitionApp::detect_faces(const cv::Mat& frame,
         cv::copyMakeBorder(padded_img, padded_img, 0, 0, 0, padding_,
                           cv::BorderTypes::BORDER_CONSTANT, cv::Scalar(0, 0, 0));
     }
-    int img_width = config_.camera_width;
-    int img_height = config_.camera_height;
+    // 使用 padding 后的实际尺寸做坐标还原，避免重复缩放导致框偏移
+    int img_width = padded_img.cols;
+    int img_height = padded_img.rows;
 
     // YOLOv8-face 检测
     detect_result_group_t detect_result_group;

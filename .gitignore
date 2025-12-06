@@ -57,7 +57,8 @@ Thumbs.db
 .idea/
 *.sublime-project
 *.sublime-workspace
-
+.cursor
+.claude
 # Qt Creator
 *.pro.user
 *.pro.user.*

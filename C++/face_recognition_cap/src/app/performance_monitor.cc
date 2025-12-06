@@ -23,6 +23,7 @@ PerformanceMonitor::PerformanceMonitor(int report_interval)
     : smoothed_fps_(0.0)
     , report_interval_(report_interval)
     , frame_count_(0)
+    , last_report_time_(std::chrono::steady_clock::now())
     , last_total_time_(0)
     , last_idle_time_(0)
     , detector_ctx_(0)
@@ -201,6 +202,12 @@ void PerformanceMonitor::print_report() {
     double mem_usage = get_memory_usage_mb();
     double npu_mem = get_npu_memory_mb();
 
+    // 真实 FPS（按实际时间间隔计算，与屏幕显示保持一致）
+    auto now = std::chrono::steady_clock::now();
+    double elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_report_time_).count();
+    double actual_fps = (elapsed_ms > 0) ? (report_interval_ * 1000.0 / elapsed_ms) : smoothed_fps_;
+    last_report_time_ = now;
+
     std::cout << "\n╔══════════════════════════════════════════════════════════╗" << std::endl;
     std::cout << "║      流水线性能分析 (平均 " << std::setw(3) << report_interval_ << " 帧) - RK3588 部署      ║" << std::endl;
     std::cout << "╠══════════════════════════════════════════════════════════╣" << std::endl;
@@ -235,7 +242,7 @@ void PerformanceMonitor::print_report() {
     
     // 综合性能
     std::cout << "║ 【综合性能】                                             ║" << std::endl;
-    std::cout << "║  实际 FPS:            " << std::setw(6) << smoothed_fps_ << "                            ║" << std::endl;
+    std::cout << "║  实际 FPS:            " << std::setw(6) << actual_fps << "                            ║" << std::endl;
     std::cout << "║  理论最大 FPS:        " << std::setw(6) << theoretical_fps << "                            ║" << std::endl;
     std::cout << "║  流水线瓶颈:          " 
               << (bottleneck == avg_pre   ? "线程1 (采集+RGA)            "
