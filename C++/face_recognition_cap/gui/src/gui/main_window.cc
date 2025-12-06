@@ -200,7 +200,7 @@ bool MainWindow::initialize(const std::string& retinaface_model,
         if (is_stranger) {
             // 重置用户检测状态
             if (user_detection_.is_detecting) {
-                spdlog::debug("Switched from user to stranger, reset user detection");
+                spdlog::trace("Switched from user to stranger, reset user detection");
                 user_detection_.is_detecting = false;
             }
             
@@ -214,7 +214,7 @@ bool MainWindow::initialize(const std::string& retinaface_model,
                     // 超时了，重新开始检测
                     stranger_detection_.first_seen = now;
                     stranger_detection_.last_seen = now;
-                    spdlog::debug("Stranger detection restarted (timeout after {}ms)", since_last);
+                    spdlog::trace("Stranger detection restarted (timeout after {}ms)", since_last);
                 } else {
                     // 没超时，更新最后检测时间
                     stranger_detection_.last_seen = now;
@@ -223,8 +223,8 @@ bool MainWindow::initialize(const std::string& retinaface_model,
                     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
                         now - stranger_detection_.first_seen).count();
             
-                    spdlog::debug("Stranger detection continued (duration: {}ms / {}ms)", 
-                                 duration, STRANGER_CONFIRM_DURATION_MS);
+                    spdlog::trace("Stranger detection continued (duration: {}ms / {}ms)", 
+                                  duration, STRANGER_CONFIRM_DURATION_MS);
             
                     if (duration >= STRANGER_CONFIRM_DURATION_MS) {
                         // 持续检测到陌生人超过 2 秒，播放提示音
@@ -243,7 +243,7 @@ bool MainWindow::initialize(const std::string& retinaface_model,
                 stranger_detection_.is_detecting = true;
                 stranger_detection_.first_seen = now;
                 stranger_detection_.last_seen = now;
-                spdlog::debug("Stranger detection started");
+                spdlog::trace("Stranger detection started");
             }
             return;
         }
@@ -254,7 +254,7 @@ bool MainWindow::initialize(const std::string& retinaface_model,
             stranger_detection_.is_detecting = false;
                 last_audio_play_times_[AudioType::StrangerDetected] = 
                     std::chrono::steady_clock::now() - std::chrono::seconds(20);
-            spdlog::debug("Switched from stranger to user, reset stranger detection");
+            spdlog::trace("Switched from stranger to user, reset stranger detection");
             }
             
         // 检查是否是同一个人的连续识别
@@ -280,8 +280,8 @@ bool MainWindow::initialize(const std::string& retinaface_model,
                                       Q_ARG(bool, false),
                                       Q_ARG(int, 1));
             
-            spdlog::debug("User detection started: {} (similarity: {:.2f})", 
-                         result.user_name, result.similarity);
+            spdlog::trace("User detection started: {} (similarity: {:.2f})", 
+                          result.user_name, result.similarity);
             return;
         }
         
@@ -295,7 +295,7 @@ bool MainWindow::initialize(const std::string& retinaface_model,
             user_detection_.last_seen = now;
             user_detection_.max_similarity = result.similarity;
             user_detection_.attendance_recorded = false;
-            spdlog::debug("User detection restarted (timeout after {}ms)", since_last);
+            spdlog::trace("User detection restarted (timeout after {}ms)", since_last);
             // 继续执行下面的 UI 更新，不要 return
         } else {
             // 没超时，更新检测状态
@@ -307,8 +307,8 @@ bool MainWindow::initialize(const std::string& retinaface_model,
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
             now - user_detection_.first_seen).count();
         
-        spdlog::debug("User detection continued: {} (duration: {}ms / {}ms)", 
-                     result.user_name, duration, user_confirm_duration_ms_);
+        spdlog::trace("User detection continued: {} (duration: {}ms / {}ms)", 
+                      result.user_name, duration, user_confirm_duration_ms_);
         
         // 更新显示（使用实时相似度，不触发签到）
         QMetaObject::invokeMethod(this, "on_recognition_result", Qt::QueuedConnection,
@@ -905,7 +905,7 @@ void MainWindow::update_status() {
 }
 
 void MainWindow::on_recognition_result(int user_id, const QString& name, float similarity, bool is_new_attendance, int check_type) {
-    spdlog::debug("on_recognition_result called: user_id={}, name={}, is_new={}, check_type={}", 
+    spdlog::trace("on_recognition_result called: user_id={}, name={}, is_new={}, check_type={}", 
                   user_id, name.toStdString(), is_new_attendance, check_type);
     
     if (recognition_label_) {
@@ -1004,7 +1004,7 @@ void MainWindow::on_recognition_result(int user_id, const QString& name, float s
         
         // 更新今日签到表格（最新的在上面）
         if (attendance_table_) {
-            spdlog::debug("Updating attendance_table: row count before = {}", attendance_table_->rowCount());
+        spdlog::trace("Updating attendance_table: row count before = {}", attendance_table_->rowCount());
             
             attendance_table_->insertRow(0);  // 插入到第0行
             attendance_table_->setItem(0, 0, new QTableWidgetItem(name));
@@ -1019,14 +1019,14 @@ void MainWindow::on_recognition_result(int user_id, const QString& name, float s
             attendance_table_->setItem(0, 3, new QTableWidgetItem(
                 QString::number(similarity, 'f', 2)));
             
-            spdlog::debug("Attendance_table updated: row count after = {}", attendance_table_->rowCount());
+            spdlog::trace("Attendance_table updated: row count after = {}", attendance_table_->rowCount());
             spdlog::info("Added to attendance table: {} (type: {}, ID: {}, similarity: {:.2f})",
                         name.toStdString(), type_text.toStdString(), user_id, similarity);
         } else {
             spdlog::error("attendance_table_ is nullptr!");
         }
     } else {
-        spdlog::debug("Recognition (duplicate): {} (ID: {}, similarity: {:.2f})",
+        spdlog::trace("Recognition (duplicate): {} (ID: {}, similarity: {:.2f})",
                       name.toStdString(), user_id, similarity);
     }
 }
