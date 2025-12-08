@@ -64,6 +64,7 @@ MainWindow::MainWindow(QWidget* parent)
     , attendance_page_(nullptr)
     , user_page_(nullptr)
     , settings_page_(nullptr)
+    , news_service_(nullptr)
     , status_label_(nullptr)
     , fps_label_(nullptr)
     , recognition_label_(nullptr)
@@ -187,6 +188,19 @@ bool MainWindow::initialize(const std::string& retinaface_model,
             ConfigManager::instance()->getDuplicateCheckInterval()
         );
         spdlog::info("Attendance work schedule configured from settings");
+    }
+
+    // 6. 初始化热点服务（用于标题栏滚动）
+    news_service_ = NewsService::instance();
+    if (news_service_) {
+        connect(news_service_, &NewsService::headlinesUpdated, this, [this](const QStringList& list) {
+            if (title_bar_) {
+                title_bar_->setHeadlines(list);
+            }
+        });
+        connect(news_service_, &NewsService::errorOccurred, this, [](const QString& msg) {
+            spdlog::warn("NewsService error: {}", msg.toStdString());
+        });
     }
 
     // 设置识别回调（带连续确认机制，防止误识别导致错误签到）
@@ -401,6 +415,11 @@ bool MainWindow::initialize(const std::string& retinaface_model,
     if (recognition_page_) {
         recognition_page_->refreshWeather();
         recognition_page_->refreshDailySentence();
+    }
+
+    // 10. 初始拉取热点标题
+    if (news_service_) {
+        news_service_->requestHeadlines();
     }
 
     return true;
@@ -900,6 +919,15 @@ void MainWindow::update_status() {
         if (++sentence_update_counter >= Config::UI::SENTENCE_REFRESH_INTERVAL_SEC) {
             sentence_update_counter = 0;
             recognition_page_->refreshDailySentence();
+        }
+
+        // 定期刷新热点标题
+        static int news_update_counter = 0;
+        if (++news_update_counter >= Config::UI::NEWS_REFRESH_INTERVAL_SEC) {
+            news_update_counter = 0;
+            if (news_service_) {
+                news_service_->requestHeadlines();
+            }
         }
     }
 }

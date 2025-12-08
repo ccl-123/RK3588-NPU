@@ -7,6 +7,7 @@ class IconButton;
 class QLabel;
 class QMenu;
 class QHBoxLayout;
+class NewsTicker;
 
 /**
  * @brief TitleBar 自定义顶部栏，包含 logo、面包屑与用户菜单。
@@ -19,6 +20,7 @@ public:
     void setTitle(const QString& title);
     void setBreadcrumb(const QStringList& crumbs);
     void setUserMenu(QMenu* menu);
+    void setHeadlines(const QStringList& headlines);
 
 signals:
     void requestMinimize();
@@ -35,6 +37,7 @@ private:
     QPoint drag_pos_;
     QLabel* title_label_;
     QLabel* breadcrumb_label_;
+    NewsTicker* news_ticker_;
     IconButton* theme_button_;
     IconButton* user_button_;
     IconButton* minimize_button_;

@@ -653,6 +653,21 @@ QMenu::separator {
     margin: 4px 8px;
 }
 
+#NewsTicker {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 rgba(35, 38, 50, 0.96),
+        stop:1 rgba(26, 28, 38, 0.96));
+    border-radius: 18px;
+    border: 1px solid rgba(64, 158, 255, 0.18);
+    padding: 6px 14px;
+}
+
+#NewsTickerLabel {
+    color: #f5f7ff;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+}
+
 /* ============================================================================
    工具提示 - 暗色
    ============================================================================ */

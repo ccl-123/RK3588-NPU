@@ -118,6 +118,7 @@ if(Qt5_FOUND)
         gui/src/gui/user_management_widget.cc
         gui/src/gui/about_dialog.cc
         gui/src/services/weather_service.cc
+        gui/src/services/news_service.cc
         gui/src/themes/theme_manager.cc
         gui/src/utils/svg_icon_manager.cc
         gui/src/utils/stack_router.cc
@@ -130,6 +131,7 @@ if(Qt5_FOUND)
         gui/src/widgets/status_item_delegate.cc
         gui/src/widgets/modern_table_view.cc
         gui/src/widgets/title_bar.cc
+        gui/src/widgets/news_ticker.cc
         gui/src/widgets/side_menu.cc
         gui/src/widgets/toast_notification.cc
         gui/src/ui/recognition_page.cc
@@ -174,6 +176,7 @@ if(Qt5_FOUND)
         gui/include/gui/user_management_widget.h
         gui/include/gui/about_dialog.h
         gui/include/services/weather_service.h
+        gui/include/services/news_service.h
         gui/include/themes/theme_manager.h
         gui/include/utils/svg_icon_manager.h
         gui/include/utils/stack_router.h
@@ -186,6 +189,7 @@ if(Qt5_FOUND)
         gui/include/widgets/status_item_delegate.h
         gui/include/widgets/modern_table_view.h
         gui/include/widgets/title_bar.h
+        gui/include/widgets/news_ticker.h
         gui/include/widgets/side_menu.h
         gui/include/widgets/toast_notification.h
         gui/include/ui/recognition_page.h

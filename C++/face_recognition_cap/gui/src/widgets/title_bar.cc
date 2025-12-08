@@ -8,11 +8,13 @@
 #include "widgets/title_bar.h"
 #include "utils/svg_icon_manager.h"
 #include "widgets/icon_button.h"
+#include "widgets/news_ticker.h"
 
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMenu>
 #include <QMouseEvent>
+#include <QSizePolicy>
 #include <QPainter>
 #include <QStyleOption>
 
@@ -20,6 +22,7 @@ TitleBar::TitleBar(QWidget* parent)
     : QWidget(parent)
     , title_label_(new QLabel(this))
     , breadcrumb_label_(new QLabel(this))
+    , news_ticker_(new NewsTicker(this))
     , theme_button_(new IconButton(this))
     , user_button_(new IconButton(this))
     , minimize_button_(new IconButton(this))
@@ -41,6 +44,9 @@ TitleBar::TitleBar(QWidget* parent)
     // 面包屑导航（带左边距）
     breadcrumb_label_->setObjectName("Breadcrumb");
     breadcrumb_label_->setContentsMargins(24, 0, 0, 0);
+
+    // 让跑马灯在视觉上更突出
+    news_ticker_->setContentsMargins(12, 4, 12, 4);
 
     // 主题切换按钮
     theme_button_->setObjectName("ThemeButton");
@@ -66,7 +72,14 @@ TitleBar::TitleBar(QWidget* parent)
     close_button_->setToolTip(tr("关闭"));
     close_button_->setFixedSize(36, 36);
 
+    // 标题与面包屑
+    layout->addWidget(title_label_);
     layout->addWidget(breadcrumb_label_);
+
+    // 热点跑马灯，占据中部空白区域
+    news_ticker_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    layout->addWidget(news_ticker_, 1);
+
     layout->addStretch();
     layout->addWidget(theme_button_);
     layout->addWidget(user_button_);
@@ -99,6 +112,12 @@ void TitleBar::setBreadcrumb(const QStringList& crumbs) {
         }
     }
     breadcrumb_label_->setText(html);
+}
+
+void TitleBar::setHeadlines(const QStringList& headlines) {
+    if (news_ticker_) {
+        news_ticker_->setHeadlines(headlines);
+    }
 }
 
 void TitleBar::setUserMenu(QMenu* menu) {

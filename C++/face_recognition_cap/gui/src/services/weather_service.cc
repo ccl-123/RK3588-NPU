@@ -13,6 +13,7 @@
 #include <QTimer>
 #include <spdlog/spdlog.h>
 #include <functional>
+#include "config/config.h"
 
 WeatherService* WeatherService::instance_ = nullptr;
 
@@ -116,7 +117,7 @@ void WeatherService::sendGet(const QUrl& url,
 
 void WeatherService::requestLocation() {
     // 使用 ip-api.com 获取设备位置
-    QUrl url("http://ip-api.com/json/?lang=zh-CN");
+    QUrl url(QString("%1?lang=zh-CN").arg(Config::API::LOCATION));
     sendGet(url,
             [this](QNetworkReply* reply) { onLocationReplyFinished(reply); },
             location_reply_,
@@ -156,7 +157,8 @@ void WeatherService::onLocationReplyFinished(QNetworkReply* reply) {
 
 void WeatherService::requestWeather(double lat, double lon) {
     // 1. 天气请求
-    QString weatherUrlStr = QString("https://api.open-meteo.com/v1/forecast?latitude=%1&longitude=%2&current_weather=true")
+    QString weatherUrlStr = QString("%1?latitude=%2&longitude=%3&current_weather=true")
+                        .arg(Config::API::WEATHER_FORECAST)
                         .arg(lat, 0, 'f', 4)
                         .arg(lon, 0, 'f', 4);
     sendGet(QUrl(weatherUrlStr),
@@ -166,7 +168,8 @@ void WeatherService::requestWeather(double lat, double lon) {
             "weather");
 
     // 2. AQI 请求
-    QString aqiUrlStr = QString("https://air-quality-api.open-meteo.com/v1/air-quality?latitude=%1&longitude=%2&current=us_aqi,pm2_5")
+    QString aqiUrlStr = QString("%1?latitude=%2&longitude=%3&current=us_aqi,pm2_5")
+                        .arg(Config::API::AIR_QUALITY)
                         .arg(lat, 0, 'f', 4)
                         .arg(lon, 0, 'f', 4);
     sendGet(QUrl(aqiUrlStr),
@@ -176,7 +179,8 @@ void WeatherService::requestWeather(double lat, double lon) {
             "aqi");
 
     // 3. UV 请求
-    QString uvUrlStr = QString("https://api.open-meteo.com/v1/forecast?latitude=%1&longitude=%2&current=uv_index&timezone=Asia/Shanghai")
+    QString uvUrlStr = QString("%1?latitude=%2&longitude=%3&current=uv_index&timezone=Asia/Shanghai")
+                        .arg(Config::API::WEATHER_FORECAST)
                         .arg(lat, 0, 'f', 4)
                         .arg(lon, 0, 'f', 4);
     sendGet(QUrl(uvUrlStr),
@@ -256,7 +260,7 @@ void WeatherService::onUvReplyFinished(QNetworkReply* reply) {
 }
 
 void WeatherService::requestDailySentence() {
-    QUrl url("https://v1.hitokoto.cn/");
+    QUrl url(Config::API::DAILY_SENTENCE);
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::UserAgentHeader, "FaceRecognitionApp/1.0");
     
