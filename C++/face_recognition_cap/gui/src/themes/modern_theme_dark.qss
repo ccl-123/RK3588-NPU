@@ -939,9 +939,9 @@ QCalendarWidget QMenu {
 }
 
 #WeatherDescLabel {
-    color: #8c8c8c;
-    font-size: 14px;
-    font-weight: 500;
+    color:rgb(10, 236, 29);
+    font-size: 16px;
+    font-weight: 700;
     background: transparent;
 }
 
@@ -1039,10 +1039,10 @@ QCalendarWidget QMenu {
 }
 
 #DateLabel {
-    color: #6b6b6b;
-    font-size: 13px;
-    font-weight: 500;
-    letter-spacing: 0.5px;
+    color: #d9d9d9;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.6px;
     background: transparent;
 }
 
@@ -1067,9 +1067,33 @@ QCalendarWidget QMenu {
 
 #FaceCountValue {
     font-size: 28px;
-    font-weight: 700;
+    font-weight: 800;
     font-family: "DIN Alternate", "SF Pro Display", "Segoe UI", sans-serif;
     background: transparent;
+}
+
+#HolidayCard {
+    background: rgba(28, 30, 40, 0.82);
+    border-radius: 12px;
+    border: 1px solid rgba(64, 158, 255, 0.18);
+}
+
+#HolidayTitle {
+    color: #69c0ff;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+}
+
+#HolidayStatus {
+    color: #69c0ff;  /* 亮蓝，突出状态 */
+    font-size: 14px;
+    font-weight: 700;
+}
+
+#HolidayCountdown {
+    color: #9fb4d0;  /* 柔和蓝灰，次级信息 */
+    font-size: 13px;
 }
 
 #FaceCountValue[status="active"] {

@@ -38,6 +38,7 @@ public:
     QLabel* faceCountLabel() const;
     QLabel* detectionStatusLabel() const;
     QProgressBar* detectionProgressBar() const;
+    void updateHolidayStatus(const QString& status, const QString& countdown);
     
     // 状态栏更新方法
     void updateClock(const QString& time);
@@ -90,6 +91,8 @@ private:
     QLabel* face_count_label_;
     QLabel* detection_status_label_;
     QProgressBar* detection_progress_bar_;
+    QLabel* holiday_status_label_;
+    QLabel* holiday_countdown_label_;
     
     // 信息栏组件（天气 + 考勤统计）
     QLabel* weather_label_;      // 城市名

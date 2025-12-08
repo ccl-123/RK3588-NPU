@@ -118,6 +118,7 @@ if(Qt5_FOUND)
         gui/src/gui/user_management_widget.cc
         gui/src/gui/about_dialog.cc
         gui/src/services/weather_service.cc
+        gui/src/services/holiday_service.cc
         gui/src/services/news_service.cc
         gui/src/themes/theme_manager.cc
         gui/src/utils/svg_icon_manager.cc
@@ -176,6 +177,7 @@ if(Qt5_FOUND)
         gui/include/gui/user_management_widget.h
         gui/include/gui/about_dialog.h
         gui/include/services/weather_service.h
+        gui/include/services/holiday_service.h
         gui/include/services/news_service.h
         gui/include/themes/theme_manager.h
         gui/include/utils/svg_icon_manager.h

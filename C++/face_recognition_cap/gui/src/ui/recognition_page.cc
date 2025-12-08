@@ -258,6 +258,15 @@ void RecognitionPage::updateDetectionStatus(const QString& status, int progress)
     }
 }
 
+void RecognitionPage::updateHolidayStatus(const QString& status, const QString& countdown) {
+    if (holiday_status_label_) {
+        holiday_status_label_->setText(status);
+    }
+    if (holiday_countdown_label_) {
+        holiday_countdown_label_->setText(countdown);
+    }
+}
+
 void RecognitionPage::updateWeather(const QString& city, const QString& temp) {
     if (weather_label_) {
         weather_label_->setText(city);
@@ -702,7 +711,7 @@ QWidget* RecognitionPage::createStatusBar() {
     
     auto layout = new QHBoxLayout(status_bar);
     layout->setContentsMargins(24, 16, 24, 16);
-    layout->setSpacing(32);
+    layout->setSpacing(24);
     
     // ===== 左侧：时钟卡片 =====
     auto clock_card = new QWidget(status_bar);
@@ -724,20 +733,36 @@ QWidget* RecognitionPage::createStatusBar() {
     clock_card_layout->addWidget(clock_label_);
     clock_card_layout->addWidget(date_label_);
     
-    layout->addWidget(clock_card);
-    
-    // ===== 分隔符 =====
-    auto separator1 = new QWidget(status_bar);
-    separator1->setObjectName("StatusBarSeparator");
-    separator1->setFixedWidth(1);
-    separator1->setMinimumHeight(50);
-    layout->addWidget(separator1);
+    layout->addWidget(clock_card, 1);
+
+    // ===== 新增：节假日卡片 =====
+    auto holiday_card = new QWidget(status_bar);
+    holiday_card->setObjectName("HolidayCard");
+    holiday_card->setAttribute(Qt::WA_StyledBackground, true);
+    auto holiday_layout = new QVBoxLayout(holiday_card);
+    holiday_layout->setContentsMargins(16, 12, 16, 12);
+    holiday_layout->setSpacing(4);
+    holiday_layout->setAlignment(Qt::AlignCenter);
+
+    holiday_status_label_ = new QLabel(tr("节假日：查询中..."), holiday_card);
+    holiday_status_label_->setObjectName("HolidayStatus");
+    holiday_status_label_->setAlignment(Qt::AlignLeft);
+
+    holiday_countdown_label_ = new QLabel(tr("距离下次放假 --"), holiday_card);
+    holiday_countdown_label_->setObjectName("HolidayCountdown");
+    holiday_countdown_label_->setAlignment(Qt::AlignLeft);
+
+    holiday_layout->addWidget(holiday_status_label_);
+    holiday_layout->addWidget(holiday_countdown_label_);
+
+    holiday_card->setMinimumWidth(220);
+    layout->addWidget(holiday_card, 2);
     
     // ===== 人脸检测状态卡片 =====
     auto face_card = new QWidget(status_bar);
     face_card->setObjectName("FaceDetectionCard");
     face_card->setAttribute(Qt::WA_StyledBackground, true);
-    face_card->setFixedWidth(Config::UI::FACE_CARD_WIDTH);  // 固定宽度防止抖动
+    face_card->setFixedWidth(130);  // 缩窄，突出节假日卡
     auto face_card_layout = new QVBoxLayout(face_card);
     face_card_layout->setContentsMargins(16, 12, 16, 12);
     face_card_layout->setSpacing(4);
@@ -755,10 +780,8 @@ QWidget* RecognitionPage::createStatusBar() {
     face_card_layout->addWidget(face_title);
     face_card_layout->addWidget(face_count_label_);
     
-    layout->addWidget(face_card);
-    
-    layout->addStretch();
-    
+    layout->addWidget(face_card, 1);
+
     // ===== 右侧：识别进度卡片 =====
     auto progress_card = new QWidget(status_bar);
     progress_card->setObjectName("ProgressCard");
@@ -783,7 +806,8 @@ QWidget* RecognitionPage::createStatusBar() {
     progress_card_layout->addWidget(detection_status_label_);
     progress_card_layout->addWidget(detection_progress_bar_);
     
-    layout->addWidget(progress_card);
+    layout->addStretch();
+    layout->addWidget(progress_card, 1);
     
     return status_bar;
 }

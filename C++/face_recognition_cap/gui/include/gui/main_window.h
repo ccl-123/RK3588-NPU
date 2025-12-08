@@ -25,6 +25,7 @@
 #include "service/user_service.h"
 #include "service/attendance_service.h"
 #include "utils/audio_manager.h"
+#include "services/holiday_service.h"
 #include "services/news_service.h"
 
 // 前向声明
@@ -124,6 +125,7 @@ private:
     AttendancePage* attendance_page_;
     UserManagementPage* user_page_;
     SettingsPage* settings_page_;
+    HolidayService* holiday_service_;
     NewsService* news_service_;
 
     QLabel* status_label_;

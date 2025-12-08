@@ -922,9 +922,9 @@ QToolTip {
 }
 
 #WeatherDescLabel {
-    color: #8c8c8c;
-    font-size: 14px;
-    font-weight: 500;
+    color:rgb(51, 217, 9);
+    font-size: 16px;
+    font-weight: 700;
     background: transparent;
 }
 
@@ -1022,10 +1022,10 @@ QToolTip {
 }
 
 #DateLabel {
-    color: #8c8c8c;
-    font-size: 13px;
-    font-weight: 500;
-    letter-spacing: 0.5px;
+    color: #434343;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.6px;
     background: transparent;
 }
 
@@ -1050,9 +1050,33 @@ QToolTip {
 
 #FaceCountValue {
     font-size: 28px;
-    font-weight: 700;
+    font-weight: 800;
     font-family: "DIN Alternate", "SF Pro Display", "Segoe UI", sans-serif;
     background: transparent;
+}
+
+#HolidayCard {
+    background: rgba(255, 255, 255, 0.7);
+    border-radius: 12px;
+    border: 1px solid rgba(24, 144, 255, 0.12);
+}
+
+#HolidayTitle {
+    color: #1890ff;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+}
+
+#HolidayStatus {
+    color: #0050b3;  /* 深蓝，突出状态 */
+    font-size: 14px;
+    font-weight: 700;
+}
+
+#HolidayCountdown {
+    color: #5c6b7a;  /* 中性灰蓝，区分状态行 */
+    font-size: 13px;
 }
 
 #FaceCountValue[status="active"] {

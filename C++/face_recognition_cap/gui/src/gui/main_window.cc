@@ -64,6 +64,7 @@ MainWindow::MainWindow(QWidget* parent)
     , attendance_page_(nullptr)
     , user_page_(nullptr)
     , settings_page_(nullptr)
+    , holiday_service_(nullptr)
     , news_service_(nullptr)
     , status_label_(nullptr)
     , fps_label_(nullptr)
@@ -201,6 +202,17 @@ bool MainWindow::initialize(const std::string& retinaface_model,
         connect(news_service_, &NewsService::errorOccurred, this, [](const QString& msg) {
             spdlog::warn("NewsService error: {}", msg.toStdString());
         });
+    }
+
+    // 7. 初始化节假日服务
+    holiday_service_ = HolidayService::instance();
+    if (holiday_service_ && recognition_page_) {
+        connect(holiday_service_, &HolidayService::holidayStatusUpdated,
+                recognition_page_, &RecognitionPage::updateHolidayStatus);
+        connect(holiday_service_, &HolidayService::errorOccurred, this, [](const QString& msg) {
+            spdlog::warn("HolidayService error: {}", msg.toStdString());
+        });
+        holiday_service_->requestTodayAndNext();
     }
 
     // 设置识别回调（带连续确认机制，防止误识别导致错误签到）
@@ -857,6 +869,9 @@ void MainWindow::update_status() {
                         today.toString("yyyy-MM-dd").toStdString());
             current_date_ = today;
             load_today_attendance();  // 重新加载今日签到记录
+            if (holiday_service_) {
+                holiday_service_->requestTodayAndNext();
+            }
         }
         
         // 更新时钟 (HH:mm:ss)
