@@ -101,12 +101,13 @@ int ModelManager::init_facenet(const char* model_path) {
     // 配置输入
     memset(facenet_inputs_, 0, sizeof(facenet_inputs_));
     facenet_inputs_[0].index = 0;
-    facenet_inputs_[0].type = RKNN_TENSOR_UINT8;
-    facenet_inputs_[0].size = facenet_width_ * facenet_height_ * facenet_channel_;
+    // FaceNet 模型是 FP16 输入
+    facenet_inputs_[0].type = RKNN_TENSOR_FLOAT16;
+    facenet_inputs_[0].size = facenet_width_ * facenet_height_ * facenet_channel_ * sizeof(uint16_t);
     facenet_inputs_[0].fmt = RKNN_TENSOR_NHWC;
     facenet_inputs_[0].pass_through = 0;
 
-    // 配置输出 - 模型是 int8 量化的，设置 want_float=1 让 RKNN 自动反量化为 float
+    // 配置输出 - FaceNet 模型原始输出为 FP16，这里设置 want_float=1 让 RKNN 转成 float32，便于后续相似度计算
     facenet_outputs_ = new rknn_output[facenet_io_num_.n_output];
     memset(facenet_outputs_, 0, sizeof(rknn_output) * facenet_io_num_.n_output);
     for (int i = 0; i < facenet_io_num_.n_output; i++) {
