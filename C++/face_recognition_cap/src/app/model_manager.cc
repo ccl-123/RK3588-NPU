@@ -101,9 +101,9 @@ int ModelManager::init_facenet(const char* model_path) {
     // 配置输入
     memset(facenet_inputs_, 0, sizeof(facenet_inputs_));
     facenet_inputs_[0].index = 0;
-    // FaceNet 模型是 FP16 输入
-    facenet_inputs_[0].type = RKNN_TENSOR_FLOAT16;
-    facenet_inputs_[0].size = facenet_width_ * facenet_height_ * facenet_channel_ * sizeof(uint16_t);
+    // FaceNet 转换脚本/home/firefly/RK_NPU2_SDK/convert.py已经在 RKNN 侧配置 mean/std，输入期待 uint8 原始像素
+    facenet_inputs_[0].type = RKNN_TENSOR_UINT8;
+    facenet_inputs_[0].size = facenet_width_ * facenet_height_ * facenet_channel_;
     facenet_inputs_[0].fmt = RKNN_TENSOR_NHWC;
     facenet_inputs_[0].pass_through = 0;
 

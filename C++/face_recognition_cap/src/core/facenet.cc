@@ -187,12 +187,9 @@ int create_facenet(char *model_name, rknn_context *ctx, int &width, int &height,
 int facenet_inference(rknn_context *ctx, cv::Mat img, rknn_input_output_num io_num, rknn_input *inputs, rknn_output *outputs, float **result){
     int ret;
 
-    // 将 uint8 图像转换为 float16，保持 0~255 范围，匹配模型输入 (qnt scale=1, zp=0)
-    cv::Mat img_f16;
-    img.convertTo(img_f16, CV_16FC3);  // 不缩放，保持原始像素值
-
-    inputs[0].buf = (void*)img_f16.data;
-    inputs[0].size = img_f16.total() * img_f16.elemSize();  // 按半精度尺寸更新 size
+    // 直接使用 uint8 输入，/home/firefly/RK_NPU2_SDK/convert.py转换脚本，RKNN 会按 config 中的 mean/std 做归一化
+    inputs[0].buf = (void*)img.data;
+    inputs[0].size = img.total() * img.elemSize();  // uint8 尺寸
 
     ret = rknn_inputs_set(*ctx, io_num.n_input, inputs);
 
