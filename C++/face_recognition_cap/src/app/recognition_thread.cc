@@ -158,11 +158,14 @@ void RecognitionThread::process_task(RecognitionTask& task) {
         // 3. 特征匹配
         gettimeofday(&t_match_start, NULL);
         std::string name;
-        float max_score;
+        float max_score = 0.0f;
         int user_id = 0;
-        feature_library_->match_feature_with_id(facenet_result, threshold,
-                                                user_id, name, max_score);
+        bool match_found = feature_library_->match_feature_with_id(facenet_result, threshold,
+                                                                   user_id, name, max_score);
         gettimeofday(&t_match_end, NULL);
+        
+        // 关键改进：判断是否识别成功（提前计算，用于回调和显示）
+        bool is_recognized = match_found && (name != "stranger") && (max_score >= threshold);
         
         // 获取人脸框
         int x1 = task.detect_result.results[i].box.left;
@@ -180,8 +183,8 @@ void RecognitionThread::process_task(RecognitionTask& task) {
         result.timestamp = std::chrono::system_clock::now();
         recognition_results.push_back(result);
         
-        // 调用识别回调
-        if (recognition_callback_) {
+        // 修复：只有识别成功时才触发回调（避免陌生人误触发）
+        if (recognition_callback_ && is_recognized) {
             recognition_callback_(result);
         }
         
@@ -191,9 +194,6 @@ void RecognitionThread::process_task(RecognitionTask& task) {
             model_manager_->get_facenet_io_num(),
             model_manager_->get_facenet_outputs()
         );
-        
-        // 绘制结果（与之前的 recognize_and_match 保持一致）
-        bool is_recognized = (name != "stranger" && max_score >= threshold);
         if (is_recognized) {
             recognized_count++;
         }
