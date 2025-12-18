@@ -523,33 +523,8 @@ void MainWindow::load_today_attendance() {
 
 
 void MainWindow::load_users() {
-    if (!user_service_) {
-        return;
-    }
-
-    // 从数据库重新加载用户列表
-    auto users = user_service_->get_all_users(-1);  // -1 表示加载所有状态的用户
-
-    // 更新用户表格
-    if (user_table_) {
-        user_table_->setRowCount(0);  // 清空现有行
-
-        for (const auto& user : users) {
-            int row = user_table_->rowCount();
-            user_table_->insertRow(row);
-
-            user_table_->setItem(row, 0, new QTableWidgetItem(QString::number(user.user_id)));
-            user_table_->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(user.user_name)));
-            user_table_->setItem(row, 2, new QTableWidgetItem(QString::fromStdString(user.employee_id)));
-            user_table_->setItem(row, 3, new QTableWidgetItem(QString::fromStdString(user.department)));
-            user_table_->setItem(row, 4, new QTableWidgetItem(user.status == 1 ? "启用" : "禁用"));
-
-            // 获取特征数量
-            int feature_count = user_service_->get_feature_count(user.user_id);
-            user_table_->setItem(row, 5, new QTableWidgetItem(QString::number(feature_count)));
-        }
-
-        spdlog::info("User list refreshed: {} users loaded", users.size());
+    if (user_page_) {
+        user_page_->load_users();
     }
 }
 

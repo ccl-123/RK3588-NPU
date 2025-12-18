@@ -20,6 +20,7 @@ public:
     SearchInput* searchInput() const;
     
     void setUserService(service::UserService* service);
+    void load_users();
 
 signals:
     void userUpdated();
@@ -43,7 +44,6 @@ private slots:
 
 private:
     void setup_ui();
-    void load_users();
     void update_table(const std::vector<db::UserInfo>& users);
     void update_button_states();
 

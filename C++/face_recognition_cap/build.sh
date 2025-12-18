@@ -17,6 +17,6 @@ fi
 
 cd ${BUILD_DIR}
 cmake ../.. -DTARGET_NAME=face_recognition_cap
-make -j3
+make -j2
 make install
 cd -
