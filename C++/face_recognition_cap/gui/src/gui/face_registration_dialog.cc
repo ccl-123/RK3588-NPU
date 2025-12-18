@@ -52,7 +52,8 @@ void FaceRegistrationDialog::showEvent(QShowEvent* event) {
     // 窗口显示时启动定时器
     if (preview_timer_) {
         spdlog::info("FaceRegistrationDialog: Starting preview timer");
-        preview_timer_->start(33);  // 约30 FPS
+        // 不锁定固定帧率：尽快刷新预览（实际刷新速度受摄像头采集/处理耗时限制）
+        preview_timer_->start(0);
     }
 }
 
@@ -458,4 +459,3 @@ bool FaceRegistrationDialog::extract_feature(const cv::Mat& face_image, std::vec
     spdlog::info("Successfully extracted feature, size: {}", feature.size());
     return true;
 }
-
