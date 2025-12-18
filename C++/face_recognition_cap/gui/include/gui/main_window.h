@@ -94,7 +94,7 @@ private slots:
     void on_action_toggle_theme();
     void update_status();
     void on_frame_ready(const cv::Mat& frame, const std::vector<RecognitionResult>& results);
-    void on_recognition_result(int user_id, const QString& name, float similarity, bool is_new_attendance, int check_type = 1);
+    void on_recognition_result(int user_id, const QString& name, float similarity, bool is_new_attendance, int check_type = 1, int status = 1);
 
 private:
     void setup_ui();

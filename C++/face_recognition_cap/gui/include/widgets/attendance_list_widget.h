@@ -22,8 +22,8 @@ struct AttendanceItem {
     QString avatar_path; // 抓拍图路径
     QDateTime time;
     int check_type;      // 1=签到, 2=签退
+    int status;          // 1=正常, 2=迟到, 3=早退 (新增)
     float similarity;
-    bool is_stranger;    // 是否是陌生人
 };
 
 // 自定义绘制代理

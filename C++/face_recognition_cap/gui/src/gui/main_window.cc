@@ -303,7 +303,8 @@ bool MainWindow::initialize(const std::string& retinaface_model,
                                       Q_ARG(QString, QString::fromStdString(result.user_name)),
                                       Q_ARG(float, result.similarity),
                                       Q_ARG(bool, false),
-                                      Q_ARG(int, 1));
+                                      Q_ARG(int, 1), // check_type 默认为1
+                                      Q_ARG(int, 1)); // status 默认为1
             
             spdlog::trace("User detection started: {} (similarity: {:.2f})", 
                           result.user_name, result.similarity);
@@ -507,8 +508,9 @@ void MainWindow::load_today_attendance() {
         
         item.time = QDateTime::fromTime_t(record.check_time);
         item.check_type = record.check_type;
+        item.status = record.status; // 从数据库记录获取考勤状态
         item.similarity = record.similarity;
-        item.is_stranger = (record.user_id == 0); // 简单判断
+        // item.is_stranger 已从 AttendanceItem 结构体中移除
         item.avatar_path = ""; // 暂无抓拍图
         
         attendance_list_->addRecord(item);
@@ -918,9 +920,9 @@ void MainWindow::update_status() {
     }
 }
 
-void MainWindow::on_recognition_result(int user_id, const QString& name, float similarity, bool is_new_attendance, int check_type) {
-    spdlog::trace("on_recognition_result called: user_id={}, name={}, is_new={}, check_type={}", 
-                  user_id, name.toStdString(), is_new_attendance, check_type);
+void MainWindow::on_recognition_result(int user_id, const QString& name, float similarity, bool is_new_attendance, int check_type, int status) {
+    spdlog::trace("on_recognition_result called: user_id={}, name={}, is_new={}, check_type={}, status={}", 
+                  user_id, name.toStdString(), is_new_attendance, check_type, status);
     
     if (recognition_label_) {
         recognition_label_->setText(QString("识别: %1 (%2)").arg(name).arg(similarity, 0, 'f', 2));
@@ -993,8 +995,8 @@ void MainWindow::on_recognition_result(int user_id, const QString& name, float s
 
     // 更新考勤表格和状态标签
     if (is_new_attendance) {
-        spdlog::info("Processing new attendance: user_id={}, name={}, check_type={}", 
-                     user_id, name.toStdString(), check_type);
+        spdlog::info("Processing new attendance: user_id={}, name={}, check_type={}, status={}", 
+                     user_id, name.toStdString(), check_type, status);
         
         // 更新状态标签（签到绿色/签退蓝色，5秒后隐藏）
         if (attendance_status_label_) {
@@ -1017,17 +1019,19 @@ void MainWindow::on_recognition_result(int user_id, const QString& name, float s
         }
         
         // 更新今日签到列表（最新的在上面）
-        if (attendance_list_) {
+        // 只有注册用户才添加到考勤列表
+        if (attendance_list_ && user_id > 0) { 
             AttendanceItem item;
             item.user_id = user_id;
             item.name = name;
             item.time = QDateTime::currentDateTime();
             item.check_type = check_type;
+            item.status = status; // 传入状态
             item.similarity = similarity;
-            item.is_stranger = (user_id == 0);
+            // item.is_stranger 不再需要，因为陌生人不会进入列表
             
             // 获取用户详情（部门）
-            if (user_service_ && user_id > 0) {
+            if (user_service_) {
                 db::UserInfo user_info;
                 if (user_service_->get_user(user_id, user_info)) {
                     item.department = QString::fromStdString(user_info.department);
@@ -1036,8 +1040,10 @@ void MainWindow::on_recognition_result(int user_id, const QString& name, float s
             
             attendance_list_->addRecord(item);
             
-            spdlog::info("Added to attendance feed: {} (type: {}, ID: {}, similarity: {:.2f})",
-                        name.toStdString(), check_type, user_id, similarity);
+            spdlog::info("Added to attendance feed: {} (type: {}, status: {}, ID: {}, similarity: {:.2f})",
+                        name.toStdString(), check_type, status, user_id, similarity);
+        } else if (user_id <= 0) {
+            spdlog::trace("Stranger detected, not added to attendance feed.");
         } else {
             spdlog::error("attendance_list_ is nullptr!");
         }

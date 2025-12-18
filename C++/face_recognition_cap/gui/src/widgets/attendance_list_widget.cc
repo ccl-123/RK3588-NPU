@@ -39,8 +39,9 @@ void AttendanceItemDelegate::paint(QPainter* painter, const QStyleOptionViewItem
     QString dept = index.data(Qt::UserRole + 2).toString();
     QString timeStr = index.data(Qt::UserRole + 3).toString();
     int checkType = index.data(Qt::UserRole + 4).toInt();
-    bool isStranger = index.data(Qt::UserRole + 5).toBool();
+    // bool isStranger = index.data(Qt::UserRole + 5).toBool(); // 陌生人不再显示在列表中
     QVariant avatarVar = index.data(Qt::UserRole + 6);
+    int status = index.data(Qt::UserRole + 7).toInt(); // 新增状态字段
 
     QRect rect = option.rect;
 
@@ -62,8 +63,8 @@ void AttendanceItemDelegate::paint(QPainter* painter, const QStyleOptionViewItem
     painter->setClipPath(path);
     
     // 如果有头像且不为空，绘制图片，否则绘制默认颜色的圆 + 文字
-    // 简化处理：这里暂时画一个带颜色的圆
-    QColor avatarBg = isStranger ? QColor("#FF4D4F") : QColor("#1677FF");
+    // 简化处理：这里暂时画一个默认颜色的圆
+    QColor avatarBg = QColor("#1677FF"); // 统一使用默认蓝色
     painter->fillRect(avatarRect, avatarBg);
     
     // 绘制头像文字（取名字第一个字）
@@ -87,7 +88,7 @@ void AttendanceItemDelegate::paint(QPainter* painter, const QStyleOptionViewItem
     nameFont.setPixelSize(15);
     nameFont.setBold(true);
     painter->setFont(nameFont);
-    painter->drawText(nameRect, Qt::AlignLeft | Qt::AlignVCenter, isStranger ? "陌生人" : name);
+    painter->drawText(nameRect, Qt::AlignLeft | Qt::AlignVCenter, name);
     
     // 部门 / 详情
     QRect deptRect(textLeft, nameRect.bottom() + 2, textWidth, 18);
@@ -96,16 +97,13 @@ void AttendanceItemDelegate::paint(QPainter* painter, const QStyleOptionViewItem
     deptFont.setPixelSize(12);
     deptFont.setBold(false);
     painter->setFont(deptFont);
-    QString subText = isStranger ? "未注册人员" : (dept.isEmpty() ? "员工" : dept);
+    QString subText = dept.isEmpty() ? "员工" : dept;
     painter->drawText(deptRect, Qt::AlignLeft | Qt::AlignVCenter, subText);
 
     // 4. 绘制时间和状态 (右侧)
     int rightPadding = 16;
     int timeWidth = 70;
     QRect rightRect(rect.right() - rightPadding - timeWidth, rect.top(), timeWidth, rect.height());
-    
-    // 状态标签背景 (右上角)
-    // 简化：直接显示时间，状态通过颜色区分
     
     // 时间
     painter->setPen(QColor("#BFBFBF"));
@@ -117,10 +115,16 @@ void AttendanceItemDelegate::paint(QPainter* painter, const QStyleOptionViewItem
     // 状态点 (时间左边)
     int statusSize = 8;
     QRect statusRect(rightRect.left() - 12, rect.center().y() - statusSize/2, statusSize, statusSize);
+    
+    // 颜色逻辑修改：
+    // status: 1=正常, 2=迟到, 3=早退
+    // 异常状态 (迟到/早退) 显示红色，正常显示绿色
     QColor statusColor;
-    if (isStranger) statusColor = QColor("#FF4D4F"); // Red
-    else if (checkType == 2) statusColor = QColor("#FAAD14"); // Orange (Checkout)
-    else statusColor = QColor("#52C41A"); // Green (Checkin)
+    if (status == 2 || status == 3) {
+        statusColor = QColor("#FF4D4F"); // Red (异常/迟到/早退)
+    } else {
+        statusColor = QColor("#52C41A"); // Green (正常)
+    }
     
     painter->setBrush(statusColor);
     painter->setPen(Qt::NoPen);
@@ -175,8 +179,9 @@ void AttendanceListWidget::addRecord(const AttendanceItem& item) {
     listItem->setData(Qt::UserRole + 2, item.department);
     listItem->setData(Qt::UserRole + 3, item.time.toString("HH:mm:ss"));
     listItem->setData(Qt::UserRole + 4, item.check_type);
-    listItem->setData(Qt::UserRole + 5, item.is_stranger);
+    // listItem->setData(Qt::UserRole + 5, item.is_stranger); // 不再需要存储陌生人信息
     listItem->setData(Qt::UserRole + 6, item.avatar_path);
+    listItem->setData(Qt::UserRole + 7, item.status); // 存储状态
     
     // 插入到第一行
     list_view_->insertItem(0, listItem);
