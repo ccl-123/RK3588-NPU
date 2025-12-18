@@ -65,7 +65,11 @@ int FeatureLibrary::load_from_directory(const std::string& lib_path, int feature
         std::string line;
 
         while (std::getline(infile, line) && static_cast<int>(feature.size()) < feature_dim_) {
-            feature.push_back(std::stof(line));
+            try {
+                feature.push_back(std::stof(line));
+            } catch (const std::exception& e) {
+                spdlog::warn("Invalid feature value in {}: '{}'", file_path, line);
+            }
         }
         infile.close();
 

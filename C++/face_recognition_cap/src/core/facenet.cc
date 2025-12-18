@@ -122,6 +122,7 @@ int create_facenet(char *model_name, rknn_context *ctx, int &width, int &height,
   	ret = rknn_init(ctx, model_data, model_data_size, flag, NULL);
   	if (ret < 0) {
 		printf("rknn_init error ret=%d\n", ret);
+        free(model_data);
 		return -1;
   	}
   	
