@@ -119,15 +119,15 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
         padding_ = resize_h_ - resize_w_;
     }
 
-    // 5. 初始化人脸对齐目标点
+    // 5. 初始化人脸对齐目标点 (针对w600k_mbf.rknn 112x112 输入)
     // 注意：必须先创建 Mat，再复制数据，避免使用局部变量指针
     dst_landmark_ = cv::Mat(5, 2, CV_32FC1);
     float dst_landmark_data[5][2] = {
-        {54.7065, 73.8519},
-        {105.0454, 73.5734},
-        {80.036, 102.4808},
-        {59.3561, 131.9507},
-        {89.6141, 131.7201}
+        {38.2946f, 51.6963f},
+        {73.5318f, 51.5014f},
+        {56.0252f, 71.7366f},
+        {41.5493f, 92.3655f},
+        {70.7299f, 92.2041f}
     };
     memcpy(dst_landmark_.data, dst_landmark_data, 2 * 5 * sizeof(float));
 
