@@ -2,11 +2,11 @@
 
 #include <QWidget>
 #include "services/weather_service.h"
+#include "widgets/attendance_list_widget.h"
 
 class CardWidget;
 class QLabel;
 class QProgressBar;
-class ModernTableView;
 class StatusTag;
 class VideoDisplayWidget;
 
@@ -19,7 +19,7 @@ public:
     explicit RecognitionPage(QWidget* parent = nullptr);
 
     VideoDisplayWidget* videoWidget() const;
-    ModernTableView* attendanceTable() const;
+    AttendanceListWidget* attendanceList() const;
     QLabel* statusLabel() const;
     QLabel* fpsLabel() const;
     QLabel* recognitionLabel() const;
@@ -72,7 +72,7 @@ private:
     CardWidget* createAttendanceCard();
 
     VideoDisplayWidget* video_widget_;
-    ModernTableView* attendance_table_;
+    AttendanceListWidget* attendance_list_;
     QLabel* status_label_;
     QLabel* fps_label_;
     QLabel* recognition_label_;

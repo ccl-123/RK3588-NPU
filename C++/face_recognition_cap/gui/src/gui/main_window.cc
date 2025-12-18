@@ -21,6 +21,7 @@
 #include "widgets/side_menu.h"
 #include "widgets/title_bar.h"
 #include "widgets/toast_notification.h"
+#include "widgets/attendance_list_widget.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -53,7 +54,7 @@ MainWindow::MainWindow(QWidget* parent)
     , db_manager_(nullptr)
     , video_widget_(nullptr)
     , user_table_(nullptr)
-    , attendance_table_(nullptr)
+    , attendance_list_(nullptr)
     , side_menu_(nullptr)
     , title_bar_(nullptr)
     , content_stack_(nullptr)
@@ -477,46 +478,43 @@ void MainWindow::updateAudioPlayTime(AudioType audio_type) {
 
 
 void MainWindow::load_today_attendance() {
-    if (!attendance_service_ || !attendance_table_) {
-        spdlog::warn("Cannot load today attendance: service or table is null");
+    if (!attendance_service_ || !attendance_list_) {
         return;
     }
+
+    // 获取今日所有考勤记录
+    std::string today_str = QDate::currentDate().toString("yyyy-MM-dd").toStdString();
+    auto records = attendance_service_->query_records_by_date(today_str);
     
-    // 清空表格
-    attendance_table_->setRowCount(0);
+    // 清空列表
+    attendance_list_->clear();
     
-    // 查询今日考勤记录
-    QDate today = QDate::currentDate();
-    QString date_str = today.toString("yyyy-MM-dd");
-    auto records = attendance_service_->query_records_by_date(date_str.toStdString());
-    
-    spdlog::info("Loading today's attendance: {} records found for {}", 
-                 records.size(), date_str.toStdString());
-    
-    // 倒序添加（最新的在上面）
-    for (auto it = records.rbegin(); it != records.rend(); ++it) {
-        const auto& record = *it;
+    // 遍历记录添加到列表
+    // 数据库返回通常是按时间顺序（早->晚），addRecord 是插入到顶部
+    // 所以最终列表显示是：晚（顶）-> 早（底），符合 Feed 流习惯
+    for (const auto& record : records) {
+        AttendanceItem item;
+        item.user_id = record.user_id;
+        item.name = QString::fromStdString(record.user_name);
         
-        int row = attendance_table_->rowCount();
-        attendance_table_->insertRow(row);
+        // 获取用户详情（部门）
+        if (user_service_) {
+            db::UserInfo user_info;
+            if (user_service_->get_user(record.user_id, user_info)) {
+                item.department = QString::fromStdString(user_info.department);
+            }
+        }
         
-        attendance_table_->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(record.user_name)));
+        item.time = QDateTime::fromTime_t(record.check_time);
+        item.check_type = record.check_type;
+        item.similarity = record.similarity;
+        item.is_stranger = (record.user_id == 0); // 简单判断
+        item.avatar_path = ""; // 暂无抓拍图
         
-        // 格式化时间为 MM-dd HH:mm:ss（带日期，便于确认是否是今天的记录）
-        std::tm* tm_info = std::localtime(&record.check_time);
-        char time_str[18];
-        strftime(time_str, sizeof(time_str), "%m-%d %H:%M:%S", tm_info);
-        attendance_table_->setItem(row, 1, new QTableWidgetItem(QString::fromUtf8(time_str)));
-        
-        // 显示打卡类型
-        QString type_text = (record.check_type == 2) ? tr("签退") : tr("签到");
-        attendance_table_->setItem(row, 2, new QTableWidgetItem(type_text));
-        
-        attendance_table_->setItem(row, 3, new QTableWidgetItem(
-            QString::number(record.similarity, 'f', 2)));
+        attendance_list_->addRecord(item);
     }
     
-    spdlog::info("Today's attendance table updated: {} rows", attendance_table_->rowCount());
+    spdlog::info("Today's attendance list refreshed: {} records", records.size());
 }
 
 
@@ -587,7 +585,7 @@ void MainWindow::setup_pages() {
     router_->registerPage("settings", settings_page_);
 
     video_widget_ = recognition_page_->videoWidget();
-    attendance_table_ = recognition_page_->attendanceTable();
+    attendance_list_ = recognition_page_->attendanceList();
     status_label_ = recognition_page_->statusLabel();
     fps_label_ = recognition_page_->fpsLabel();
     recognition_label_ = recognition_page_->recognitionLabel();
@@ -1018,28 +1016,30 @@ void MainWindow::on_recognition_result(int user_id, const QString& name, float s
             });
         }
         
-        // 更新今日签到表格（最新的在上面）
-        if (attendance_table_) {
-        spdlog::trace("Updating attendance_table: row count before = {}", attendance_table_->rowCount());
+        // 更新今日签到列表（最新的在上面）
+        if (attendance_list_) {
+            AttendanceItem item;
+            item.user_id = user_id;
+            item.name = name;
+            item.time = QDateTime::currentDateTime();
+            item.check_type = check_type;
+            item.similarity = similarity;
+            item.is_stranger = (user_id == 0);
             
-            attendance_table_->insertRow(0);  // 插入到第0行
-            attendance_table_->setItem(0, 0, new QTableWidgetItem(name));
-            // 时间格式：MM-dd HH:mm:ss（带日期，便于确认是否是今天的记录）
-            attendance_table_->setItem(0, 1, new QTableWidgetItem(
-                QDateTime::currentDateTime().toString("MM-dd HH:mm:ss")));
+            // 获取用户详情（部门）
+            if (user_service_ && user_id > 0) {
+                db::UserInfo user_info;
+                if (user_service_->get_user(user_id, user_info)) {
+                    item.department = QString::fromStdString(user_info.department);
+                }
+            }
             
-            // 根据打卡类型显示不同文字
-            QString type_text = (check_type == 2) ? tr("签退") : tr("签到");
-            attendance_table_->setItem(0, 2, new QTableWidgetItem(type_text));
+            attendance_list_->addRecord(item);
             
-            attendance_table_->setItem(0, 3, new QTableWidgetItem(
-                QString::number(similarity, 'f', 2)));
-            
-            spdlog::trace("Attendance_table updated: row count after = {}", attendance_table_->rowCount());
-            spdlog::info("Added to attendance table: {} (type: {}, ID: {}, similarity: {:.2f})",
-                        name.toStdString(), type_text.toStdString(), user_id, similarity);
+            spdlog::info("Added to attendance feed: {} (type: {}, ID: {}, similarity: {:.2f})",
+                        name.toStdString(), check_type, user_id, similarity);
         } else {
-            spdlog::error("attendance_table_ is nullptr!");
+            spdlog::error("attendance_list_ is nullptr!");
         }
     } else {
         spdlog::trace("Recognition (duplicate): {} (ID: {}, similarity: {:.2f})",

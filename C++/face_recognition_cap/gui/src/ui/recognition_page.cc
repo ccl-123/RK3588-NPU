@@ -29,7 +29,7 @@
 RecognitionPage::RecognitionPage(QWidget* parent)
     : QWidget(parent)
     , video_widget_(nullptr)
-    , attendance_table_(nullptr)
+    , attendance_list_(nullptr)
     , status_label_(nullptr)
     , fps_label_(nullptr)
     , recognition_label_(nullptr)
@@ -162,8 +162,8 @@ VideoDisplayWidget* RecognitionPage::videoWidget() const {
     return video_widget_;
 }
 
-ModernTableView* RecognitionPage::attendanceTable() const {
-    return attendance_table_;
+AttendanceListWidget* RecognitionPage::attendanceList() const {
+    return attendance_list_;
 }
 
 QLabel* RecognitionPage::statusLabel() const {
@@ -899,17 +899,13 @@ CardWidget* RecognitionPage::createStatusCard() {
 
 CardWidget* RecognitionPage::createAttendanceCard() {
     auto card = new CardWidget();
-    card->setTitle(tr("今日签到记录"));
+    card->setTitle(tr("今日实时考勤"));
 
-    attendance_table_ = new ModernTableView(card);
-    attendance_table_->setColumnCount(4);
-    attendance_table_->setHorizontalHeaderLabels({tr("姓名"), tr("时间"), tr("类型"), tr("相似度")});
-    
-    // 不设置内联样式，让全局 QSS 控制
+    attendance_list_ = new AttendanceListWidget(card);
 
     auto layout = new QVBoxLayout(card->bodyContainer());
     layout->setContentsMargins(0, 0, 0, 0);
-    layout->addWidget(attendance_table_);
+    layout->addWidget(attendance_list_);
 
     return card;
 }

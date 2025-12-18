@@ -38,6 +38,7 @@ class AttendancePage;
 class UserManagementPage;
 class SettingsPage;
 class ModernTableView;
+class AttendanceListWidget;
 
 /**
  * @brief 主窗口类
@@ -111,7 +112,7 @@ private:
     // UI 组件
     VideoDisplayWidget* video_widget_;
     ModernTableView* user_table_;
-    ModernTableView* attendance_table_;
+    AttendanceListWidget* attendance_list_;
     
     SideMenu* side_menu_;
     TitleBar* title_bar_;

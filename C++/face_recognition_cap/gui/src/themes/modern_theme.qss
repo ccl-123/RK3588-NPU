@@ -355,7 +355,7 @@ QScrollBar::sub-line:vertical {
     height: 0;
 }
 
-QScrollBar:horizontal {
+QScrollBar::horizontal {
     background-color: transparent;
     height: 8px;
 }
@@ -616,8 +616,11 @@ QToolTip {
    ============================================================================ */
 
 #TitleBar {
-    background-color: #ffffff;
-    border-bottom: 1px solid #f0f0f0;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #ffffff,
+        stop:0.5 #f7fbff,
+        stop:1 #ffffff);
+    border-bottom: 1px solid rgba(24, 144, 255, 0.08);
 }
 
 #TitleBarSpacer {
@@ -658,14 +661,6 @@ QToolTip {
 
 #CloseButton:pressed {
     background-color: #d9363e;
-}
-
-#TitleBar {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 #ffffff,
-        stop:0.5 #f7fbff,
-        stop:1 #ffffff);
-    border-bottom: 1px solid rgba(24, 144, 255, 0.08);
 }
 
 #NewsTicker {
