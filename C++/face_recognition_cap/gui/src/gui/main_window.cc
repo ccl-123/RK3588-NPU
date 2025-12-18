@@ -958,6 +958,9 @@ void MainWindow::on_frame_ready(const cv::Mat& frame, const std::vector<Recognit
 
     // 转换识别结果为 FaceResult
     std::vector<FaceResult> face_results;
+    face_results.reserve(results.size());
+    const int dup_interval = ConfigManager::instance()->getDuplicateCheckInterval();
+    const std::time_t current_time = std::time(nullptr);
     for (const auto& result : results) {
         FaceResult fr;
         fr.box = result.face_box;
@@ -969,10 +972,8 @@ void MainWindow::on_frame_ready(const cv::Mat& frame, const std::vector<Recognit
         fr.is_duplicate = false;
         fr.check_type = 1;  // 默认签到
         if (attendance_service_ && result.user_id > 0) {
-            int dup_interval = ConfigManager::instance()->getDuplicateCheckInterval();
             fr.is_duplicate = attendance_service_->is_duplicate_check(result.user_id, dup_interval);
             // 自动判断打卡类型
-            std::time_t current_time = std::time(nullptr);
             fr.check_type = attendance_service_->auto_determine_check_type(result.user_id, current_time);
         }
 

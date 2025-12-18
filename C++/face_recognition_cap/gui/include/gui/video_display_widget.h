@@ -70,7 +70,7 @@ private:
     QImage mat_to_qimage(const cv::Mat& mat);
     
     // 绘制人脸框和识别结果
-    void draw_face_results(QPainter& painter);
+    void draw_face_results(QPainter& painter, double scale, int offset_x, int offset_y);
     
     // 绘制 FPS
     void draw_fps(QPainter& painter);
@@ -84,11 +84,6 @@ private:
     // 显示选项
     bool show_fps_;
     double fps_;
-    
-    // 缩放比例（用于坐标转换）
-    double scale_x_;
-    double scale_y_;
 };
 
 #endif // VIDEO_DISPLAY_WIDGET_H
-

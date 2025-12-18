@@ -14,8 +14,6 @@ VideoDisplayWidget::VideoDisplayWidget(QWidget* parent)
     : QWidget(parent)
     , show_fps_(true)
     , fps_(0.0)
-    , scale_x_(1.0)
-    , scale_y_(1.0)
 {
     setMinimumSize(640, 480);
     setAttribute(Qt::WA_OpaquePaintEvent);
@@ -31,14 +29,10 @@ void VideoDisplayWidget::update_frame(const cv::Mat& frame) {
         return;
     }
     
-    current_frame_ = frame.clone();
+    // 直接保存 Mat（浅拷贝 + 引用计数），避免每帧整帧 clone 带来的 CPU/内存开销
+    // 注意：current_image_ 会引用 current_frame_ 的内存，所以必须先保存 current_frame_ 再生成 QImage。
+    current_frame_ = frame;
     current_image_ = mat_to_qimage(current_frame_);
-    
-    // 计算缩放比例
-    if (!current_frame_.empty()) {
-        scale_x_ = static_cast<double>(width()) / current_frame_.cols;
-        scale_y_ = static_cast<double>(height()) / current_frame_.rows;
-    }
     
     update();
 }
@@ -74,15 +68,30 @@ void VideoDisplayWidget::paintEvent(QPaintEvent* event) {
     QMutexLocker locker(&mutex_);
     
     // 绘制视频帧（靠上对齐）
+    double scale = 1.0;
+    int offset_x = 0;
+    int offset_y = 0;
     if (!current_image_.isNull()) {
-        QImage scaled_image = current_image_.scaled(size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
-        int x = (width() - scaled_image.width()) / 2;
-        int y = 0;  // 靠上对齐，不再居中
-        painter.drawImage(x, y, scaled_image);
+        // 避免每帧创建临时 scaled QImage（会产生额外分配/拷贝），用 drawImage + 目标矩形直接缩放绘制
+        const int img_w = current_image_.width();
+        const int img_h = current_image_.height();
+        if (img_w > 0 && img_h > 0) {
+            const double sx = static_cast<double>(width()) / img_w;
+            const double sy = static_cast<double>(height()) / img_h;
+            scale = std::min(sx, sy);
+
+            const int draw_w = static_cast<int>(img_w * scale);
+            const int draw_h = static_cast<int>(img_h * scale);
+            offset_x = (width() - draw_w) / 2;
+            offset_y = 0;  // 靠上对齐，不再居中
+
+            painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
+            painter.drawImage(QRect(offset_x, offset_y, draw_w, draw_h), current_image_);
+        }
     }
     
     // 绘制人脸识别结果
-    draw_face_results(painter);
+    draw_face_results(painter, scale, offset_x, offset_y);
     
     // 绘制 FPS
     if (show_fps_) {
@@ -92,12 +101,6 @@ void VideoDisplayWidget::paintEvent(QPaintEvent* event) {
 
 void VideoDisplayWidget::resizeEvent(QResizeEvent* event) {
     QWidget::resizeEvent(event);
-    
-    QMutexLocker locker(&mutex_);
-    if (!current_frame_.empty()) {
-        scale_x_ = static_cast<double>(width()) / current_frame_.cols;
-        scale_y_ = static_cast<double>(height()) / current_frame_.rows;
-    }
 }
 
 QImage VideoDisplayWidget::mat_to_qimage(const cv::Mat& mat) {
@@ -108,38 +111,26 @@ QImage VideoDisplayWidget::mat_to_qimage(const cv::Mat& mat) {
     switch (mat.type()) {
         case CV_8UC1: {
             // 灰度图
-            QImage image(mat.data, mat.cols, mat.rows, mat.step, QImage::Format_Grayscale8);
-            return image.copy();
+            // 注意：QImage 直接引用 Mat 内存；调用方需保证 Mat 生命周期覆盖 QImage 使用期
+            return QImage(mat.data, mat.cols, mat.rows, mat.step, QImage::Format_Grayscale8);
         }
         case CV_8UC3: {
-            // BGR 转 RGB
-            cv::Mat rgb;
-            cv::cvtColor(mat, rgb, cv::COLOR_BGR2RGB);
-            QImage image(rgb.data, rgb.cols, rgb.rows, rgb.step, QImage::Format_RGB888);
-            return image.copy();
+            // OpenCV 默认 BGR，Qt 5.15 支持 Format_BGR888，可避免每帧 cvtColor + copy
+            return QImage(mat.data, mat.cols, mat.rows, mat.step, QImage::Format_BGR888);
         }
         case CV_8UC4: {
-            // BGRA 转 RGBA
-            cv::Mat rgba;
-            cv::cvtColor(mat, rgba, cv::COLOR_BGRA2RGBA);
-            QImage image(rgba.data, rgba.cols, rgba.rows, rgba.step, QImage::Format_RGBA8888);
-            return image.copy();
+            // Qt 的 ARGB32 在 little-endian 下内存布局为 BGRA，可直接使用
+            return QImage(mat.data, mat.cols, mat.rows, mat.step, QImage::Format_ARGB32);
         }
         default:
             return QImage();
     }
 }
 
-void VideoDisplayWidget::draw_face_results(QPainter& painter) {
+void VideoDisplayWidget::draw_face_results(QPainter& painter, double scale, int offset_x, int offset_y) {
     if (face_results_.empty() || current_frame_.empty()) {
         return;
     }
-    
-    // 计算图像显示区域（靠上对齐）
-    QImage scaled_image = current_image_.scaled(size(), Qt::KeepAspectRatio);
-    int offset_x = (width() - scaled_image.width()) / 2;
-    int offset_y = 0;  // 靠上对齐，不再居中
-    double scale = static_cast<double>(scaled_image.width()) / current_frame_.cols;
     
     for (const auto& result : face_results_) {
         // 转换坐标
@@ -202,4 +193,3 @@ void VideoDisplayWidget::draw_fps(QPainter& painter) {
     painter.setPen(Qt::white);
     painter.drawText(90, 32, fps_text);
 }
-
