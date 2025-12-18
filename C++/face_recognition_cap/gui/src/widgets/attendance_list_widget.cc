@@ -45,11 +45,31 @@ void AttendanceItemDelegate::paint(QPainter* painter, const QStyleOptionViewItem
 
     QRect rect = option.rect;
 
+    // 获取主题颜色
+    QColor bgColor = option.palette.base().color();
+    QColor textColor = option.palette.text().color();
+    
+    // 判断是否为暗色模式 (简单的亮度判断)
+    bool isDarkMode = (bgColor.value() < 128);
+    
+    // 安全检查：确保文字颜色与背景有对比度
+    if (isDarkMode && textColor.value() < 128) {
+        textColor = QColor("#E8E8E8"); // 暗色背景强制使用亮色文字
+    } else if (!isDarkMode && textColor.value() > 128) {
+        textColor = QColor("#262626"); // 亮色背景强制使用暗色文字
+    }
+    
+    QColor subTextColor = textColor;
+    subTextColor.setAlphaF(0.6); // 次要文字透明度
+    
+    QColor hoverColor = isDarkMode ? QColor("#363636") : QColor("#FAFAFA");
+    QColor dividerColor = isDarkMode ? QColor("#3a3a3a") : QColor("#F0F0F0");
+
     // 1. 绘制背景 (Hover 效果)
     if (option.state & QStyle::State_MouseOver) {
-        painter->fillRect(rect, QColor("#FAFAFA"));
+        painter->fillRect(rect, hoverColor);
     } else {
-        painter->fillRect(rect, Qt::white);
+        painter->fillRect(rect, bgColor);
     }
 
     // 2. 绘制头像 (左侧 40x40 圆形)
@@ -83,7 +103,7 @@ void AttendanceItemDelegate::paint(QPainter* painter, const QStyleOptionViewItem
     
     // 姓名
     QRect nameRect(textLeft, rect.top() + 14, textWidth, 22);
-    painter->setPen(QColor("#262626"));
+    painter->setPen(textColor);
     QFont nameFont = painter->font();
     nameFont.setPixelSize(15);
     nameFont.setBold(true);
@@ -92,7 +112,7 @@ void AttendanceItemDelegate::paint(QPainter* painter, const QStyleOptionViewItem
     
     // 部门 / 详情
     QRect deptRect(textLeft, nameRect.bottom() + 2, textWidth, 18);
-    painter->setPen(QColor("#8C8C8C"));
+    painter->setPen(subTextColor);
     QFont deptFont = painter->font();
     deptFont.setPixelSize(12);
     deptFont.setBold(false);
@@ -106,7 +126,7 @@ void AttendanceItemDelegate::paint(QPainter* painter, const QStyleOptionViewItem
     QRect rightRect(rect.right() - rightPadding - timeWidth, rect.top(), timeWidth, rect.height());
     
     // 时间
-    painter->setPen(QColor("#BFBFBF"));
+    painter->setPen(subTextColor);
     QFont timeFont = painter->font();
     timeFont.setPixelSize(12);
     painter->setFont(timeFont);
@@ -131,7 +151,7 @@ void AttendanceItemDelegate::paint(QPainter* painter, const QStyleOptionViewItem
     painter->drawEllipse(statusRect);
 
     // 5. 分割线 (底部)
-    painter->setPen(QColor("#F0F0F0"));
+    painter->setPen(dividerColor);
     painter->drawLine(rect.left() + padding, rect.bottom(), rect.right() - padding, rect.bottom());
 
     painter->restore();
@@ -160,7 +180,7 @@ void AttendanceListWidget::setup_ui() {
     list_view_->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     list_view_->setSelectionMode(QAbstractItemView::NoSelection);
     list_view_->setFocusPolicy(Qt::NoFocus);
-    list_view_->setStyleSheet("background: transparent;");
+    // list_view_->setStyleSheet("background: transparent;"); // 移除内联样式，让全局 QSS 控制背景色
     
     // 设置代理
     list_view_->setItemDelegate(new AttendanceItemDelegate(this));
