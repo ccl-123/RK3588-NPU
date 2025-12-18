@@ -32,10 +32,17 @@
 #include <QStackedWidget>
 #include <QDateTime>
 #include <QDate>
+#include <QCoreApplication>
 #include <QTableWidgetItem>
 #include <QMenu>
 #include <ctime>
 #include <spdlog/spdlog.h>
+
+namespace {
+struct InitPayload {
+    std::unique_ptr<FaceRecognitionApp> recognition_app;
+};
+}  // namespace
 
 // 注册 Qt 元类型（用于跨线程信号槽）
 Q_DECLARE_METATYPE(cv::Mat)
@@ -109,7 +116,12 @@ MainWindow::MainWindow(QWidget* parent)
 
 
 MainWindow::~MainWindow() {
+    closing_.store(true, std::memory_order_release);
     stop_recognition();
+
+    if (init_thread_.joinable()) {
+        init_thread_.join();
+    }
 
     // 清理动态分配的对话框
     if (registration_dialog_) {
@@ -120,43 +132,7 @@ MainWindow::~MainWindow() {
     spdlog::info("MainWindow destroyed");
 }
 
-bool MainWindow::initialize(const std::string& retinaface_model,
-                            const std::string& facenet_model,
-                            const std::string& camera_source,
-                            int camera_id,
-                            const std::string& db_path) {
-    retinaface_model_ = retinaface_model;
-    facenet_model_ = facenet_model;
-    camera_source_ = camera_source;
-    camera_id_ = camera_id;
-    
-    // 初始化数据库
-    db_manager_ = &db::DatabaseManager::instance();
-    if (!db_manager_->initialize(db_path)) {
-        QMessageBox::critical(this, "错误", "数据库初始化失败");
-        return false;
-    }
-
-    // 1. 先初始化识别应用（包含特征库）
-    recognition_app_ = std::make_unique<FaceRecognitionApp>();
-
-    AppConfig config;
-    config.retinaface_model_path = retinaface_model;
-    config.facenet_model_path = facenet_model;
-    config.camera_type = camera_source;
-    config.device_number = std::to_string(camera_id);
-    config.use_database = true;
-    config.database_path = db_path;
-    
-    // 从配置文件加载识别阈值
-    config.facenet_threshold = ConfigManager::instance()->getRecognitionThreshold();
-    spdlog::info("Loaded recognition threshold from config: {:.2f}", config.facenet_threshold);
-
-    if (recognition_app_->initialize(config) != 0) {
-        QMessageBox::critical(this, "错误", "人脸识别系统初始化失败");
-        return false;
-    }
-
+bool MainWindow::finish_initialization_after_core() {
     // 2. 初始化服务（传递识别应用的特征库指针）
     // 关键修复：确保 UserService 使用与 FaceRecognitionApp 相同的 FeatureLibrary 实例
     user_service_ = std::make_unique<service::UserService>(
@@ -216,6 +192,9 @@ bool MainWindow::initialize(const std::string& retinaface_model,
 
     // 设置识别回调（带连续确认机制，防止误识别导致错误签到）
     recognition_app_->set_recognition_callback([this](const RecognitionResult& result) {
+        if (closing_.load(std::memory_order_acquire)) {
+            return;
+        }
         auto now = std::chrono::steady_clock::now();
         
         // 检查是否是陌生人
@@ -253,11 +232,11 @@ bool MainWindow::initialize(const std::string& retinaface_model,
             
                     if (duration >= STRANGER_CONFIRM_DURATION_MS) {
                         // 持续检测到陌生人超过 2 秒，播放提示音
-                if (checkAudioCooldown(AudioType::StrangerDetected, STRANGER_AUDIO_COOLDOWN_MS)) {
-                    AudioManager::instance()->playSound(AudioType::StrangerDetected);
-                    updateAudioPlayTime(AudioType::StrangerDetected);
+                        if (checkAudioCooldown(AudioType::StrangerDetected, STRANGER_AUDIO_COOLDOWN_MS)) {
+                            AudioManager::instance()->playSound(AudioType::StrangerDetected);
+                            updateAudioPlayTime(AudioType::StrangerDetected);
                             spdlog::info("Stranger confirmed after {}ms, played audio", duration);
-                }
+                        }
                 
                         // 重置陌生人检测状态
                         stranger_detection_.is_detecting = false;
@@ -277,10 +256,10 @@ bool MainWindow::initialize(const std::string& retinaface_model,
         // 识别到已注册用户，重置陌生人检测状态
         if (stranger_detection_.is_detecting) {
             stranger_detection_.is_detecting = false;
-                last_audio_play_times_[AudioType::StrangerDetected] = 
-                    std::chrono::steady_clock::now() - std::chrono::seconds(20);
+            last_audio_play_times_[AudioType::StrangerDetected] =
+                std::chrono::steady_clock::now() - std::chrono::seconds(20);
             spdlog::trace("Switched from stranger to user, reset stranger detection");
-            }
+        }
             
         // 检查是否是同一个人的连续识别
         bool is_same_person = user_detection_.is_detecting && 
@@ -435,6 +414,156 @@ bool MainWindow::initialize(const std::string& retinaface_model,
     }
 
     return true;
+}
+
+void MainWindow::initialize_async(const std::string& retinaface_model,
+                                 const std::string& facenet_model,
+                                 const std::string& camera_source,
+                                 int camera_id,
+                                 const std::string& db_path) {
+    if (closing_.load(std::memory_order_acquire)) {
+        return;
+    }
+
+    bool expected = false;
+    if (!init_in_progress_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+        spdlog::warn("System initialization already in progress, ignored");
+        return;
+    }
+
+    retinaface_model_ = retinaface_model;
+    facenet_model_ = facenet_model;
+    camera_source_ = camera_source;
+    camera_id_ = camera_id;
+
+    if (status_label_) {
+        status_label_->setText(tr("初始化中..."));
+    }
+
+    const float recognition_threshold = ConfigManager::instance()->getRecognitionThreshold();
+
+    if (init_thread_.joinable()) {
+        init_thread_.join();
+    }
+
+    init_thread_ = std::thread([this,
+                                retinaface_model,
+                                facenet_model,
+                                camera_source,
+                                camera_id,
+                                db_path,
+                                recognition_threshold]() {
+        auto payload = std::make_shared<InitPayload>();
+        payload->recognition_app = std::make_unique<FaceRecognitionApp>();
+
+        bool ok = true;
+        QString error_message;
+
+        // 1) 初始化数据库（重）
+        db::DatabaseManager* db_manager = &db::DatabaseManager::instance();
+        if (!db_manager->initialize(db_path)) {
+            ok = false;
+            error_message = tr("数据库初始化失败");
+        }
+
+        // 2) 初始化识别应用（模型 + 特征库 + 摄像头等，重）
+        if (ok) {
+            AppConfig config;
+            config.retinaface_model_path = retinaface_model;
+            config.facenet_model_path = facenet_model;
+            config.camera_type = camera_source;
+            config.device_number = std::to_string(camera_id);
+            config.use_database = true;
+            config.database_path = db_path;
+            config.facenet_threshold = recognition_threshold;
+
+            spdlog::info("Loaded recognition threshold from config: {:.2f}", config.facenet_threshold);
+
+            if (payload->recognition_app->initialize(config) != 0) {
+                ok = false;
+                error_message = tr("人脸识别系统初始化失败");
+            }
+        }
+
+        QMetaObject::invokeMethod(
+            this,
+            [this, payload, ok, error_message]() {
+                init_in_progress_.store(false, std::memory_order_release);
+
+                if (closing_.load(std::memory_order_acquire)) {
+                    return;
+                }
+
+                if (!ok) {
+                    if (status_label_) {
+                        status_label_->setText(tr("初始化失败"));
+                    }
+                    QMessageBox::critical(this, tr("错误"), error_message);
+                    spdlog::error("System initialization failed: {}", error_message.toStdString());
+                    QCoreApplication::exit(-1);
+                    return;
+                }
+
+                // 完成：将重资源挂到主线程对象上（避免跨线程访问 UI 成员）
+                db_manager_ = &db::DatabaseManager::instance();
+                recognition_app_ = std::move(payload->recognition_app);
+
+                if (!finish_initialization_after_core()) {
+                    QMessageBox::critical(this, tr("错误"), tr("系统初始化失败"));
+                    spdlog::error("finish_initialization_after_core failed");
+                    QCoreApplication::exit(-1);
+                    return;
+                }
+
+                if (status_label_) {
+                    status_label_->setText(tr("就绪"));
+                }
+
+                // 自动启动识别（初始化完成后）
+                start_recognition();
+            },
+            Qt::QueuedConnection);
+    });
+}
+
+bool MainWindow::initialize(const std::string& retinaface_model,
+                            const std::string& facenet_model,
+                            const std::string& camera_source,
+                            int camera_id,
+                            const std::string& db_path) {
+    retinaface_model_ = retinaface_model;
+    facenet_model_ = facenet_model;
+    camera_source_ = camera_source;
+    camera_id_ = camera_id;
+    
+    // 初始化数据库
+    db_manager_ = &db::DatabaseManager::instance();
+    if (!db_manager_->initialize(db_path)) {
+        QMessageBox::critical(this, "错误", "数据库初始化失败");
+        return false;
+    }
+
+    // 1. 先初始化识别应用（包含特征库）
+    recognition_app_ = std::make_unique<FaceRecognitionApp>();
+
+    AppConfig config;
+    config.retinaface_model_path = retinaface_model;
+    config.facenet_model_path = facenet_model;
+    config.camera_type = camera_source;
+    config.device_number = std::to_string(camera_id);
+    config.use_database = true;
+    config.database_path = db_path;
+    
+    // 从配置文件加载识别阈值
+    config.facenet_threshold = ConfigManager::instance()->getRecognitionThreshold();
+    spdlog::info("Loaded recognition threshold from config: {:.2f}", config.facenet_threshold);
+
+    if (recognition_app_->initialize(config) != 0) {
+        QMessageBox::critical(this, "错误", "人脸识别系统初始化失败");
+        return false;
+    }
+
+    return finish_initialization_after_core();
 }
 
 void MainWindow::apply_recognition_settings(float threshold) {
@@ -630,6 +759,9 @@ void MainWindow::setup_navigation() {
             breadcrumb = tr("用户管理");
         } else if (key == "settings") {
             breadcrumb = tr("系统设置");
+            if (settings_page_) {
+                settings_page_->activate();
+            }
         }
         if (title_bar_) {
             title_bar_->setBreadcrumb({breadcrumb});
@@ -718,10 +850,21 @@ void MainWindow::start_recognition() {
 
     // 设置帧回调（使用 Qt 信号槽机制确保线程安全）
     recognition_app_->set_frame_callback([this](const cv::Mat& frame, const std::vector<RecognitionResult>& results) {
-        // 使用 QMetaObject::invokeMethod 确保在主线程中调用槽函数
-        QMetaObject::invokeMethod(this, "on_frame_ready", Qt::QueuedConnection,
-                                 Q_ARG(cv::Mat, frame),
-                                 Q_ARG(std::vector<RecognitionResult>, results));
+        if (closing_.load(std::memory_order_acquire) || !is_running_) {
+            return;
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(latest_frame_mutex_);
+            latest_frame_ = frame;          // cv::Mat 轻量复制（引用计数）
+            latest_results_ = results;      // 复制结果（避免 Qt 事件队列堆积导致多份拷贝）
+            latest_frame_seq_.fetch_add(1, std::memory_order_release);
+        }
+
+        bool expected = false;
+        if (ui_update_scheduled_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+            QMetaObject::invokeMethod(this, "drain_latest_frame", Qt::QueuedConnection);
+        }
     });
 
     // 启动后台识别线程
@@ -732,6 +875,40 @@ void MainWindow::start_recognition() {
     });
 
     spdlog::info("Recognition started in background thread");
+}
+
+void MainWindow::drain_latest_frame() {
+    if (closing_.load(std::memory_order_acquire) || !is_running_) {
+        ui_update_scheduled_.store(false, std::memory_order_release);
+        return;
+    }
+
+    cv::Mat frame;
+    std::vector<RecognitionResult> results;
+    uint64_t drained_seq = 0;
+    {
+        std::lock_guard<std::mutex> lock(latest_frame_mutex_);
+        frame = latest_frame_;
+        results = std::move(latest_results_);
+        drained_seq = latest_frame_seq_.load(std::memory_order_acquire);
+    }
+
+    if (!frame.empty()) {
+        on_frame_ready(frame, results);
+    }
+
+    ui_update_scheduled_.store(false, std::memory_order_release);
+
+    if (closing_.load(std::memory_order_acquire) || !is_running_) {
+        return;
+    }
+
+    if (latest_frame_seq_.load(std::memory_order_acquire) != drained_seq) {
+        bool expected = false;
+        if (ui_update_scheduled_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+            QMetaObject::invokeMethod(this, "drain_latest_frame", Qt::QueuedConnection);
+        }
+    }
 }
 
 void MainWindow::stop_recognition() {
@@ -1134,10 +1311,10 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 
     if (reply == QMessageBox::Yes) {
         spdlog::info("User confirmed exit, stopping recognition...");
+        closing_.store(true, std::memory_order_release);
         stop_recognition();
         event->accept();
     } else {
         event->ignore();
     }
 }
-

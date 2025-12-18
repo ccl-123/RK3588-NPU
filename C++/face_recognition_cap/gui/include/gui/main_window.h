@@ -19,6 +19,8 @@
 #include <memory>
 #include <thread>
 #include <map>
+#include <atomic>
+#include <mutex>
 
 #include "app/face_recognition_app.h"
 #include "database/database_manager.h"
@@ -63,6 +65,13 @@ public:
                    int camera_id,
                    const std::string& db_path);
 
+    // 初始化系统（异步，不阻塞 UI 显示）
+    void initialize_async(const std::string& retinaface_model,
+                          const std::string& facenet_model,
+                          const std::string& camera_source,
+                          int camera_id,
+                          const std::string& db_path);
+
     // 启动/停止识别
     void start_recognition();
     void stop_recognition();
@@ -95,6 +104,7 @@ private slots:
     void update_status();
     void on_frame_ready(const cv::Mat& frame, const std::vector<RecognitionResult>& results);
     void on_recognition_result(int user_id, const QString& name, float similarity, bool is_new_attendance, int check_type = 1, int status = 1);
+    void drain_latest_frame();
 
 private:
     void setup_ui();
@@ -102,6 +112,7 @@ private:
     void setup_pages();
     void connect_page_signals();
     void apply_theme();
+    bool finish_initialization_after_core();
     
     // 系统组件
     std::unique_ptr<FaceRecognitionApp> recognition_app_;
@@ -142,7 +153,8 @@ private:
 
     // 后台识别线程
     std::thread recognition_thread_;
-    
+    std::thread init_thread_;
+
     // 对话框
     FaceRegistrationDialog* registration_dialog_;
     // 注意：AttendanceQueryWidget 和 UserManagementWidget 每次创建新窗口，不需要成员变量
@@ -152,6 +164,15 @@ private:
     int frame_count_;
     double fps_;
     std::chrono::steady_clock::time_point last_fps_time_;
+    std::atomic<bool> closing_{false};
+    std::atomic<bool> init_in_progress_{false};
+
+    // GUI 帧更新背压：仅保留最新帧，避免 Qt 事件队列堆积导致内存上涨 / FPS 下降
+    std::mutex latest_frame_mutex_;
+    cv::Mat latest_frame_;
+    std::vector<RecognitionResult> latest_results_;
+    std::atomic<bool> ui_update_scheduled_{false};
+    std::atomic<uint64_t> latest_frame_seq_{0};
 
 
     // 主题状态
@@ -215,4 +236,3 @@ private:
 };
 
 #endif // MAIN_WINDOW_H
-

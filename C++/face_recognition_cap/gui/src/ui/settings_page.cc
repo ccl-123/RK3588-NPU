@@ -15,6 +15,7 @@
 #include <QTime>
 #include <QScrollArea>
 #include <QStringList>
+#include <QSignalBlocker>
 #include <QDir>
 #include <QFile>
 #include <QFrame>
@@ -50,6 +51,28 @@ SettingsPage::SettingsPage(QWidget* parent)
     , manual_lat_spin_(nullptr)
     , manual_lon_spin_(nullptr) {
     setup_ui();
+    // 延迟加载设置/设备枚举：避免主窗口首次显示被摄像头/音频设备扫描拖慢
+}
+
+void SettingsPage::activate() {
+    if (activated_) {
+        return;
+    }
+    activated_ = true;
+
+    // 先填充设备列表，再加载配置（load_settings 会按配置选择当前项）
+    if (audio_device_combo_) {
+        QSignalBlocker blocker(audio_device_combo_);
+        audio_device_combo_->clear();
+        const QStringList devices = AudioManager::instance()->availableDevices();
+        if (devices.isEmpty()) {
+            audio_device_combo_->addItem(tr("未检测到音频设备"));
+        } else {
+            audio_device_combo_->addItems(devices);
+        }
+    }
+
+    scan_usb_cameras();
     load_settings();
 }
 
@@ -252,8 +275,8 @@ void SettingsPage::setup_ui() {
     camera_row->addStretch();
     camera_body->addLayout(camera_row);
     
-    // 扫描摄像头
-    scan_usb_cameras();
+    // 延迟扫描摄像头（进入设置页时再扫描）
+    camera_device_combo_->addItem(tr("（进入设置后加载）"), -1);
     connect(refresh_camera_btn_, &QPushButton::clicked, this, [this]() {
         scan_usb_cameras();
     });
@@ -540,14 +563,8 @@ void SettingsPage::setup_ui() {
     device_row->addStretch();
     audio_body->addLayout(device_row);
     
-    // 填充音频设备列表
-    QStringList devices = AudioManager::instance()->availableDevices();
-    audio_device_combo_->addItems(devices);
-    QString currentDevice = AudioManager::instance()->currentDevice();
-    int deviceIndex = audio_device_combo_->findText(currentDevice);
-    if (deviceIndex >= 0) {
-        audio_device_combo_->setCurrentIndex(deviceIndex);
-    }
+    // 延迟填充音频设备列表（进入设置页时再枚举）
+    audio_device_combo_->addItem(tr("（进入设置后加载）"));
     
     // 连接信号
     connect(audio_volume_slider_, &QSlider::valueChanged, this, [this](int value) {

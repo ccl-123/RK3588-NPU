@@ -14,7 +14,11 @@ void UiRouter::registerPage(const QString& key, QWidget* widget) {
 
     if (indices_.contains(key)) {
         int index = indices_.value(key);
-        stack_->removeWidget(stack_->widget(index));
+        QWidget* old = stack_->widget(index);
+        stack_->removeWidget(old);
+        if (old) {
+            old->deleteLater();
+        }
     }
 
     int index = stack_->addWidget(widget);
@@ -36,4 +40,3 @@ void UiRouter::navigateTo(const QString& key) {
 QString UiRouter::currentKey() const {
     return current_key_;
 }
-

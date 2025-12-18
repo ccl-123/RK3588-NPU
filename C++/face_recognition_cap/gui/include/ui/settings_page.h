@@ -15,6 +15,7 @@ class SettingsPage : public QWidget {
     Q_OBJECT
 public:
     explicit SettingsPage(QWidget* parent = nullptr);
+    void activate();
 
 signals:
     void themeToggleRequested();
@@ -32,6 +33,7 @@ private:
     void load_settings();
     void save_settings();
     void update_db_size();
+    bool activated_{false};
     
     // UI 组件 - 系统信息
     QLabel* version_label_;
@@ -92,4 +94,3 @@ private:
     void scan_usb_cameras();
     void on_auto_location_changed(bool checked);
 };
-

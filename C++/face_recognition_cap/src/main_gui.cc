@@ -11,6 +11,7 @@
 #include <QMessageBox>
 #include <QDir>
 #include <QFileInfo>
+#include <QNetworkProxyFactory>
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/rotating_file_sink.h>
@@ -24,7 +25,8 @@ void setup_logger() {
     try {
         // 创建控制台 sink
         auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-        console_sink->set_level(spdlog::level::debug);
+        // 控制台日志过多会影响 FPS/CPU，占用主要发生在运行阶段；保留文件日志用于排障
+        console_sink->set_level(spdlog::level::info);
         
         // 创建文件 sink (10MB, 3个文件轮转)
         auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
@@ -50,6 +52,8 @@ int main(int argc, char* argv[]) {
     
     // 创建 Qt 应用
     QApplication app(argc, argv);
+    // 让 Qt 网络请求使用系统代理配置（环境变量/系统代理），避免“天气/每日一言”请求失败
+    QNetworkProxyFactory::setUseSystemConfiguration(true);
     app.setApplicationName("人脸识别考勤系统");
     app.setApplicationVersion("2.1.0");
     app.setOrganizationName("FaceRecognition");
@@ -107,20 +111,13 @@ int main(int argc, char* argv[]) {
     
     // 创建主窗口
     MainWindow main_window;
-    
-    // 初始化系统
-    if (!main_window.initialize(yolov8_face_model, facenet_model, 
-                                camera_source, camera_id, db_path)) {
-        QMessageBox::critical(nullptr, "错误", "系统初始化失败");
-        spdlog::error("System initialization failed");
-        return -1;
-    }
-    
-    // 显示主窗口
+
+    // 先显示主窗口，避免初始化模型/摄像头阻塞导致“窗口很久才出来”
     main_window.show();
-    
-    // 自动启动识别
-    main_window.start_recognition();
+
+    // 后台初始化系统（完成后自动启动识别）
+    main_window.initialize_async(yolov8_face_model, facenet_model,
+                                 camera_source, camera_id, db_path);
     
     spdlog::info("Main window shown, entering event loop");
     
@@ -130,4 +127,3 @@ int main(int argc, char* argv[]) {
     spdlog::info("Application exited with code: {}", ret);
     return ret;
 }
-
