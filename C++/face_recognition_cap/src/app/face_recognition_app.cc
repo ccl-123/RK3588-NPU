@@ -415,7 +415,7 @@ void FaceRecognitionApp::set_frame_callback(FrameCallback callback) {
                     result.user_id = data.user_id;
                     result.user_name = data.user_name;
                     result.similarity = data.similarity;
-                    result.face_image = data.face_image;
+                    // GUI 渲染/显示不需要 face_image，避免跨线程回调额外持有图像引用导致内存/CPU 开销增大
                     result.face_box = data.face_box;
                     result.timestamp = data.timestamp;
                     results.push_back(result);

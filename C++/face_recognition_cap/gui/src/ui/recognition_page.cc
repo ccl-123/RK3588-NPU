@@ -23,6 +23,7 @@
 #include <QVariant>
 #include <QWidget>
 #include <QSizePolicy>
+#include <QTimer>
 #include <spdlog/spdlog.h>
 #include "utils/config_manager.h"
 
@@ -133,8 +134,17 @@ RecognitionPage::RecognitionPage(QWidget* parent)
     });
     
     connect(weather_service_, &WeatherService::errorOccurred,
-            this, [](const QString& msg) {
+            this, [this](const QString& msg) {
         spdlog::warn("WeatherService error: {}", msg.toStdString());
+        // 失败时给出明确提示，避免一直停留在“Loading...”
+        if (msg.startsWith("daily")) {
+            if (sentence_en_label_) {
+                sentence_en_label_->setText(tr("每日一言加载失败"));
+            }
+            if (sentence_cn_label_) {
+                sentence_cn_label_->setText(tr("请检查网络/代理设置"));
+            }
+        }
     });
 
     auto layout = new QHBoxLayout(this);
@@ -156,6 +166,9 @@ RecognitionPage::RecognitionPage(QWidget* parent)
     
     right_column->addWidget(status_card);
     right_column->addWidget(attendance_card, 1);
+
+    // 每日一言不依赖识别系统初始化，尽早请求，避免被模型/摄像头初始化延迟影响
+    QTimer::singleShot(0, this, [this]() { refreshDailySentence(); });
 }
 
 VideoDisplayWidget* RecognitionPage::videoWidget() const {
