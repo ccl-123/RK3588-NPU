@@ -174,7 +174,7 @@ void SettingsPage::setup_ui() {
     auto version_text = new QVBoxLayout();
     version_text->setSpacing(0);
     version_text->addWidget(new QLabel(tr("版本")));
-    version_label_ = new QLabel("v1.0.0");
+    version_label_ = new QLabel("v2.1.0");
     version_label_->setObjectName("OverviewValue");
     version_text->addWidget(version_label_);
     version_layout->addLayout(version_text);

@@ -114,8 +114,6 @@ if(Qt5_FOUND)
         gui/src/gui/video_display_widget.cc
         gui/src/gui/face_registration_dialog.cc
         gui/src/gui/user_edit_dialog.cc
-        gui/src/gui/attendance_query_widget.cc
-        gui/src/gui/user_management_widget.cc
         gui/src/gui/about_dialog.cc
         gui/src/services/weather_service.cc
         gui/src/services/holiday_service.cc
@@ -173,8 +171,6 @@ if(Qt5_FOUND)
         gui/include/gui/video_display_widget.h
         gui/include/gui/face_registration_dialog.h
         gui/include/gui/user_edit_dialog.h
-        gui/include/gui/attendance_query_widget.h
-        gui/include/gui/user_management_widget.h
         gui/include/gui/about_dialog.h
         gui/include/services/weather_service.h
         gui/include/services/holiday_service.h

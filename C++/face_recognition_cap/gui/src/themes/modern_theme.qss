@@ -2,7 +2,7 @@
  * ================================================================================
  * Modern Light Theme - Face Recognition System
  * ================================================================================
- * Version: 2.2
+ * Version: 2.3
  * ================================================================================
  */
 
@@ -623,11 +623,6 @@ QToolTip {
 #TitleBarSpacer {
     background-color: #ffffff;
     border-right: 1px solid #f0f0f0;
-}
-
-#Breadcrumb {
-    color: #595959;
-    font-size: 14px;
 }
 
 #Breadcrumb {

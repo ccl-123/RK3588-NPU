@@ -29,12 +29,10 @@
 #include "services/news_service.h"
 
 // 前向声明
-class VideoDisplayWidget;
-class FaceRegistrationDialog;
-class AttendanceQueryWidget;
-class UiRouter;
-class SideMenu;
-class TitleBar;
+    class VideoDisplayWidget;
+    class FaceRegistrationDialog;
+    class SideMenu;    class TitleBar;
+    class UiRouter;
 class RecognitionPage;
 class AttendancePage;
 class UserManagementPage;
@@ -91,8 +89,6 @@ private slots:
     void on_action_close_camera();
     void on_action_exit();
     void on_action_register_face();
-    void on_action_query_attendance();
-    void on_action_user_management();
     void on_action_about();
     void on_action_toggle_theme();
     void update_status();

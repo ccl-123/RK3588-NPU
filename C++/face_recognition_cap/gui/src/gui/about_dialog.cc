@@ -74,7 +74,7 @@ void AboutDialog::setup_ui() {
 }
 
 QString AboutDialog::get_version_info() {
-    return QString::fromUtf8("版本 1.0.0 (2025-11-20)");
+    return QString::fromUtf8("版本 2.1.0 (2025-12-18)");
 }
 
 QString AboutDialog::get_system_info() {

@@ -8,8 +8,6 @@
 #include "gui/main_window.h"
 #include "gui/video_display_widget.h"
 #include "gui/face_registration_dialog.h"
-#include "gui/attendance_query_widget.h"
-#include "gui/user_management_widget.h"
 #include "gui/about_dialog.h"
 #include "themes/theme_manager.h"
 #include "ui/attendance_page.h"
@@ -1105,37 +1103,6 @@ void MainWindow::on_action_register_face() {
     if (result == QDialog::Accepted) {
         load_users();
     }
-}
-
-void MainWindow::on_action_query_attendance() {
-    // 每次创建新窗口，避免窗口关闭问题
-    AttendanceQueryWidget* query_widget = new AttendanceQueryWidget(
-        attendance_service_.get(), nullptr);  // parent 设为 nullptr
-    query_widget->setAttribute(Qt::WA_DeleteOnClose);  // 关闭时自动删除
-    query_widget->setWindowFlags(Qt::Window);  // 设置为独立窗口
-    query_widget->setWindowTitle("考勤查询");
-    query_widget->resize(900, 600);
-    query_widget->show();
-}
-
-void MainWindow::on_action_user_management() {
-    if (!user_service_) {
-        QMessageBox::warning(this, "警告", "用户服务未初始化");
-        return;
-    }
-
-    UserManagementWidget* user_mgmt = new UserManagementWidget(user_service_.get(), nullptr);  // parent 设为 nullptr
-    user_mgmt->setAttribute(Qt::WA_DeleteOnClose);  // 关闭时自动删除
-    user_mgmt->setWindowFlags(Qt::Window);  // 设置为独立窗口
-    user_mgmt->setWindowTitle("用户管理");
-    user_mgmt->resize(800, 600);
-
-    // 连接信号槽：当用户管理窗口数据变更时，刷新主窗口的用户列表
-    connect(user_mgmt, &UserManagementWidget::data_changed, this, &MainWindow::load_users);
-    // 连接人脸注册请求信号
-    connect(user_mgmt, &UserManagementWidget::register_face_requested, this, &MainWindow::on_action_register_face);
-
-    user_mgmt->show();
 }
 
 void MainWindow::on_action_about() {

@@ -2,7 +2,7 @@
  * ================================================================================
  * Modern Dark Theme - Face Recognition System
  * ================================================================================
- * Version: 2.2
+ * Version: 2.3
  * ================================================================================
  */
 
@@ -136,12 +136,10 @@ QMainWindow {
 }
 
 #Breadcrumb {
-    color: #e8e8e8;
-    font-size: 14px;
-}
-
-#Breadcrumb {
     color: #b0b0b0;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
 }
 
 #ThemeButton, #UserButton, #MinimizeButton {

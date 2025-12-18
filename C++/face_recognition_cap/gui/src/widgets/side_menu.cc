@@ -81,7 +81,7 @@ SideMenu::SideMenu(QWidget* parent)
     auto footer_layout = new QHBoxLayout(footer);
     footer_layout->setContentsMargins(20, 0, 20, 0);
     
-    auto version_label = new QLabel("v2.0.0", footer);
+    auto version_label = new QLabel("v2.1.0", footer);
     version_label->setObjectName("VersionLabel");
     footer_layout->addWidget(version_label);
     footer_layout->addStretch();

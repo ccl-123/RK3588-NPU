@@ -51,7 +51,7 @@ int main(int argc, char* argv[]) {
     // 创建 Qt 应用
     QApplication app(argc, argv);
     app.setApplicationName("人脸识别考勤系统");
-    app.setApplicationVersion("2.0.0");
+    app.setApplicationVersion("2.1.0");
     app.setOrganizationName("FaceRecognition");
     
     spdlog::info("Application started");
