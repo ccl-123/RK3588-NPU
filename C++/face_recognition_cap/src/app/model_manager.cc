@@ -55,6 +55,9 @@ int ModelManager::init_face_detector(const char* model_path) {
         return -1;
     }
 
+    // 设置核心绑定：开启全部 3 个核心 (6 TOPS)
+    rknn_set_core_mask(face_detector_ctx_, RKNN_NPU_CORE_0_1_2);
+
     // 配置输入
     memset(face_detector_inputs_, 0, sizeof(face_detector_inputs_));
     face_detector_inputs_[0].index = 0;
@@ -97,6 +100,9 @@ int ModelManager::init_facenet(const char* model_path) {
         std::cerr << "Failed to create FaceNet model" << std::endl;
         return -1;
     }
+
+    // 设置核心绑定：开启全部 3 个核心 (6 TOPS)
+    rknn_set_core_mask(facenet_ctx_, RKNN_NPU_CORE_0_1_2);
 
     // 配置输入
     memset(facenet_inputs_, 0, sizeof(facenet_inputs_));
