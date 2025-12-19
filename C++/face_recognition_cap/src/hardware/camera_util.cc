@@ -1,10 +1,11 @@
 /**
  * @file camera_util.cc
- * @brief 摄像头控制工具实现
- * @details 基于 V4L2 的 USB摄像头控制实现，
- *          使用异步采集模式 (独立线程 + shared_ptr 帧管理) 以提高性能。
- *          使用 mmap 实现内核到用户空间的零拷贝采集。
- *          优化：使用 shared_ptr + cv::Mat 浅拷贝消除双缓冲深拷贝开销。
+ * @brief 摄像头底层控制与高性能采集模块
+ * @details 
+ * 1. 核心技术：基于 Linux V4L2 框架，利用 mmap 内存映射实现内核到用户空间的零拷贝采集。
+ * 2. 高性能设计：采用独立采集线程 + 智能指针帧管理，消除应用层常见的深拷贝性能瓶颈。
+ * 3. 健壮性保证：完备的 IOCTL 错误检查、异常资源清理以及原子态线程生命周期管理。
+ * 
  * @author CL
  * @date 2025-11-20
  */
@@ -23,62 +24,65 @@
 #include <atomic>
 #include "camera_util.h"
 
-// ==================== 全局状态变量 ====================
+// ==================== 全局内部变量 (Internal Global States) ====================
 
-// 摄像头文件描述符
+/** @brief 摄像头文件描述符 */
 static int fd = -1;
 
-// V4L2 缓冲区信息 (用于 ioctl 调用)
+/** @brief V4L2 内核缓冲区描述符 (用于 VIDIOC_DQBUF/QBUF) */
 static v4l2_buffer buf;
 
-// 用户空间映射的缓冲区指针数组
+/** @brief 用户空间映射的缓冲区管理数组 */
 static Buffer* buffers = nullptr;
 
-// 摄像头格式配置
+/** @brief 摄像头格式配置信息 */
 static v4l2_format fmt = {};
 
-// 标记摄像头是否已成功打开并初始化
+/** @brief 设备状态标志位 */
 static bool camera_opened = false;
 
-// ==================== 异步采集变量 ====================
+// ==================== 异步采集与内存同步变量 ====================
 
-// 采集线程对象
+/** @brief 负责持续从硬件拉取数据的独立后台线程 */
 static std::thread capture_thread;
 
-// 采集线程运行标志
+/** @brief 采集线程运行状态原子标志 */
 static std::atomic<bool> capture_running(false);
 
-// 保护帧指针读写的互斥锁
+/** @brief 互斥锁：保护全局帧指针 current_frame 的原子替换 */
 static std::mutex frame_mutex;
 
-// 优化：使用 shared_ptr 存储当前帧，消除深拷贝开销
-// 采集线程创建新帧后原子替换指针，读取线程获取引用计数副本
-// cv::Mat 本身是引用计数的，赋值操作只增加引用计数，不拷贝数据
+/** 
+ * @brief 全局最新的帧数据容器
+ * @details 
+ * 核心优化：使用 shared_ptr 存储 cv::Mat。
+ * 采集线程生产新帧时，原子性地替换此指针；处理线程读取时，获取其引用的浅拷贝副本。
+ * 此机制配合 cv::Mat 的内部引用计数，实现了真正的读写分离与零拷贝传递。
+ */
 static std::shared_ptr<cv::Mat> current_frame;
 
+// ==================== 内部辅助函数 (Helper Functions) ====================
+
 /**
- * @brief 清理已映射的 V4L2 缓冲区
- * @param count 需要清理的缓冲区数量
- * @note 此函数用于错误处理路径和关闭摄像头时的资源释放。
- *       它会调用 munmap 解除内存映射，并释放 buffers 数组内存。
+ * @brief 释放已映射的内核缓冲区资源
+ * @param count 成功映射过的缓冲区数量
+ * @note 逆序清理，确保在初始化失败或设备关闭时不会发生内存泄漏。
  */
 static void cleanup_buffers(unsigned int count) {
     if (buffers != nullptr) {
         for (unsigned int i = 0; i < count; ++i) {
             if (buffers[i].start != nullptr && buffers[i].start != MAP_FAILED) {
-                munmap(buffers[i].start, buffers[i].length);
+                munmap(buffers[i].start, buffers[i].length); // 解除内存映射
                 buffers[i].start = nullptr;
             }
         }
-        delete[] buffers;
+        delete[] buffers; // 释放管理数组
         buffers = nullptr;
     }
 }
 
 /**
- * @brief 关闭文件描述符并重置状态
- * @note 将 fd 重置为 -1 并设置 camera_opened = false。
- *       这是资源清理的最后一步。
+ * @brief 安全关闭文件描述符并清理状态
  */
 static void cleanup_fd() {
     if (fd >= 0) {
@@ -88,45 +92,29 @@ static void cleanup_fd() {
     camera_opened = false;
 }
 
+// ==================== 核心功能接口实现 ====================
+
 /**
- * @brief 初始化 USB 摄像头 (V4L2) 并准备异步采集资源
- * 
- * 此函数执行以下步骤：
- * 1. 打开视频设备文件 (/dev/videoX)。
- * 2. 检查设备能力 (是否支持 Video Capture)。
- * 3. 设置采集格式 (MJPEG, 分辨率)。
- * 4. 申请内核缓冲区 (REQBUFS)。
- * 5. 执行内存映射 (mmap)，实现零拷贝访问。
- * 6. 启动视频流 (STREAMON)。
- * 7. 初始化双缓冲内存。
- * 
- * @param device 设备节点名称 (例如 "0" 对应 /dev/video0)
- * @param camera_width 期望的采集宽度
- * @param camera_height 期望的采集高度
+ * @brief 初始化 USB 摄像头设备并配置 V4L2 环境
  * @return EXIT_SUCCESS 成功, EXIT_FAILURE 失败
- * @note 如果初始化失败，函数内部会自动清理已分配的资源。
  */
 int load_usb_camera(std::string device, int camera_width, int camera_height)
 {
-    // 防止重复打开
     if (camera_opened) {
         std::cerr << "Camera already opened, close it first" << std::endl;
         return EXIT_FAILURE;
     }
 
-    std::string prefix = "/dev/video";
-    std::string device_path = prefix + device;
-
+    std::string device_path = "/dev/video" + device;
     fd = open(device_path.c_str(), O_RDWR);
     if (fd < 0) {
-        std::cerr << "Failed to open device: " << device_path << std::endl;
-        perror("open");
+        perror(("Failed to open " + device_path).c_str());
         return EXIT_FAILURE;
     }
 
+    // 1. 查询设备能力
     v4l2_capability cap;
     if (ioctl(fd, VIDIOC_QUERYCAP, &cap) == -1) {
-        std::cerr << "IOCTL failed: VIDIOC_QUERYCAP" << std::endl;
         perror("VIDIOC_QUERYCAP");
         cleanup_fd();
         return EXIT_FAILURE;
@@ -138,6 +126,7 @@ int load_usb_camera(std::string device, int camera_width, int camera_height)
         return EXIT_FAILURE;
     }
 
+    // 2. 配置采集格式：默认使用 MJPEG 以支持高帧率
     fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     fmt.fmt.pix.width = camera_width;
     fmt.fmt.pix.height = camera_height;
@@ -145,95 +134,80 @@ int load_usb_camera(std::string device, int camera_width, int camera_height)
     fmt.fmt.pix.field = V4L2_FIELD_NONE;
 
     if (ioctl(fd, VIDIOC_S_FMT, &fmt) == -1) {
-        std::cerr << "IOCTL failed: VIDIOC_S_FMT (requested: " << camera_width << "x" << camera_height << ")" << std::endl;
         perror("VIDIOC_S_FMT");
         cleanup_fd();
         return EXIT_FAILURE;
     }
 
-    // 打印实际设置的分辨率
     std::cout << "USB camera initialized: " << fmt.fmt.pix.width << "x" << fmt.fmt.pix.height << std::endl;
 
+    // 3. 申请内核级内存缓冲区队列 (Memory Map 模式)
     v4l2_requestbuffers req = {};
     req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     req.memory = V4L2_MEMORY_MMAP;
-    req.count = REQ_COUNT;
+    req.count = REQ_COUNT; // 默认申请 4 个缓冲区
 
     if (ioctl(fd, VIDIOC_REQBUFS, &req) == -1) {
-        std::cerr << "IOCTL failed: VIDIOC_REQBUFS" << std::endl;
         perror("VIDIOC_REQBUFS");
         cleanup_fd();
         return EXIT_FAILURE;
     }
 
-    // 分配缓冲区数组
     buffers = new Buffer[REQ_COUNT];
-    memset(buffers, 0, sizeof(Buffer) * REQ_COUNT);  // 初始化为 0
+    memset(buffers, 0, sizeof(Buffer) * REQ_COUNT);
 
-    unsigned int mapped_count = 0;  // 记录已成功映射的缓冲区数量
-
+    unsigned int mapped_count = 0;
     for (unsigned i = 0; i < req.count; ++i) {
         buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         buf.memory = V4L2_MEMORY_MMAP;
         buf.index = i;
 
         if (ioctl(fd, VIDIOC_QUERYBUF, &buf) == -1) {
-            std::cerr << "IOCTL failed: VIDIOC_QUERYBUF at index " << i << std::endl;
             perror("VIDIOC_QUERYBUF");
-            cleanup_buffers(mapped_count);  // 清理已映射的缓冲区
+            cleanup_buffers(mapped_count);
             cleanup_fd();
             return EXIT_FAILURE;
         }
 
-        // 关键步骤：mmap 实现内核到用户的零拷贝访问
+        // 执行内存映射：将内核分配的硬件缓冲区映射到用户空间指针
         buffers[i].length = buf.length;
-        buffers[i].start = mmap(NULL, buf.length,
-                               PROT_READ | PROT_WRITE,
-                               MAP_SHARED, fd, buf.m.offset);
+        buffers[i].start = mmap(NULL, buf.length, PROT_READ | PROT_WRITE, MAP_SHARED, fd, buf.m.offset);
         if (buffers[i].start == MAP_FAILED) {
-            std::cerr << "Memory mapping failed at index " << i << std::endl;
-            perror("mmap");
-            buffers[i].start = nullptr;  // 标记为未映射
-            cleanup_buffers(mapped_count);  // 清理已映射的缓冲区
+            perror("mmap failed");
+            cleanup_buffers(mapped_count);
             cleanup_fd();
             return EXIT_FAILURE;
         }
         mapped_count++;
 
+        // 将映射好的缓冲区重新放入硬件就绪队列 (QBUF)
         if (ioctl(fd, VIDIOC_QBUF, &buf) == -1) {
-            std::cerr << "IOCTL failed: VIDIOC_QBUF at index " << i << std::endl;
             perror("VIDIOC_QBUF");
-            cleanup_buffers(mapped_count);  // 清理已映射的缓冲区
+            cleanup_buffers(mapped_count);
             cleanup_fd();
             return EXIT_FAILURE;
         }
     }
 
+    // 4. 正式开启硬件数据流
     v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     if (ioctl(fd, VIDIOC_STREAMON, &type) == -1) {
-        std::cerr << "IOCTL failed: VIDIOC_STREAMON" << std::endl;
         perror("VIDIOC_STREAMON");
         cleanup_buffers(REQ_COUNT);
         cleanup_fd();
         return EXIT_FAILURE;
     }
 
+    // 初始化状态
     buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     buf.memory = V4L2_MEMORY_MMAP;
-
-    // 优化：无需预分配双缓冲，采集线程会动态创建帧
-    // 确保 current_frame 为空状态
     current_frame.reset();
-
     camera_opened = true;
     return EXIT_SUCCESS;
 }
 
 /**
- * @brief 摄像头捕获线程函数
- * @details 负责从 V4L2 驱动循环读取数据，解码，并更新 shared_ptr 帧指针。
- *          优化：使用 std::shared_ptr<cv::Mat> 替代双缓冲深拷贝，
- *          解码后的帧通过 move 语义转移到 shared_ptr，无数据拷贝。
+ * @brief 采集线程核心逻辑：负责循环拉取数据并完成解码
  */
 static void usb_capture_thread_func()
 {
@@ -242,71 +216,60 @@ static void usb_capture_thread_func()
     thread_buf.memory = V4L2_MEMORY_MMAP;
 
     while (capture_running) {
-        // 从摄像头读取帧 (出队)
-        // 这一步是非阻塞的或短暂阻塞，数据已经在内核缓冲区中准备好
+        // [BLOCKING] 从硬件就绪队列中弹出一个已填充数据的缓冲区
         if (ioctl(fd, VIDIOC_DQBUF, &thread_buf) == -1) {
-            if (errno == EAGAIN) {
-                continue;
-            }
-            std::cerr << "VIDIOC_DQBUF failed in capture thread" << std::endl;
-            perror("VIDIOC_DQBUF");
-            // 错误处理: 暂停一会，避免疯狂循环日志
+            if (errno == EAGAIN) continue;
+            perror("VIDIOC_DQBUF failed in capture thread");
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            if (!capture_running) break; // 如果已请求停止，立即退出
+            if (!capture_running) break;
             continue;
         }
 
-        // 解码MJPEG (CPU 密集型操作)
-        // 注意：buffers[i].start 直接指向 mmap 的内存，这里没有发生内核到用户的拷贝
+        // [CPU-INTENSIVE] 解码 MJPEG 到 BGR 格式
+        // 指针 buffers[i].start 通过 mmap 直接指向内核内存，此处为 0 拷贝访问
         cv::Mat raw_data(1, thread_buf.bytesused, CV_8UC1, buffers[thread_buf.index].start);
         cv::Mat decoded_frame = cv::imdecode(raw_data, cv::IMREAD_COLOR);
 
-        // 优化：使用 shared_ptr 原子替换，消除深拷贝
-        // std::move 将 decoded_frame 的数据所有权转移到 shared_ptr，无内存拷贝
         if (!decoded_frame.empty()) {
+            // [OPTIMIZATION] 使用移动语义将解码后的帧封装入 shared_ptr，原子性更新全局指针
+            // 旧帧引用的引用计数会在 current_frame 被替换时自动递减
             auto new_frame = std::make_shared<cv::Mat>(std::move(decoded_frame));
             {
                 std::lock_guard<std::mutex> lock(frame_mutex);
-                current_frame = new_frame;  // 原子替换指针，旧帧引用计数减1后自动释放
+                current_frame = new_frame;
             }
         }
 
-        // 归还缓冲区 (入队)
+        // 将缓冲区重新放入硬件接收队列
         if (ioctl(fd, VIDIOC_QBUF, &thread_buf) == -1) {
-            std::cerr << "VIDIOC_QBUF failed in capture thread" << std::endl;
             perror("VIDIOC_QBUF");
         }
     }
 }
 
 /**
- * @brief 启动 USB 摄像头采集线程
- * @note 使用 compare_exchange_strong 保证线程安全，防止多次调用创建多个线程
+ * @brief 线程安全地启动后台采集任务
  */
 void start_usb_capture_thread()
 {
-    // 优化：使用原子 CAS 操作，修复 TOCTOU 竞态条件
     bool expected = false;
+    // 使用 CAS 原子操作保证只启动一个采集线程
     if (capture_running.compare_exchange_strong(expected, true)) {
         capture_thread = std::thread(usb_capture_thread_func);
     }
 }
 
 /**
- * @brief 停止 USB 摄像头采集线程
- * @note 会尝试停止视频流以唤醒阻塞的 ioctl，并阻塞等待线程结束 (join)
+ * @brief 安全停止采集任务：保证线程完全退出且不发生阻塞
  */
 void stop_usb_capture_thread()
 {
-    // 优化：使用原子 CAS 操作，确保只停止一次
     bool expected = true;
     if (capture_running.compare_exchange_strong(expected, false)) {
-        // 尝试停止流，以唤醒可能阻塞在 VIDIOC_DQBUF 的线程
+        // 关键点：提前发送 STREAMOFF 信号，强行中断可能阻塞在 DQBUF 的 ioctl 调用
         if (fd >= 0) {
             v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-            if (ioctl(fd, VIDIOC_STREAMOFF, &type) == -1) {
-                // 忽略错误，仅仅是为了尝试唤醒
-            }
+            ioctl(fd, VIDIOC_STREAMOFF, &type);
         }
 
         if (capture_thread.joinable()) {
@@ -316,59 +279,52 @@ void stop_usb_capture_thread()
 }
 
 /**
- * @brief 从 shared_ptr 帧指针读取最新的一帧 (零拷贝/低延迟)
- * @param[out] orig_img 输出的 OpenCV Mat 对象
- * @return true 读取成功, false 失败 (缓冲区为空或设备未就绪)
- * @note 优化：使用 cv::Mat 的浅拷贝（引用计数），不复制像素数据。
- *       调用者获得的 Mat 与 shared_ptr 中的 Mat 共享底层数据。
- *       如果调用者需要独立副本，应自行调用 clone()。
+ * @brief 从全局缓冲区读取最新的图像帧
+ * @param[out] orig_img 输出的图像容器
+ * @return true 成功, false 缓冲区目前为空
+ * @note [ZERO-COPY] 利用 cv::Mat 的浅拷贝（引用计数机制）实现，不产生像素级拷贝。
  */
 bool read_usb_frame(cv::Mat *orig_img)
 {
     std::lock_guard<std::mutex> lock(frame_mutex);
     if (current_frame && !current_frame->empty()) {
-        // 优化：cv::Mat 赋值是浅拷贝，只增加引用计数，不复制像素数据
-        // 调用者与 current_frame 共享底层数据，直到下一帧到来或调用者释放
+        // 浅拷贝：orig_img 与 current_frame 共享同一块像素内存，底层引用计数 +1
         *orig_img = *current_frame;
         return true;
     }
-    return false; // 缓冲区为空
+    return false;
 }
 
 /**
- * @brief 停止采集线程并关闭摄像头设备
+ * @brief 完整关闭摄像头系统并释放所有硬件资源
  */
 void close_usb_camera()
 {
-    // 先停止异步线程 (内部会尝试 STREAMOFF 以唤醒线程)
-    stop_usb_capture_thread();
+    stop_usb_capture_thread(); // 首先停止并销毁采集线程
 
-    if (!camera_opened) {
-        std::cerr << "Warning: Camera not opened, skip close" << std::endl;
-        return;
-    }
+    if (!camera_opened) return;
 
-    // 再次确保停止视频流 (以防 stop_usb_capture_thread 中因 fd 问题没执行)
-    if (fd >= 0) {
-        v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-        ioctl(fd, VIDIOC_STREAMOFF, &type);
-    }
+    // 停止视频流
+    v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    if (fd >= 0) ioctl(fd, VIDIOC_STREAMOFF, &type);
 
-    // 清理 shared_ptr 帧指针
+    // 清空全局帧引用，触发最后一帧的内存回收
     {
         std::lock_guard<std::mutex> lock(frame_mutex);
         current_frame.reset();
     }
 
-    // 使用辅助函数清理资源
     cleanup_buffers(REQ_COUNT);
     cleanup_fd();
 }
 
-/*
- ==============================================================================
- * 附录：数据流与内存拷贝分析 (Data Flow & Memory Copy Analysis) - 优化后版本
- ==============================================================================
+/**
+ * ==============================================================================
+ * @section 内存管理与多线程机制深度解析 (Technical Appendices)
+ * ==============================================================================
+ * 
+ * 1. 数据流与内存拷贝分析 (Data Flow & Memory Copy Analysis):
+ * 
  * ┌─────────────────┬────────────┬──────────────────┬───────────────────────────┐
  * │ 阶段            │ 动作       │ 方式             │ 是否拷贝/耗时             │
  * ├─────────────────┼────────────┼──────────────────┼───────────────────────────┤
@@ -380,33 +336,31 @@ void close_usb_camera()
  * │ User            │ RGA 预处理 │ RGA 硬件         │ 硬件搬运 (极快)           │
  * │ User -> Display │ Qt 显示    │ QImage 转换      │ 1-2 次拷贝 (格式转换+渲染)│
  * └─────────────────┴────────────┴──────────────────┴───────────────────────────┘
- *
- *
- * 1. 硬件层 -> 内核层 (Hardware -> Kernel): [0 拷贝]
- *    摄像头传感器 -> USB 总线 -> 内存 (DMA)。
- *    数据直接由 DMA 传输到内核分配的 videobuf2 缓冲区中。
- *
- * 2. 内核层 -> 用户层 (Kernel -> User Space): [0 拷贝]
- *    通过 mmap() 机制，用户空间的 buffers[i].start 指针直接映射到内核缓冲区。
- *
- * 3. MJPEG 解码 (MJPEG Decoding): [生成新数据]
- *    cv::imdecode() 必须在 CPU 上进行解码，生成 BGR cv::Mat。
- *    这是整个流程中 CPU 开销最大的步骤，无法避免。
- *
- * 4. 存储帧 (Store Frame): [0 拷贝] ← 优化后
- *    auto new_frame = std::make_shared<cv::Mat>(std::move(decoded_frame));
- *    current_frame = new_frame;
- *    使用 std::move 将解码后的 Mat 数据所有权转移到 shared_ptr，
- *    然后原子替换 current_frame 指针。无内存拷贝发生。
- *
- * 5. 读取帧 (Read Frame): [0 拷贝] ← 优化后
- *    *orig_img = *current_frame;
- *    cv::Mat 赋值操作是浅拷贝，只增加引用计数，不复制像素数据。
- *    调用者与 shared_ptr 共享底层数据，直到帧被替换或调用者释放。
- *
- * 注意事项：
- * ----------
- * - 调用者获取的 cv::Mat 与 current_frame 共享数据，如需独立副本应调用 clone()
- * - 当新帧到来时，旧帧的 shared_ptr 引用计数减 1，如果调用者仍持有引用则数据不会释放
- ==============================================================================
+ * 
+ * 2. cv::Mat 的引用计数机制 (OpenCV Ref-counting):
+ *    cv::Mat 由"矩阵头"和"像素数据指针"组成。当执行 `Mat A = B` 时，仅复制矩阵头，
+ *    并让底层数据的引用计数加 1。数据只在计数归零时被释放。
+ * 
+ * 2. 浅拷贝 vs 深拷贝 (Shallow vs Deep Copy):
+ *    - 浅拷贝 (Shallow)：`A = B`。速度极快，共享像素内存。本模块核心使用。
+ *    - 深拷贝 (Deep)：`A = B.clone()`。完全复制数据，消耗大量 CPU 和带宽。
+ * 
+ * 3. shared_ptr 内存管理 (Smart Pointer Management):
+ *    - `current_frame` 使用 `std::shared_ptr` 进一步包装了 `cv::Mat`。
+ *    - 采集线程产生新帧后，替换全局 `shared_ptr`。旧帧如果没有其他引用者，
+ *      会在此刻立即释放。如果处理线程还在使用旧帧，旧帧会存活至处理线程结束。
+ * 
+ * 4. 多线程环境下的内存安全 (Thread Safety):
+ *    - 采集标志：`std::atomic<bool>` 配合 `compare_exchange_strong` 保证了 
+ *      Start/Stop 的原子性，消除了竞态条件。
+ *    - 帧交换：`std::lock_guard` 保护 `current_frame` 的指针替换过程。
+ *      由于仅交换指针（几个字节），锁的粒度极小（纳秒级），处理线程不会造成
+ *      采集线程的实质性阻塞。
+ * 
+ * 5. 帧数据的生命周期 (Frame Lifecycle):
+ *    [采集线程解码] -> [封装进 shared_ptr] -> [原子替换 current_frame] ->
+ *    [处理线程 read_usb_frame 浅拷贝] -> [数据在处理线程中处理] ->
+ *    [处理任务结束 Mat 析构] -> [引用计数归零，底层堆内存释放]。
+ * 
+ * ==============================================================================
  */
