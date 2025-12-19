@@ -45,6 +45,7 @@ SettingsPage::SettingsPage(QWidget* parent)
     , test_audio_btn_(nullptr)
     , camera_device_combo_(nullptr)
     , refresh_camera_btn_(nullptr)
+    , apply_camera_btn_(nullptr)
     , auto_location_check_(nullptr)
     , city_preset_combo_(nullptr)
     , manual_city_edit_(nullptr)
@@ -263,23 +264,29 @@ void SettingsPage::setup_ui() {
     camera_device_combo_->setObjectName("SettingsCombo");
     camera_device_combo_->setMinimumWidth(300);
     camera_row->addWidget(camera_device_combo_);
-    
+
     refresh_camera_btn_ = new QPushButton(tr("↻ 刷新"));
     refresh_camera_btn_->setObjectName("SecondaryButton");
     camera_row->addWidget(refresh_camera_btn_);
-    
-    auto camera_hint = new QLabel(tr("切换摄像头需要重启识别生效"));
+
+    apply_camera_btn_ = new QPushButton(tr("✓ 应用"));
+    apply_camera_btn_->setObjectName("PrimaryButton");
+    apply_camera_btn_->setToolTip(tr("立即应用摄像头设置，无需重启"));
+    camera_row->addWidget(apply_camera_btn_);
+
+    auto camera_hint = new QLabel(tr("选择摄像头后点击【应用】立即生效"));
     camera_hint->setObjectName("SettingsHint");
     camera_row->addWidget(camera_hint);
-    
+
     camera_row->addStretch();
     camera_body->addLayout(camera_row);
-    
+
     // 延迟扫描摄像头（进入设置页时再扫描）
     camera_device_combo_->addItem(tr("（进入设置后加载）"), -1);
     connect(refresh_camera_btn_, &QPushButton::clicked, this, [this]() {
         scan_usb_cameras();
     });
+    connect(apply_camera_btn_, &QPushButton::clicked, this, &SettingsPage::on_apply_camera_clicked);
     
     layout->addWidget(camera_card);
 
@@ -1126,4 +1133,24 @@ void SettingsPage::on_auto_location_changed(bool checked) {
     if (city_preset_combo_) {
         city_preset_combo_->setEnabled(!checked);
     }
+}
+
+void SettingsPage::on_apply_camera_clicked() {
+    if (!camera_device_combo_ || camera_device_combo_->currentIndex() < 0) {
+        QMessageBox::warning(this, tr("警告"), tr("请先选择摄像头设备"));
+        return;
+    }
+
+    int deviceId = camera_device_combo_->currentData().toInt();
+    if (deviceId < 0) {
+        QMessageBox::warning(this, tr("警告"), tr("无效的摄像头设备"));
+        return;
+    }
+
+    // 保存到配置
+    ConfigManager::instance()->setCameraId(deviceId);
+    spdlog::info("Applying camera settings: device ID = {}", deviceId);
+
+    // 发送信号通知主窗口重新初始化摄像头
+    emit cameraSettingsChanged(deviceId);
 }

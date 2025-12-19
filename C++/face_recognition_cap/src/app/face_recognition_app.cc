@@ -32,6 +32,8 @@ FaceRecognitionApp::FaceRecognitionApp()
     , recognition_callback_(nullptr)
     , frame_callback_(nullptr)
     , attendance_service_(nullptr)
+    , camera_initialized_(false)
+    , camera_error_("")
 {
 }
 
@@ -94,11 +96,17 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
         spdlog::info("Loaded {} features", feature_count);
     }
 
-    // 3. 初始化摄像头
+    // 3. 初始化摄像头（失败不影响应用启动）
     spdlog::info("Initializing camera...");
     if (init_camera() != 0) {
-        spdlog::error("Failed to initialize camera");
-        return -1;
+        spdlog::warn("Camera initialization failed: {}", camera_error_);
+        spdlog::warn("Application will start without camera, you can configure it in settings");
+        camera_initialized_ = false;
+        // 不返回失败，继续初始化其他组件
+    } else {
+        camera_initialized_ = true;
+        camera_error_.clear();
+        spdlog::info("Camera initialized successfully");
     }
 
     // 4. 计算缩放参数
@@ -134,12 +142,18 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
     // 6. 创建并启动线程（流水线架构）- 使用智能指针
     spdlog::info("Starting pipeline threads...");
 
-    // 线程1: 采集 + RGA预处理
-    preprocess_thread_ = std::make_unique<PreprocessingThread>(
-        resize_w_, resize_h_,
-        config_.camera_width, config_.camera_height,
-        &perf_monitor_,
-        config_.camera_type, config_.use_async_usb);
+    // 线程1: 采集 + RGA预处理（只有在摄像头初始化成功时才创建和启动）
+    if (camera_initialized_) {
+        preprocess_thread_ = std::make_unique<PreprocessingThread>(
+            resize_w_, resize_h_,
+            config_.camera_width, config_.camera_height,
+            &perf_monitor_,
+            config_.camera_type, config_.use_async_usb);
+        preprocess_thread_->start();
+        spdlog::info("Preprocessing thread started");
+    } else {
+        spdlog::warn("Preprocessing thread not started (camera not initialized)");
+    }
 
     // 线程3: 识别 + 渲染
     recognition_thread_ = std::make_unique<RecognitionThread>(
@@ -152,7 +166,6 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
         &model_manager_, recognition_thread_.get(), &perf_monitor_,
         config_.box_conf_threshold, config_.nms_threshold);
 
-    preprocess_thread_->start();
     postprocess_thread_->start();
     recognition_thread_->start();
 
@@ -166,6 +179,7 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
 
 int FaceRecognitionApp::init_camera() {
     int ret = 0;
+    camera_error_.clear();
 
     if (config_.camera_type == "usb") {
         if (config_.use_async_usb) {
@@ -174,16 +188,28 @@ int FaceRecognitionApp::init_camera() {
             if (ret == EXIT_SUCCESS) {
                 start_usb_capture_thread();
                 spdlog::info("USB camera async mode enabled");
+            } else {
+                camera_error_ = "Failed to open USB camera /dev/video" + config_.device_number +
+                               ". Please check device connection or select correct device in settings.";
             }
         } else {
             ret = load_usb_camera(config_.device_number,
                                  config_.camera_width, config_.camera_height);
+            if (ret != EXIT_SUCCESS) {
+                camera_error_ = "Failed to open USB camera /dev/video" + config_.device_number +
+                               ". Please check device connection or select correct device in settings.";
+            }
         }
     } else if (config_.camera_type == "mipi") {
         ret = load_mipi_camera(config_.device_number,
                               config_.camera_width, config_.camera_height);
+        if (ret != EXIT_SUCCESS) {
+            camera_error_ = "Failed to open MIPI camera /dev/video" + config_.device_number +
+                           ". Please check device connection.";
+        }
     } else {
-        spdlog::error("Unsupported camera type: {}", config_.camera_type);
+        camera_error_ = "Unsupported camera type: " + config_.camera_type;
+        spdlog::error("{}", camera_error_);
         return -1;
     }
 
@@ -193,6 +219,18 @@ int FaceRecognitionApp::init_camera() {
 int FaceRecognitionApp::run() {
     if (!initialized_) {
         spdlog::error("App not initialized");
+        return -1;
+    }
+
+    // 检查摄像头状态
+    if (!camera_initialized_) {
+        spdlog::error("Cannot run: camera not initialized");
+        spdlog::error("Camera error: {}", camera_error_);
+        return -1;
+    }
+
+    if (!preprocess_thread_) {
+        spdlog::error("Cannot run: preprocessing thread not created");
         return -1;
     }
 
@@ -359,15 +397,18 @@ void FaceRecognitionApp::cleanup() {
         recognition_thread_.reset();
     }
 
-    // 关闭摄像头
-    if (config_.camera_type == "usb") {
-        if (config_.use_async_usb) {
-            close_usb_camera_async();
-        } else {
-            close_usb_camera();
+    // 关闭摄像头（只有在摄像头已初始化时才关闭）
+    if (camera_initialized_) {
+        if (config_.camera_type == "usb") {
+            if (config_.use_async_usb) {
+                close_usb_camera_async();
+            } else {
+                close_usb_camera();
+            }
+        } else if (config_.camera_type == "mipi") {
+            close_mipi_camera();
         }
-    } else if (config_.camera_type == "mipi") {
-        close_mipi_camera();
+        camera_initialized_ = false;
     }
 
     // 释放模型
@@ -378,6 +419,70 @@ void FaceRecognitionApp::cleanup() {
 
     initialized_ = false;
     spdlog::info("Cleanup complete");
+}
+
+bool FaceRecognitionApp::reinitialize_camera(const std::string& device_number) {
+    if (!initialized_) {
+        spdlog::error("Cannot reinitialize camera: app not initialized");
+        return false;
+    }
+
+    spdlog::info("Reinitializing camera with device: /dev/video{}", device_number);
+
+    // 1. 停止运行标志
+    bool was_running = running_;
+    if (was_running) {
+        running_ = false;
+    }
+
+    // 2. 停止预处理线程（stop() 内部会 join()，确保线程完全退出）
+    if (preprocess_thread_) {
+        preprocess_thread_->stop();  // 内部调用 join()，无需额外 sleep
+        preprocess_thread_.reset();  // 销毁旧线程对象
+    }
+
+    // 3. 关闭旧摄像头
+    if (camera_initialized_) {
+        if (config_.camera_type == "usb") {
+            if (config_.use_async_usb) {
+                close_usb_camera_async();
+            } else {
+                close_usb_camera();
+            }
+        } else if (config_.camera_type == "mipi") {
+            close_mipi_camera();
+        }
+        camera_initialized_ = false;
+    }
+
+    // 4. 更新设备号
+    config_.device_number = device_number;
+
+    // 5. 尝试初始化新摄像头
+    if (init_camera() != 0) {
+        spdlog::error("Failed to reinitialize camera: {}", camera_error_);
+        camera_initialized_ = false;
+        return false;
+    }
+
+    camera_initialized_ = true;
+    camera_error_.clear();
+    spdlog::info("Camera reinitialized successfully");
+
+    // 6. 创建并启动新的预处理线程
+    preprocess_thread_ = std::make_unique<PreprocessingThread>(
+        resize_w_, resize_h_,
+        config_.camera_width, config_.camera_height,
+        &perf_monitor_,
+        config_.camera_type, config_.use_async_usb);
+    preprocess_thread_->start();
+
+    // 7. 恢复运行状态
+    if (was_running) {
+        running_ = true;
+    }
+
+    return true;
 }
 
 void FaceRecognitionApp::set_recognition_callback(RecognitionCallback callback) {
@@ -428,6 +533,11 @@ void FaceRecognitionApp::set_frame_callback(FrameCallback callback) {
 
 bool FaceRecognitionApp::get_current_frame(cv::Mat& frame) {
     if (!initialized_) {
+        return false;
+    }
+
+    // 检查摄像头是否已初始化
+    if (!camera_initialized_) {
         return false;
     }
 

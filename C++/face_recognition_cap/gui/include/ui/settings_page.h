@@ -21,12 +21,14 @@ signals:
     void themeToggleRequested();
     void settingsChanged();
     void weatherSettingsChanged();  // 天气设置变更，需要刷新天气
+    void cameraSettingsChanged(int deviceId);  // 摄像头设置变更，需要重新初始化摄像头
 
 private slots:
     void on_theme_toggle_clicked();
     void on_save_clicked();
     void on_reset_clicked();
     void on_clear_cache_clicked();
+    void on_apply_camera_clicked();  // 应用摄像头设置
 
 private:
     void setup_ui();
@@ -82,6 +84,7 @@ private:
     // 摄像头设置
     QComboBox* camera_device_combo_;
     QPushButton* refresh_camera_btn_;
+    QPushButton* apply_camera_btn_;  // 应用摄像头设置按钮
     
     // 天气/城市设置
     QCheckBox* auto_location_check_;

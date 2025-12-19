@@ -20,18 +20,22 @@
 #include <atomic>
 #include "camera_util.h"
 
+// 注意：仅用于非初始化路径（如 read_usb_frame），初始化路径使用手动错误检查
 #define CHECK_IOCTL(fd, request, arg) \
     if (ioctl(fd, request, arg) == -1) { \
         std::cerr << "IOCTL failed: " #request << std::endl; \
+        perror(#request); \
         exit(EXIT_FAILURE); \
     }
 
-
-int fd;
-v4l2_buffer buf;
-Buffer *buffers = new Buffer[REQ_COUNT];
-v4l2_format fmt = {};
-int width, height;
+// 摄像头状态变量（使用 static 限制作用域）
+static int fd = -1;
+static v4l2_buffer buf;
+static Buffer* buffers = nullptr;
+static v4l2_format fmt = {};
+static int width = 0;
+static int height = 0;
+static bool camera_opened = false;  // 标记摄像头是否已打开
 
 // 异步读取相关变量
 static std::thread capture_thread;
@@ -41,20 +45,58 @@ static cv::Mat double_buffer[2];  // 双缓冲
 static int write_idx = 0;
 static int read_idx = 1;
 
+// 清理已分配的缓冲区（内部辅助函数）
+static void cleanup_buffers(unsigned int count) {
+    if (buffers != nullptr) {
+        for (unsigned int i = 0; i < count; ++i) {
+            if (buffers[i].start != nullptr && buffers[i].start != MAP_FAILED) {
+                munmap(buffers[i].start, buffers[i].length);
+                buffers[i].start = nullptr;
+            }
+        }
+        delete[] buffers;
+        buffers = nullptr;
+    }
+}
+
+// 关闭文件描述符（内部辅助函数）
+static void cleanup_fd() {
+    if (fd >= 0) {
+        close(fd);
+        fd = -1;
+    }
+    camera_opened = false;
+}
+
 int load_usb_camera(std::string device, int camera_width, int camera_height)
 {
-	std::string prefix = "/dev/video";
-    fd = open((prefix + device).c_str(), O_RDWR);
+    // 防止重复打开
+    if (camera_opened) {
+        std::cerr << "Camera already opened, close it first" << std::endl;
+        return EXIT_FAILURE;
+    }
+
+    std::string prefix = "/dev/video";
+    std::string device_path = prefix + device;
+
+    fd = open(device_path.c_str(), O_RDWR);
     if (fd < 0) {
-        perror("Failed to open device");
+        std::cerr << "Failed to open device: " << device_path << std::endl;
+        perror("open");
         return EXIT_FAILURE;
     }
 
     v4l2_capability cap;
-    CHECK_IOCTL(fd, VIDIOC_QUERYCAP, &cap);
+    if (ioctl(fd, VIDIOC_QUERYCAP, &cap) == -1) {
+        std::cerr << "IOCTL failed: VIDIOC_QUERYCAP" << std::endl;
+        perror("VIDIOC_QUERYCAP");
+        cleanup_fd();
+        return EXIT_FAILURE;
+    }
+
     if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)) {
         std::cerr << "Device does not support video capture" << std::endl;
-        close(fd);
+        cleanup_fd();
         return EXIT_FAILURE;
     }
 
@@ -63,7 +105,13 @@ int load_usb_camera(std::string device, int camera_width, int camera_height)
     fmt.fmt.pix.height = camera_height;
     fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
     fmt.fmt.pix.field = V4L2_FIELD_NONE;
-    CHECK_IOCTL(fd, VIDIOC_S_FMT, &fmt);
+
+    if (ioctl(fd, VIDIOC_S_FMT, &fmt) == -1) {
+        std::cerr << "IOCTL failed: VIDIOC_S_FMT (requested: " << camera_width << "x" << camera_height << ")" << std::endl;
+        perror("VIDIOC_S_FMT");
+        cleanup_fd();
+        return EXIT_FAILURE;
+    }
 
     // 打印实际设置的分辨率
     std::cout << "USB camera initialized: " << fmt.fmt.pix.width << "x" << fmt.fmt.pix.height << std::endl;
@@ -72,31 +120,69 @@ int load_usb_camera(std::string device, int camera_width, int camera_height)
     req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     req.memory = V4L2_MEMORY_MMAP;
     req.count = REQ_COUNT;
-    CHECK_IOCTL(fd, VIDIOC_REQBUFS, &req);
+
+    if (ioctl(fd, VIDIOC_REQBUFS, &req) == -1) {
+        std::cerr << "IOCTL failed: VIDIOC_REQBUFS" << std::endl;
+        perror("VIDIOC_REQBUFS");
+        cleanup_fd();
+        return EXIT_FAILURE;
+    }
+
+    // 分配缓冲区数组
+    buffers = new Buffer[REQ_COUNT];
+    memset(buffers, 0, sizeof(Buffer) * REQ_COUNT);  // 初始化为 0
+
+    unsigned int mapped_count = 0;  // 记录已成功映射的缓冲区数量
 
     for (unsigned i = 0; i < req.count; ++i) {
         buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         buf.memory = V4L2_MEMORY_MMAP;
         buf.index = i;
-        CHECK_IOCTL(fd, VIDIOC_QUERYBUF, &buf);
+
+        if (ioctl(fd, VIDIOC_QUERYBUF, &buf) == -1) {
+            std::cerr << "IOCTL failed: VIDIOC_QUERYBUF at index " << i << std::endl;
+            perror("VIDIOC_QUERYBUF");
+            cleanup_buffers(mapped_count);  // 清理已映射的缓冲区
+            cleanup_fd();
+            return EXIT_FAILURE;
+        }
 
         buffers[i].length = buf.length;
         buffers[i].start = mmap(NULL, buf.length,
                                PROT_READ | PROT_WRITE,
                                MAP_SHARED, fd, buf.m.offset);
         if (buffers[i].start == MAP_FAILED) {
-            perror("Memory mapping failed");
-            exit(EXIT_FAILURE);
+            std::cerr << "Memory mapping failed at index " << i << std::endl;
+            perror("mmap");
+            buffers[i].start = nullptr;  // 标记为未映射
+            cleanup_buffers(mapped_count);  // 清理已映射的缓冲区
+            cleanup_fd();
+            return EXIT_FAILURE;
         }
-        CHECK_IOCTL(fd, VIDIOC_QBUF, &buf);
+        mapped_count++;
+
+        if (ioctl(fd, VIDIOC_QBUF, &buf) == -1) {
+            std::cerr << "IOCTL failed: VIDIOC_QBUF at index " << i << std::endl;
+            perror("VIDIOC_QBUF");
+            cleanup_buffers(mapped_count);  // 清理已映射的缓冲区
+            cleanup_fd();
+            return EXIT_FAILURE;
+        }
     }
 
     v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    CHECK_IOCTL(fd, VIDIOC_STREAMON, &type);
+    if (ioctl(fd, VIDIOC_STREAMON, &type) == -1) {
+        std::cerr << "IOCTL failed: VIDIOC_STREAMON" << std::endl;
+        perror("VIDIOC_STREAMON");
+        cleanup_buffers(REQ_COUNT);
+        cleanup_fd();
+        return EXIT_FAILURE;
+    }
 
-	buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-	buf.memory = V4L2_MEMORY_MMAP;
+    buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    buf.memory = V4L2_MEMORY_MMAP;
 
+    camera_opened = true;
     return EXIT_SUCCESS;
 }
 
@@ -110,13 +196,22 @@ void read_usb_frame(cv::Mat *orig_img)
 
 void close_usb_camera()
 {
-	v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    CHECK_IOCTL(fd, VIDIOC_STREAMOFF, &type);
-    for (unsigned i = 0; i < REQ_COUNT; ++i) {
-        munmap(buffers[i].start, buffers[i].length);
+    if (!camera_opened) {
+        std::cerr << "Warning: Camera not opened, skip close" << std::endl;
+        return;
     }
-    delete[] buffers;
-    close(fd);
+
+    // 停止视频流
+    v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    if (fd >= 0 && ioctl(fd, VIDIOC_STREAMOFF, &type) == -1) {
+        std::cerr << "Warning: VIDIOC_STREAMOFF failed" << std::endl;
+        perror("VIDIOC_STREAMOFF");
+        // 继续清理，不要退出
+    }
+
+    // 使用辅助函数清理资源
+    cleanup_buffers(REQ_COUNT);
+    cleanup_fd();
 }
 
 int load_mipi_camera(std::string device, int camera_width, int camera_height)
@@ -129,7 +224,13 @@ int load_mipi_camera(std::string device, int camera_width, int camera_height)
     }
 
     v4l2_capability cap;
-    CHECK_IOCTL(fd, VIDIOC_QUERYCAP, &cap);
+    if (ioctl(fd, VIDIOC_QUERYCAP, &cap) == -1) {
+        std::cerr << "IOCTL failed: VIDIOC_QUERYCAP" << std::endl;
+        perror("VIDIOC_QUERYCAP");
+        close(fd);
+        return EXIT_FAILURE;
+    }
+
     if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE)) {
         std::cerr << "Device does not support video capture" << std::endl;
         close(fd);
@@ -142,8 +243,14 @@ int load_mipi_camera(std::string device, int camera_width, int camera_height)
     fmt.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_NV12;
     fmt.fmt.pix_mp.field = V4L2_FIELD_NONE;
     fmt.fmt.pix_mp.num_planes = 2;
-    CHECK_IOCTL(fd, VIDIOC_S_FMT, &fmt);
-    
+
+    if (ioctl(fd, VIDIOC_S_FMT, &fmt) == -1) {
+        std::cerr << "IOCTL failed: VIDIOC_S_FMT (requested: " << camera_width << "x" << camera_height << ")" << std::endl;
+        perror("VIDIOC_S_FMT");
+        close(fd);
+        return EXIT_FAILURE;
+    }
+
     width = fmt.fmt.pix_mp.width;
     height = fmt.fmt.pix_mp.height;
 
@@ -151,7 +258,13 @@ int load_mipi_camera(std::string device, int camera_width, int camera_height)
     req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
     req.memory = V4L2_MEMORY_MMAP;
     req.count = REQ_COUNT;
-    CHECK_IOCTL(fd, VIDIOC_REQBUFS, &req);
+
+    if (ioctl(fd, VIDIOC_REQBUFS, &req) == -1) {
+        std::cerr << "IOCTL failed: VIDIOC_REQBUFS" << std::endl;
+        perror("VIDIOC_REQBUFS");
+        close(fd);
+        return EXIT_FAILURE;
+    }
 
     for (unsigned i = 0; i < req.count; ++i) {
         v4l2_plane planes[VIDEO_MAX_PLANES];

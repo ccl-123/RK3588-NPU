@@ -93,6 +93,7 @@ public slots:
     // 应用设置（由 SettingsPage 调用）
     void apply_recognition_settings(float threshold);
     void apply_user_confirm_duration(int duration_ms);
+    void apply_camera_settings(int deviceId);  // 应用摄像头设置
 
 private slots:
     void on_action_open_camera();

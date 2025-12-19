@@ -155,6 +155,25 @@ public:
     }
 
     /**
+     * @brief 检查摄像头是否已初始化
+     * @return true 摄像头可用, false 摄像头未初始化或初始化失败
+     */
+    bool is_camera_initialized() const { return camera_initialized_; }
+
+    /**
+     * @brief 获取摄像头错误信息
+     * @return 错误信息字符串，如果没有错误则返回空字符串
+     */
+    std::string get_camera_error() const { return camera_error_; }
+
+    /**
+     * @brief 重新初始化摄像头（用于设置页面切换摄像头）
+     * @param device_number 新的设备编号
+     * @return true 成功, false 失败
+     */
+    bool reinitialize_camera(const std::string& device_number);
+
+    /**
      * @brief GUI 模式：获取当前帧（不阻塞）
      * @param frame 输出帧
      * @return true 成功获取, false 失败
@@ -274,6 +293,10 @@ private:
     // 运行状态
     bool initialized_;
     bool running_;
+
+    // 摄像头状态（优雅降级支持）
+    bool camera_initialized_;       // 摄像头是否成功初始化
+    std::string camera_error_;      // 摄像头错误信息
 };
 
 #endif // _FACE_RECOGNITION_APP_H_

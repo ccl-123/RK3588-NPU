@@ -515,11 +515,30 @@ void MainWindow::initialize_async(const std::string& retinaface_model,
                     return;
                 }
 
+                // 检查摄像头状态
+                if (!recognition_app_->is_camera_initialized()) {
+                    QString camera_error = QString::fromStdString(recognition_app_->get_camera_error());
+                    spdlog::warn("Camera not initialized: {}", camera_error.toStdString());
+
+                    if (status_label_) {
+                        status_label_->setText(tr("就绪 (摄像头未连接)"));
+                    }
+
+                    // 显示友好提示，但不阻止应用启动
+                    QMessageBox::warning(this, tr("摄像头未连接"),
+                        tr("摄像头初始化失败：\n%1\n\n"
+                           "应用已启动，但摄像头功能不可用。\n"
+                           "您可以在【设置】页面重新选择摄像头设备。").arg(camera_error));
+
+                    // 不启动识别，因为没有摄像头
+                    return;
+                }
+
                 if (status_label_) {
                     status_label_->setText(tr("就绪"));
                 }
 
-                // 自动启动识别（初始化完成后）
+                // 自动启动识别（初始化完成后，且摄像头可用）
                 start_recognition();
             },
             Qt::QueuedConnection);
@@ -830,6 +849,10 @@ void MainWindow::connect_page_signals() {
                 recognition_page_->refreshWeather();
             }
         });
+
+        // 连接摄像头设置变更信号，重新初始化摄像头
+        connect(settings_page_, &SettingsPage::cameraSettingsChanged,
+                this, &MainWindow::apply_camera_settings);
     }
 }
 
@@ -1241,6 +1264,46 @@ void MainWindow::on_action_close_camera() {
 
 void MainWindow::on_action_exit() {
     close();
+}
+
+void MainWindow::apply_camera_settings(int deviceId) {
+    if (!recognition_app_) {
+        QMessageBox::warning(this, tr("错误"), tr("识别系统未初始化"));
+        return;
+    }
+
+    spdlog::info("Applying camera settings: device ID = {}", deviceId);
+
+    // 如果识别正在运行，先停止
+    bool was_running = is_running_;
+    if (was_running) {
+        spdlog::info("Stopping recognition to reinitialize camera");
+        stop_recognition();
+        // stop_recognition 内部会停止定时器，reinitialize_camera 会 join 线程
+        // 无需额外 sleep
+    }
+
+    // 重新初始化摄像头（内部会处理线程同步）
+    std::string device_number = std::to_string(deviceId);
+    bool success = recognition_app_->reinitialize_camera(device_number);
+
+    if (success) {
+        spdlog::info("Camera reinitialized successfully: /dev/video{}", deviceId);
+        QMessageBox::information(this, tr("成功"),
+            tr("摄像头已切换到 /dev/video%1").arg(deviceId));
+
+        // 如果之前在运行，重新启动识别
+        if (was_running) {
+            spdlog::info("Restarting recognition with new camera");
+            start_recognition();
+        }
+    } else {
+        std::string error = recognition_app_->get_camera_error();
+        spdlog::error("Failed to reinitialize camera: {}", error);
+        QMessageBox::critical(this, tr("错误"),
+            tr("摄像头初始化失败：\n%1\n\n请检查设备连接或选择其他摄像头。")
+            .arg(QString::fromStdString(error)));
+    }
 }
 
 void MainWindow::on_action_register_face() {
