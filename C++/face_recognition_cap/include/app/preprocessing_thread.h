@@ -48,9 +48,9 @@ public:
      * @param camera_type 摄像头类型 "usb" 或 "mipi"
      * @param use_async_usb 是否使用异步USB读取
      */
-    PreprocessingThread(int resize_w, int resize_h, int img_width, int img_height,
-                        PerformanceMonitor* perf_monitor,
-                        const std::string& camera_type = "usb", bool use_async_usb = true);
+    PreprocessingThread(int resize_w, int resize_h,                                          int img_width, int img_height,
+                                         PerformanceMonitor* perf_monitor,
+                                         const std::string& camera_type);
     ~PreprocessingThread();
 
     // 启动/停止线程
@@ -89,7 +89,6 @@ private:
     int img_width_;
     int img_height_;
     std::string camera_type_;
-    bool use_async_usb_;
     PerformanceMonitor* perf_monitor_;
 
     // 静态缓冲区（避免重复分配）

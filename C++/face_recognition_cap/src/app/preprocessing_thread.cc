@@ -15,15 +15,13 @@
 PreprocessingThread::PreprocessingThread(int resize_w, int resize_h, 
                                          int img_width, int img_height,
                                          PerformanceMonitor* perf_monitor,
-                                         const std::string& camera_type,
-                                         bool use_async_usb)
+                                         const std::string& camera_type)
     : running_(false)
     , resize_w_(resize_w)
     , resize_h_(resize_h)
     , img_width_(img_width)
     , img_height_(img_height)
     , camera_type_(camera_type)
-    , use_async_usb_(use_async_usb)
     , perf_monitor_(perf_monitor)
     , flipped_buffer_(img_height, img_width, CV_8UC3)
     , resized_buffer_(resize_h, resize_w, CV_8UC3)
@@ -114,20 +112,20 @@ void PreprocessingThread::thread_func() {
     }
     }
 
+/**
+ * @brief 从摄像头读取原始帧
+ * @param[out] frame 输出的原始图像
+ * @return true 读取成功, false 失败
+ */
 bool PreprocessingThread::read_frame(cv::Mat& frame) {
+    bool ret = false;
     if (camera_type_ == "usb") {
-        if (use_async_usb_) {
-            read_usb_frame_async(&frame);
-        } else {
-            read_usb_frame(&frame);
-        }
-    } else if (camera_type_ == "mipi") {
-        read_mipi_frame(&frame);
+        ret = read_usb_frame(&frame);
     } else {
         return false;
     }
     
-    return !frame.empty();
+    return ret && !frame.empty();
 }
 
 void PreprocessingThread::process_with_rga(PreprocessTask& task) {

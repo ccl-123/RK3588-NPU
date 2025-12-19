@@ -148,7 +148,7 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
             resize_w_, resize_h_,
             config_.camera_width, config_.camera_height,
             &perf_monitor_,
-            config_.camera_type, config_.use_async_usb);
+            config_.camera_type);
         preprocess_thread_->start();
         spdlog::info("Preprocessing thread started");
     } else {
@@ -177,35 +177,24 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
     return 0;
 }
 
+/**
+ * @brief 内部初始化摄像头函数
+ * @return 0 成功, -1 失败
+ * @note 仅支持 USB 摄像头。如果初始化失败，会将错误信息保存到 camera_error_。
+ */
 int FaceRecognitionApp::init_camera() {
     int ret = 0;
     camera_error_.clear();
 
     if (config_.camera_type == "usb") {
-        if (config_.use_async_usb) {
-            ret = load_usb_camera_async(config_.device_number,
-                                       config_.camera_width, config_.camera_height);
-            if (ret == EXIT_SUCCESS) {
-                start_usb_capture_thread();
-                spdlog::info("USB camera async mode enabled");
-            } else {
-                camera_error_ = "Failed to open USB camera /dev/video" + config_.device_number +
-                               ". Please check device connection or select correct device in settings.";
-            }
+        ret = load_usb_camera(config_.device_number,
+                               config_.camera_width, config_.camera_height);
+        if (ret == EXIT_SUCCESS) {
+            start_usb_capture_thread(); // 启动异步采集线程
+            spdlog::info("USB camera async mode enabled");
         } else {
-            ret = load_usb_camera(config_.device_number,
-                                 config_.camera_width, config_.camera_height);
-            if (ret != EXIT_SUCCESS) {
-                camera_error_ = "Failed to open USB camera /dev/video" + config_.device_number +
-                               ". Please check device connection or select correct device in settings.";
-            }
-        }
-    } else if (config_.camera_type == "mipi") {
-        ret = load_mipi_camera(config_.device_number,
-                              config_.camera_width, config_.camera_height);
-        if (ret != EXIT_SUCCESS) {
-            camera_error_ = "Failed to open MIPI camera /dev/video" + config_.device_number +
-                           ". Please check device connection.";
+            camera_error_ = "Failed to open USB camera /dev/video" + config_.device_number +
+                           ". Please check device connection or select correct device in settings.";
         }
     } else {
         camera_error_ = "Unsupported camera type: " + config_.camera_type;
@@ -400,13 +389,7 @@ void FaceRecognitionApp::cleanup() {
     // 关闭摄像头（只有在摄像头已初始化时才关闭）
     if (camera_initialized_) {
         if (config_.camera_type == "usb") {
-            if (config_.use_async_usb) {
-                close_usb_camera_async();
-            } else {
-                close_usb_camera();
-            }
-        } else if (config_.camera_type == "mipi") {
-            close_mipi_camera();
+            close_usb_camera();
         }
         camera_initialized_ = false;
     }
@@ -421,44 +404,49 @@ void FaceRecognitionApp::cleanup() {
     spdlog::info("Cleanup complete");
 }
 
+/**
+ * @brief 重新初始化摄像头 (支持热切换)
+ * @param device_number 新的摄像头设备编号 (例如 "1" 对应 /dev/video1)
+ * @return true 初始化成功, false 失败
+ * @warning 此函数非线程安全，必须在应用停止运行 (running_ == false) 时调用。
+ *          如果在运行状态下调用，会直接返回失败。
+ * @details 
+ * 1. 停止并销毁预处理线程
+ * 2. 关闭当前打开的摄像头
+ * 3. 尝试初始化新摄像头
+ * 4. 重新创建预处理线程 (但不自动启动应用主循环)
+ */
 bool FaceRecognitionApp::reinitialize_camera(const std::string& device_number) {
     if (!initialized_) {
         spdlog::error("Cannot reinitialize camera: app not initialized");
         return false;
     }
 
+    if (running_) {
+        spdlog::error("Cannot reinitialize camera while app is running. Please stop the app first.");
+        return false;
+    }
+
     spdlog::info("Reinitializing camera with device: /dev/video{}", device_number);
 
-    // 1. 停止运行标志
-    bool was_running = running_;
-    if (was_running) {
-        running_ = false;
-    }
-
-    // 2. 停止预处理线程（stop() 内部会 join()，确保线程完全退出）
+    // 1. 停止预处理线程（stop() 内部会 join()，确保线程完全退出）
     if (preprocess_thread_) {
-        preprocess_thread_->stop();  // 内部调用 join()，无需额外 sleep
-        preprocess_thread_.reset();  // 销毁旧线程对象
+        preprocess_thread_->stop();
+        preprocess_thread_.reset();
     }
 
-    // 3. 关闭旧摄像头
+    // 2. 关闭旧摄像头
     if (camera_initialized_) {
         if (config_.camera_type == "usb") {
-            if (config_.use_async_usb) {
-                close_usb_camera_async();
-            } else {
-                close_usb_camera();
-            }
-        } else if (config_.camera_type == "mipi") {
-            close_mipi_camera();
+            close_usb_camera();
         }
         camera_initialized_ = false;
     }
 
-    // 4. 更新设备号
+    // 3. 更新设备号
     config_.device_number = device_number;
 
-    // 5. 尝试初始化新摄像头
+    // 4. 尝试初始化新摄像头
     if (init_camera() != 0) {
         spdlog::error("Failed to reinitialize camera: {}", camera_error_);
         camera_initialized_ = false;
@@ -469,18 +457,13 @@ bool FaceRecognitionApp::reinitialize_camera(const std::string& device_number) {
     camera_error_.clear();
     spdlog::info("Camera reinitialized successfully");
 
-    // 6. 创建并启动新的预处理线程
+    // 5. 创建并启动新的预处理线程
     preprocess_thread_ = std::make_unique<PreprocessingThread>(
         resize_w_, resize_h_,
         config_.camera_width, config_.camera_height,
         &perf_monitor_,
-        config_.camera_type, config_.use_async_usb);
+        config_.camera_type);
     preprocess_thread_->start();
-
-    // 7. 恢复运行状态
-    if (was_running) {
-        running_ = true;
-    }
 
     return true;
 }
@@ -543,17 +526,15 @@ bool FaceRecognitionApp::get_current_frame(cv::Mat& frame) {
 
     // 从摄像头读取一帧（使用全局函数）
     cv::Mat orig_img;
+    bool ret = false;
     if (config_.camera_type == "usb") {
-        if (config_.use_async_usb) {
-            read_usb_frame_async(&orig_img);
-        } else {
-            read_usb_frame(&orig_img);
-        }
+        ret = read_usb_frame(&orig_img);
     } else {
-        read_mipi_frame(&orig_img);
+        // MIPI support removed
+        return false;
     }
 
-    if (orig_img.empty()) {
+    if (!ret || orig_img.empty()) {
         return false;
     }
 
