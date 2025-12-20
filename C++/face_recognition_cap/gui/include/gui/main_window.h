@@ -148,6 +148,7 @@ private:
     QLabel* user_dept_label_;
     QLabel* user_similarity_label_;
     QLabel* check_type_label_;
+    QLabel* avatar_label_;
     
     // 定时器
     QTimer* status_timer_;

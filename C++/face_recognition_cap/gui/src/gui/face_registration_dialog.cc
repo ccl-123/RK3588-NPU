@@ -14,6 +14,8 @@
 #include <QHBoxLayout>
 #include <QFormLayout>
 #include <QMessageBox>
+#include <QCoreApplication>
+#include <QDir>
 #include <QTimer>
 #include <QPainter>
 #include <QSpacerItem>
@@ -374,6 +376,28 @@ void FaceRegistrationDialog::on_register_clicked() {
     }
 
     spdlog::info("Saved {} face features for user {}", success_count, user_id);
+
+    // 保存头像并更新用户信息
+    if (!captured_faces_.empty()) {
+        QString base_dir = QCoreApplication::applicationDirPath();
+        QString avatar_dir = QDir(base_dir).filePath("data/user_photos");
+        avatar_dir = QDir(avatar_dir).absolutePath();
+        QDir().mkpath(avatar_dir);
+        QString avatar_path = QDir(avatar_dir).filePath(QString("user_%1.jpg").arg(user_id));
+        if (cv::imwrite(avatar_path.toStdString(), captured_faces_.front())) {
+            if (user_service_) {
+                db::UserInfo user_info;
+                if (user_service_->get_user(user_id, user_info)) {
+                    user_info.photo_path = avatar_path.toStdString();
+                    if (!user_service_->update_user(user_info)) {
+                        spdlog::warn("Failed to update user photo path for user {}", user_id);
+                    }
+                }
+            }
+        } else {
+            spdlog::warn("Failed to write avatar image to {}", avatar_path.toStdString());
+        }
+    }
 
     // 重新加载特征库
     int loaded_count = user_service_->reload_feature_library();

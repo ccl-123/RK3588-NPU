@@ -31,6 +31,7 @@ public:
     QLabel* userDeptLabel() const;
     QLabel* userSimilarityLabel() const;
     QLabel* checkTypeLabel() const;
+    QLabel* avatarLabel() const;
     
     // 状态栏相关
     QLabel* clockLabel() const;
@@ -78,6 +79,7 @@ private:
     QLabel* fps_label_;
     QLabel* recognition_label_;
     QLabel* attendance_status_label_;
+    QLabel* avatar_label_;
     
     // 用户信息面板的 label
     QLabel* user_name_label_;

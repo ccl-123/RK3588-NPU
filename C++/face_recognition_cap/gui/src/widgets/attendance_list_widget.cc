@@ -10,6 +10,8 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QVariant>
+#include <QFileInfo>
+#include <QPixmap>
 #include <QLabel>
 #include <QScroller>
 
@@ -95,18 +97,25 @@ void AttendanceItemDelegate::paint(QPainter* painter, const QStyleOptionViewItem
     path.addEllipse(avatarRect);
     painter->setClipPath(path);
     
-    // 如果有头像且不为空，绘制图片，否则绘制默认颜色的圆 + 文字
-    // 简化处理：这里暂时画一个默认颜色的圆
-    QColor avatarBg = QColor("#1677FF"); // 统一使用默认蓝色
-    painter->fillRect(avatarRect, avatarBg);
-    
-    // 绘制头像文字（取名字第一个字）
-    painter->setPen(Qt::white);
-    QFont avatarFont = painter->font();
-    avatarFont.setPixelSize(16);
-    avatarFont.setBold(true);
-    painter->setFont(avatarFont);
-    painter->drawText(avatarRect, Qt::AlignCenter, name.left(1));
+    QString avatarPath = avatarVar.toString();
+    if (!avatarPath.isEmpty() && QFileInfo::exists(avatarPath)) {
+        QPixmap avatar(avatarPath);
+        QPixmap scaled = avatar.scaled(avatarSize, avatarSize, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+        QRect srcRect((scaled.width() - avatarSize) / 2, (scaled.height() - avatarSize) / 2, avatarSize, avatarSize);
+        painter->drawPixmap(avatarRect, scaled, srcRect);
+    } else {
+        // 头像缺失时使用默认颜色圆 + 文字
+        QColor avatarBg = QColor("#1677FF"); // 统一使用默认蓝色
+        painter->fillRect(avatarRect, avatarBg);
+        
+        // 绘制头像文字（取名字第一个字）
+        painter->setPen(Qt::white);
+        QFont avatarFont = painter->font();
+        avatarFont.setPixelSize(16);
+        avatarFont.setBold(true);
+        painter->setFont(avatarFont);
+        painter->drawText(avatarRect, Qt::AlignCenter, name.left(1));
+    }
     
     painter->setClipping(false); // 取消裁剪
 

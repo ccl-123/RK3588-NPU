@@ -26,6 +26,12 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QMessageBox>
+#include <QPainter>
+#include <QPainterPath>
+#include <QPixmap>
+#include <QFileInfo>
+#include <QCoreApplication>
+#include <QDir>
 #include <QCloseEvent>
 #include <QTimer>
 #include <QThread>
@@ -42,6 +48,42 @@ namespace {
 struct InitPayload {
     std::unique_ptr<FaceRecognitionApp> recognition_app;
 };
+
+QString resolve_photo_path(const std::string& raw_path) {
+    if (raw_path.empty()) {
+        return {};
+    }
+    QString path = QString::fromStdString(raw_path);
+    QFileInfo info(path);
+    if (info.isAbsolute()) {
+        return path;
+    }
+    QString base_dir = QCoreApplication::applicationDirPath();
+    return QDir(base_dir).filePath(path);
+}
+
+QPixmap make_circular_pixmap(const QPixmap& source, int size) {
+    if (source.isNull() || size <= 0) {
+        return QPixmap();
+    }
+
+    QPixmap scaled = source.scaled(size, size, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+    QPixmap output(size, size);
+    output.fill(Qt::transparent);
+
+    QPainter painter(&output);
+    painter.setRenderHint(QPainter::Antialiasing);
+    QPainterPath path;
+    path.addEllipse(0, 0, size, size);
+    painter.setClipPath(path);
+
+    QRect target(0, 0, size, size);
+    QRect source_rect((scaled.width() - size) / 2, (scaled.height() - size) / 2, size, size);
+    painter.drawPixmap(target, scaled, source_rect);
+    painter.setPen(QPen(QColor(255, 255, 255, 80), 1));
+    painter.drawEllipse(0, 0, size - 1, size - 1);
+    return output;
+}
 }  // namespace
 
 // 注册 Qt 元类型（用于跨线程信号槽）
@@ -657,6 +699,7 @@ void MainWindow::load_today_attendance() {
             db::UserInfo user_info;
             if (user_service_->get_user(record.user_id, user_info)) {
                 item.department = QString::fromStdString(user_info.department);
+                item.avatar_path = resolve_photo_path(user_info.photo_path);
             }
         }
         
@@ -665,7 +708,6 @@ void MainWindow::load_today_attendance() {
         item.status = record.status; // 从数据库记录获取考勤状态
         item.similarity = record.similarity;
         // item.is_stranger 已从 AttendanceItem 结构体中移除
-        item.avatar_path = ""; // 暂无抓拍图
         
         attendance_list_->addRecord(item);
     }
@@ -751,6 +793,7 @@ void MainWindow::setup_pages() {
     user_dept_label_ = recognition_page_->userDeptLabel();
     user_similarity_label_ = recognition_page_->userSimilarityLabel();
     check_type_label_ = recognition_page_->checkTypeLabel();
+    avatar_label_ = recognition_page_->avatarLabel();
     user_table_ = user_page_->table();
 }
 
@@ -1190,6 +1233,18 @@ void MainWindow::on_recognition_result(int user_id, const QString& name, float s
                 if (user_dept_label_) {
                     user_dept_label_->setText(QString("部门: %1").arg(QString::fromStdString(user_info.department)));
                 }
+                if (avatar_label_) {
+                    QString photo_path = resolve_photo_path(user_info.photo_path);
+                    if (!photo_path.isEmpty() && QFileInfo::exists(photo_path)) {
+                        QPixmap avatar(photo_path);
+                        QPixmap rounded = make_circular_pixmap(avatar, avatar_label_->width());
+                        avatar_label_->setPixmap(rounded);
+                        avatar_label_->setText("");
+                    } else {
+                        avatar_label_->setPixmap(QPixmap());
+                        avatar_label_->setText("◉");
+                    }
+                }
             }
         }
     } else if (user_id <= 0) {
@@ -1199,6 +1254,10 @@ void MainWindow::on_recognition_result(int user_id, const QString& name, float s
         }
         if (user_dept_label_) {
             user_dept_label_->setText(tr("部门: --"));
+        }
+        if (avatar_label_) {
+            avatar_label_->setPixmap(QPixmap());
+            avatar_label_->setText("◉");
         }
     }
 
@@ -1244,6 +1303,7 @@ void MainWindow::on_recognition_result(int user_id, const QString& name, float s
                 db::UserInfo user_info;
                 if (user_service_->get_user(user_id, user_info)) {
                     item.department = QString::fromStdString(user_info.department);
+                    item.avatar_path = resolve_photo_path(user_info.photo_path);
                 }
             }
             

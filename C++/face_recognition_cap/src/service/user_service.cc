@@ -6,6 +6,7 @@
  */
 
 #include "service/user_service.h"
+#include <filesystem>
 #include <spdlog/spdlog.h>
 
 namespace service {
@@ -99,10 +100,24 @@ int UserService::add_face_feature(int user_id, const std::vector<float>& feature
 }
 
 bool UserService::delete_user(int user_id) {
+    db::UserInfo user_info;
+    if (!user_dao_->find_by_id(user_id, user_info)) {
+        spdlog::error("User not found for delete, user_id: {}", user_id);
+        return false;
+    }
+
     // 先删除用户的所有特征
     if (!delete_all_features(user_id)) {
         spdlog::error("Failed to delete user features for user_id: {}", user_id);
         return false;
+    }
+
+    // 删除用户头像文件（若存在）
+    if (!user_info.photo_path.empty()) {
+        std::error_code ec;
+        if (!std::filesystem::remove(user_info.photo_path, ec) && ec) {
+            spdlog::warn("Failed to remove user photo: {} ({})", user_info.photo_path, ec.message());
+        }
     }
     
     // 删除用户
@@ -170,4 +185,3 @@ bool UserService::delete_all_features(int user_id) {
 }
 
 } // namespace service
-

@@ -777,10 +777,12 @@ QCalendarWidget QMenu {
     border: 3px solid rgba(255, 255, 255, 0.15);
 }
 
-#AvatarIcon {
-    font-size: 32px;
+#AvatarImage {
+    border-radius: 32px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 2px solid rgba(255, 255, 255, 0.2);
     color: #ffffff;
-    background: transparent;
+    font-size: 32px;
 }
 
 /* 用户名 */

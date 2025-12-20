@@ -36,6 +36,7 @@ RecognitionPage::RecognitionPage(QWidget* parent)
     , fps_label_(nullptr)
     , recognition_label_(nullptr)
     , attendance_status_label_(nullptr)
+    , avatar_label_(nullptr)
     , user_name_label_(nullptr)
     , user_id_label_(nullptr)
     , user_dept_label_(nullptr)
@@ -215,6 +216,10 @@ QLabel* RecognitionPage::userSimilarityLabel() const {
 
 QLabel* RecognitionPage::checkTypeLabel() const {
     return check_type_label_;
+}
+
+QLabel* RecognitionPage::avatarLabel() const {
+    return avatar_label_;
 }
 
 QLabel* RecognitionPage::clockLabel() const {
@@ -422,12 +427,13 @@ CardWidget* RecognitionPage::createVideoCard() {
     avatar_layout->setContentsMargins(0, 0, 0, 0);
     avatar_layout->setAlignment(Qt::AlignCenter);
     
-    auto avatar_icon = new QLabel("", avatar_container);
-    avatar_icon->setObjectName("AvatarIcon");
-    avatar_icon->setAlignment(Qt::AlignCenter);
-    avatar_icon->setStyleSheet("font-size: 32px; color: #8c8c8c;");
-    avatar_icon->setText("◉");  // 使用简单的圆形符号作为头像占位符
-    avatar_layout->addWidget(avatar_icon);
+    avatar_label_ = new QLabel("", avatar_container);
+    avatar_label_->setObjectName("AvatarImage");
+    avatar_label_->setAlignment(Qt::AlignCenter);
+    avatar_label_->setStyleSheet("font-size: 32px; color: #8c8c8c;");
+    avatar_label_->setFixedSize(64, 64);
+    avatar_label_->setText("◉");  // 使用简单的圆形符号作为头像占位符
+    avatar_layout->addWidget(avatar_label_);
     
     info_layout->addWidget(avatar_container);
     
