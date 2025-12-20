@@ -234,33 +234,22 @@ std::vector<db::AttendanceRecord> AttendanceService::query_records_by_date(
 AttendanceStatistics AttendanceService::get_statistics(const std::string& date) {
     AttendanceStatistics stats;
     stats.date = date;
-    
-    // 查询当天所有记录
-    auto records = record_dao_->find_by_date(date);
-    
-    stats.total_count = records.size();
-    stats.check_in_count = 0;
-    stats.check_out_count = 0;
-    stats.late_count = 0;
-    stats.early_leave_count = 0;
-    stats.normal_count = 0;
-    
-    for (const auto& record : records) {
-        if (record.check_type == db::CheckType::CHECK_IN) {
-            stats.check_in_count++;
-        } else if (record.check_type == db::CheckType::CHECK_OUT) {
-            stats.check_out_count++;
-        }
-        
-        if (record.status == db::AttendanceStatus::STATUS_NORMAL) {
-            stats.normal_count++;
-        } else if (record.status == db::AttendanceStatus::STATUS_LATE) {
-            stats.late_count++;
-        } else if (record.status == db::AttendanceStatus::STATUS_EARLY_LEAVE) {
-            stats.early_leave_count++;
-        }
+
+    // 使用 COUNT(DISTINCT user_id) 统计去重后的人数
+    stats.total_count = record_dao_->count_by_date(date, 0);  // 总人数（去重）
+    stats.check_in_count = record_dao_->count_by_date(date, db::CheckType::CHECK_IN);  // 签到人数（去重）
+    stats.check_out_count = record_dao_->count_by_date(date, db::CheckType::CHECK_OUT);  // 签退人数（去重）
+
+    // 统计迟到和早退人数（去重）
+    stats.late_count = record_dao_->count_late_by_date(date);
+    stats.early_leave_count = record_dao_->count_early_leave_by_date(date);
+
+    // 正常人数 = 总人数 - 迟到人数 - 早退人数
+    stats.normal_count = stats.total_count - stats.late_count - stats.early_leave_count;
+    if (stats.normal_count < 0) {
+        stats.normal_count = 0;  // 防止负数
     }
-    
+
     return stats;
 }
 

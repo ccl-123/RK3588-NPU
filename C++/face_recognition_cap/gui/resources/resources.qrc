@@ -49,6 +49,7 @@
         <file alias="check-circle.svg">icons/status/check-circle.svg</file>
         <file alias="alert-circle.svg">icons/status/alert-circle.svg</file>
         <file alias="x-circle.svg">icons/status/x-circle.svg</file>
+        <file alias="error.svg">icons/status/error.svg</file>
         <file alias="info.svg">icons/status/info.svg</file>
         <file alias="clock.svg">icons/status/clock.svg</file>
         <file alias="user.svg">icons/status/user.svg</file>

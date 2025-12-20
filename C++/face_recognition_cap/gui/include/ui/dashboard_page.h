@@ -4,6 +4,7 @@
 
 class QComboBox;
 class QLabel;
+class QPushButton;
 class QVBoxLayout;
 class QShowEvent;
 
@@ -58,4 +59,17 @@ private:
     QVBoxLayout* insights_layout_;
     QVBoxLayout* alerts_layout_;
     QVBoxLayout* dept_rank_layout_;
+
+    // AI 分析相关
+    QPushButton* ai_analysis_btn_;
+    bool is_analyzing_;
+    QLabel* ai_result_label_;  // AI分析结果显示标签
+
+private slots:
+    void on_ai_analysis_clicked();
+    void on_ai_result_ready(const QString& result);
+    void on_ai_analysis_finished();
+    void on_ai_error(const QString& error);
+    void on_ai_analysis_started();
+    void on_ai_analysis_cancelled();
 };

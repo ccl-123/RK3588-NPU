@@ -270,32 +270,32 @@ int AttendanceRecordDAO::count_by_date(const std::string& date, int check_type) 
 }
 
 int AttendanceRecordDAO::count_late_by_date(const std::string& date) {
-    std::string sql = "SELECT COUNT(*) FROM attendance_records WHERE DATE(check_time) = ? AND status = 2";
-    
+    std::string sql = "SELECT COUNT(DISTINCT user_id) FROM attendance_records WHERE DATE(check_time) = ? AND status = 2";
+
     auto stmt = db_manager_->prepare(sql);
     if (!stmt) return 0;
-    
+
     stmt->bind_string(1, date);
-    
+
     if (stmt->step()) {
         return stmt->get_column_int(0);
     }
-    
+
     return 0;
 }
 
 int AttendanceRecordDAO::count_early_leave_by_date(const std::string& date) {
-    std::string sql = "SELECT COUNT(*) FROM attendance_records WHERE DATE(check_time) = ? AND status = 3";
-    
+    std::string sql = "SELECT COUNT(DISTINCT user_id) FROM attendance_records WHERE DATE(check_time) = ? AND status = 3";
+
     auto stmt = db_manager_->prepare(sql);
     if (!stmt) return 0;
-    
+
     stmt->bind_string(1, date);
-    
+
     if (stmt->step()) {
         return stmt->get_column_int(0);
     }
-    
+
     return 0;
 }
 
