@@ -114,12 +114,21 @@ std::vector<AttendanceRecord> AttendanceRecordDAO::find_by_user_id(int user_id,
 std::vector<AttendanceRecord> AttendanceRecordDAO::find_by_date(const std::string& date) {
     std::vector<AttendanceRecord> records;
     
-    std::string sql = "SELECT * FROM attendance_records WHERE DATE(check_time) = ? ORDER BY check_time";
+    // 使用字符串范围比较替代 DATE() 函数，既能利用 check_time 索引，又避免了 DATE() 函数的潜在兼容性问题
+    std::string sql = R"(
+        SELECT * FROM attendance_records 
+        WHERE check_time >= ? AND check_time <= ? 
+        ORDER BY check_time
+    )";
     
     auto stmt = db_manager_->prepare(sql);
     if (!stmt) return records;
     
-    stmt->bind_string(1, date);
+    std::string start_time = date + " 00:00:00";
+    std::string end_time = date + " 23:59:59";
+    
+    stmt->bind_string(1, start_time);
+    stmt->bind_string(2, end_time);
     
     while (stmt->step()) {
         AttendanceRecord record;
@@ -128,6 +137,48 @@ std::vector<AttendanceRecord> AttendanceRecordDAO::find_by_date(const std::strin
     }
     
     return records;
+}
+
+std::vector<AttendanceRecordDAO::DailyStats> AttendanceRecordDAO::get_daily_stats_in_range(
+    const std::string& start_date, const std::string& end_date) {
+    
+    std::vector<DailyStats> stats_list;
+    
+    // 使用 GROUP BY 优化统计查询，一次查询即可获取一段时间的数据
+    // SUBSTR(check_time, 1, 10) 提取 'YYYY-MM-DD'
+    std::string sql = R"(
+        SELECT 
+            SUBSTR(check_time, 1, 10) as day,
+            COUNT(*) as total,
+            SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END) as late,
+            SUM(CASE WHEN status = 3 THEN 1 ELSE 0 END) as early,
+            COUNT(DISTINCT user_id) as users
+        FROM attendance_records
+        WHERE check_time >= ? AND check_time <= ?
+        GROUP BY day
+        ORDER BY day ASC
+    )";
+    
+    auto stmt = db_manager_->prepare(sql);
+    if (!stmt) return stats_list;
+    
+    std::string start_time = start_date + " 00:00:00";
+    std::string end_time = end_date + " 23:59:59";
+    
+    stmt->bind_string(1, start_time);
+    stmt->bind_string(2, end_time);
+    
+    while (stmt->step()) {
+        DailyStats stat;
+        stat.date = stmt->get_column_string(0);
+        stat.total_records = stmt->get_column_int(1);
+        stat.late_count = stmt->get_column_int(2);
+        stat.early_leave_count = stmt->get_column_int(3);
+        stat.distinct_users = stmt->get_column_int(4);
+        stats_list.push_back(stat);
+    }
+    
+    return stats_list;
 }
 
 std::vector<AttendanceRecord> AttendanceRecordDAO::find_by_time_range(std::time_t start_time,

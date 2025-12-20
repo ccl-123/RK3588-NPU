@@ -9,6 +9,7 @@
     <!-- Navigation Icons -->
     <qresource prefix="/icons/navigation">
         <file alias="home.svg">icons/navigation/home.svg</file>
+        <file alias="dashboard.svg">icons/navigation/dashboard.svg</file>
         <file alias="users.svg">icons/navigation/users.svg</file>
         <file alias="calendar.svg">icons/navigation/calendar.svg</file>
         <file alias="settings.svg">icons/navigation/settings.svg</file>

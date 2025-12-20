@@ -132,6 +132,14 @@ public:
      * @return 统计结果列表
      */
     std::vector<AttendanceStatistics> get_monthly_statistics(const std::string& year_month);
+
+    /**
+     * @brief 获取指定日期范围的统计数据（高性能聚合查询）
+     * @param start_date 开始日期(YYYY-MM-DD)
+     * @param end_date 结束日期(YYYY-MM-DD)
+     * @return 统计结果列表
+     */
+    std::vector<AttendanceStatistics> get_statistics_range(const std::string& start_date, const std::string& end_date);
     
     /**
      * @brief 删除考勤记录

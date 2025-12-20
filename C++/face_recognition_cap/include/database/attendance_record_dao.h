@@ -111,6 +111,25 @@ public:
     int count_early_leave_by_date(const std::string& date);
     
     /**
+     * @brief 每日统计结构
+     */
+    struct DailyStats {
+        std::string date;
+        int total_records;
+        int late_count;
+        int early_leave_count;
+        int distinct_users;
+    };
+
+    /**
+     * @brief 获取指定日期范围内的每日统计
+     * @param start_date 开始日期 (YYYY-MM-DD)
+     * @param end_date 结束日期 (YYYY-MM-DD)
+     * @return 每日统计列表
+     */
+    std::vector<DailyStats> get_daily_stats_in_range(const std::string& start_date, const std::string& end_date);
+
+    /**
      * @brief 获取记录总数
      * @return 记录数量
      */

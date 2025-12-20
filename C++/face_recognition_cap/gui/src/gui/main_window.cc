@@ -11,6 +11,7 @@
 #include "gui/about_dialog.h"
 #include "themes/theme_manager.h"
 #include "ui/attendance_page.h"
+#include "ui/dashboard_page.h"
 #include "ui/recognition_page.h"
 #include "ui/settings_page.h"
 #include "ui/user_management_page.h"
@@ -109,6 +110,7 @@ MainWindow::MainWindow(QWidget* parent)
     , content_stack_(nullptr)
     , router_(nullptr)
     , recognition_page_(nullptr)
+    , dashboard_page_(nullptr)
     , attendance_page_(nullptr)
     , user_page_(nullptr)
     , settings_page_(nullptr)
@@ -440,6 +442,10 @@ bool MainWindow::finish_initialization_after_core() {
     if (attendance_page_) {
         attendance_page_->setAttendanceService(attendance_service_.get());
     }
+    if (dashboard_page_) {
+        dashboard_page_->setAttendanceService(attendance_service_.get());
+        dashboard_page_->setUserService(user_service_.get());
+    }
     if (user_page_) {
         user_page_->setUserService(user_service_.get());
     }
@@ -713,12 +719,19 @@ void MainWindow::load_today_attendance() {
     }
     
     spdlog::info("Today's attendance list refreshed: {} records", records.size());
+
+    if (dashboard_page_) {
+        dashboard_page_->refreshData();
+    }
 }
 
 
 void MainWindow::load_users() {
     if (user_page_) {
         user_page_->load_users();
+    }
+    if (dashboard_page_) {
+        dashboard_page_->refreshData();
     }
 }
 
@@ -773,11 +786,13 @@ void MainWindow::setup_pages() {
     router_ = new UiRouter(content_stack_, this);
 
     recognition_page_ = new RecognitionPage(content_stack_);
+    dashboard_page_ = new DashboardPage(content_stack_);
     attendance_page_ = new AttendancePage(content_stack_);
     user_page_ = new UserManagementPage(content_stack_);
     settings_page_ = new SettingsPage(content_stack_);
 
     router_->registerPage("recognition", recognition_page_);
+    router_->registerPage("dashboard", dashboard_page_);
     router_->registerPage("attendance", attendance_page_);
     router_->registerPage("users", user_page_);
     router_->registerPage("settings", settings_page_);
@@ -805,6 +820,7 @@ void MainWindow::setup_navigation() {
     // 使用新 SVG 图标系统
     QList<SideMenu::Item> items = {
         {"recognition", tr("实时画面"), ":/icons/navigation/home.svg"},
+        {"dashboard", tr("智能看板"), ":/icons/navigation/dashboard.svg"},
         {"attendance", tr("考勤记录"), ":/icons/navigation/calendar.svg"},
         {"users", tr("用户管理"), ":/icons/navigation/users.svg"},
         {"settings", tr("系统设置"), ":/icons/navigation/settings.svg"}
@@ -821,6 +837,8 @@ void MainWindow::setup_navigation() {
         QString breadcrumb;
         if (key == "recognition") {
             breadcrumb = tr("实时画面");
+        } else if (key == "dashboard") {
+            breadcrumb = tr("智能看板");
         } else if (key == "attendance") {
             breadcrumb = tr("考勤记录");
         } else if (key == "users") {

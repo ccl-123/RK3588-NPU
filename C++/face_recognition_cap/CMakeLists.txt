@@ -135,6 +135,7 @@ if(Qt5_FOUND)
         gui/src/widgets/side_menu.cc
         gui/src/widgets/toast_notification.cc
         gui/src/ui/recognition_page.cc
+        gui/src/ui/dashboard_page.cc
         gui/src/ui/attendance_page.cc
         gui/src/ui/user_management_page.cc
         gui/src/ui/settings_page.cc
@@ -193,6 +194,7 @@ if(Qt5_FOUND)
         gui/include/widgets/side_menu.h
         gui/include/widgets/toast_notification.h
         gui/include/ui/recognition_page.h
+        gui/include/ui/dashboard_page.h
         gui/include/ui/attendance_page.h
         gui/include/ui/user_management_page.h
         gui/include/ui/settings_page.h

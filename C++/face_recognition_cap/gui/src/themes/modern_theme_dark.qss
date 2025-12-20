@@ -1568,3 +1568,197 @@ QSlider::handle:horizontal:hover {
     font-weight: 600;
     letter-spacing: 0.5px;
 }
+
+/* ========================================
+   智能统计看板
+   ======================================== */
+
+#DashboardScroll {
+    background: transparent;
+    border: none;
+}
+
+#DashboardContent {
+    background: transparent;
+}
+
+#DashboardHeader {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #141414, stop:0.5 #1f1f1f, stop:1 #1a1a1a);
+    border: 1px solid rgba(24, 144, 255, 0.2);
+    border-radius: 16px;
+}
+
+#DashboardTitle {
+    font-size: 24px;
+    font-weight: 700;
+    color: #f0f0f0;
+    background: transparent;
+}
+
+#DashboardSubtitle {
+    font-size: 13px;
+    color: #8c8c8c;
+    background: transparent;
+}
+
+#DashboardFilterCombo {
+    min-width: 120px;
+}
+
+#DashboardRefreshButton {
+    min-height: 36px;
+    padding: 0 18px;
+    border-radius: 8px;
+}
+
+#DashboardMetaTag {
+    background: #111b26;
+    color: #69c0ff;
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 12px;
+}
+
+#DashboardMetaTag[tone="neutral"] {
+    background: #1f1f1f;
+    color: #8c8c8c;
+}
+
+#DashboardKpiCard {
+    background: #1f1f1f;
+    border: 1px solid #303030;
+    border-radius: 12px;
+}
+
+#DashboardKpiIcon {
+    background: #0b1d33;
+    border-radius: 10px;
+    min-width: 36px;
+    min-height: 36px;
+}
+
+#DashboardKpiTitle {
+    font-size: 12px;
+    color: #8c8c8c;
+    background: transparent;
+}
+
+#DashboardKpiValue {
+    font-size: 22px;
+    font-weight: 700;
+    background: transparent;
+}
+
+#DashboardKpiSub {
+    font-size: 12px;
+    color: #8c8c8c;
+    background: transparent;
+}
+
+#DashboardLegendDot {
+    border-radius: 5px;
+    background: #69c0ff;
+}
+
+#DashboardLegendDot[tone="warning"] {
+    background: #ffa940;
+}
+
+#DashboardLegendLabel {
+    font-size: 12px;
+    color: #8c8c8c;
+    background: transparent;
+}
+
+#DashboardSectionTitle {
+    font-size: 13px;
+    font-weight: 600;
+    color: #d9d9d9;
+    background: transparent;
+}
+
+#DashboardInsightItem {
+    background: #262626;
+    border: 1px solid #303030;
+    border-radius: 10px;
+}
+
+#DashboardInsightText {
+    color: #bfbfbf;
+    background: transparent;
+}
+
+#DashboardInsightAction {
+    min-height: 28px;
+    padding: 0 12px;
+    border-radius: 6px;
+    font-size: 12px;
+}
+
+#DashboardAlertItem {
+    background: #1f1f1f;
+    border: 1px solid #303030;
+    border-radius: 12px;
+}
+
+#DashboardAlertAvatar {
+    background: #112a45;
+    color: #69c0ff;
+    border-radius: 18px;
+    font-weight: 600;
+}
+
+#DashboardAlertName {
+    font-weight: 600;
+    color: #f0f0f0;
+}
+
+#DashboardAlertTime {
+    color: #8c8c8c;
+    font-size: 12px;
+}
+
+#DashboardBadge {
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+}
+
+#DashboardBadge[badgeType="late"] {
+    background: #2b1d0f;
+    color: #ffa940;
+}
+
+#DashboardBadge[badgeType="early"] {
+    background: #2a1215;
+    color: #ff7875;
+}
+
+#DashboardRankName {
+    font-size: 12px;
+    color: #8c8c8c;
+}
+
+#DashboardRankValue {
+    font-size: 12px;
+    color: #f0f0f0;
+    font-weight: 600;
+}
+
+QProgressBar#DashboardRankBar {
+    background: #303030;
+    border-radius: 4px;
+}
+
+QProgressBar#DashboardRankBar::chunk {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #69c0ff, stop:1 #177ddc);
+    border-radius: 4px;
+}
+
+#DashboardEmptyText {
+    color: #8c8c8c;
+    font-size: 12px;
+    background: transparent;
+}

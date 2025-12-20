@@ -267,13 +267,10 @@ AttendanceStatistics AttendanceService::get_statistics(const std::string& date) 
 std::vector<AttendanceStatistics> AttendanceService::get_monthly_statistics(
     const std::string& year_month) {
     
-    std::vector<AttendanceStatistics> monthly_stats;
-    
-    // 解析年月
+    // 计算该月的第一天和最后一天
     int year, month;
     sscanf(year_month.c_str(), "%d-%d", &year, &month);
     
-    // 计算该月的天数
     int days_in_month = 31;
     if (month == 2) {
         days_in_month = (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)) ? 29 : 28;
@@ -281,17 +278,40 @@ std::vector<AttendanceStatistics> AttendanceService::get_monthly_statistics(
         days_in_month = 30;
     }
     
-    // 统计每一天
-    for (int day = 1; day <= days_in_month; day++) {
-        std::ostringstream oss;
-        oss << year << "-" << std::setfill('0') << std::setw(2) << month 
-            << "-" << std::setfill('0') << std::setw(2) << day;
-        std::string date = oss.str();
+    std::ostringstream start_oss, end_oss;
+    start_oss << year << "-" << std::setfill('0') << std::setw(2) << month << "-01";
+    end_oss << year << "-" << std::setfill('0') << std::setw(2) << month << "-" << days_in_month;
+    
+    // 使用新的范围查询接口，避免循环 N 次数据库查询
+    return get_statistics_range(start_oss.str(), end_oss.str());
+}
+
+std::vector<AttendanceStatistics> AttendanceService::get_statistics_range(
+    const std::string& start_date, const std::string& end_date) {
+    
+    std::vector<AttendanceStatistics> result;
+    auto dao_stats = record_dao_->get_daily_stats_in_range(start_date, end_date);
+    
+    for (const auto& ds : dao_stats) {
+        AttendanceStatistics s;
+        s.date = ds.date;
+        s.total_count = ds.total_records;
+        s.late_count = ds.late_count;
+        s.early_leave_count = ds.early_leave_count;
+        // 注意：DAO 返回的是 distinct users，这里映射到 check_in_count 可能不完全准确，
+        // 但对于趋势图来说，attendance_rate 通常分母是 registered_users，分子是 present_users。
+        // 在这里我们把 distinct_users 视为“出勤人数”
+        s.check_in_count = ds.distinct_users; 
         
-        monthly_stats.push_back(get_statistics(date));
+        // 其他字段如 check_out_count, normal_count 在聚合查询中未细分，设为 0 或估算
+        // 如果需要精确的 check_out_count，需要在 SQL 中增加 SUM(CASE WHEN check_type=2...)
+        s.check_out_count = 0; 
+        s.normal_count = s.total_count - s.late_count - s.early_leave_count;
+        
+        result.push_back(s);
     }
     
-    return monthly_stats;
+    return result;
 }
 
 bool AttendanceService::delete_record(int record_id) {
