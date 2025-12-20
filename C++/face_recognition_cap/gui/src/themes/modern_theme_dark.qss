@@ -1558,3 +1558,13 @@ QSlider::handle:horizontal:hover {
     background: transparent;
     border-top: 1px solid #3a3f4b;
 }
+#FpsValue {
+    padding: 0 4px 0 2px;
+}
+
+#RegisterButton {
+    border-radius: 10px;
+    padding: 0 18px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}

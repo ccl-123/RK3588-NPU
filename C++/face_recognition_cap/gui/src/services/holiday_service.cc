@@ -197,9 +197,10 @@ void HolidayService::onYearFinished(QNetworkReply* reply, int year) {
 
 void HolidayService::tryEmit() {
     if (!today_ready_ || !year_ready_) return;
+    bool is_weekend = today_date_.dayOfWeek() >= 6;
     QString today_label = today_is_holiday_
         ? QStringLiteral("今日假期：%1").arg(today_name_.isEmpty() ? QStringLiteral("节假日") : today_name_)
-        : QStringLiteral("今日上班");
+        : (is_weekend ? QStringLiteral("今日休息") : QStringLiteral("今日上班"));
 
     QDate next;
     QString name;
@@ -286,4 +287,3 @@ void HolidayService::getWithRetry(const QUrl& url,
         }
     });
 }
-

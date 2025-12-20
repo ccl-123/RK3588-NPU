@@ -9,6 +9,7 @@ class QLabel;
 class QProgressBar;
 class StatusTag;
 class VideoDisplayWidget;
+class QPushButton;
 
 /**
  * @brief RecognitionPage 人脸识别主页面。
@@ -52,6 +53,7 @@ public:
     void updateWeatherDesc(const QString& desc);
     void updateAttendanceStats(int checkin_count, int checkout_count, int late_count, int early_leave_count);
     void updateCheckMode(bool is_checkout_mode);
+    void setRecognitionRunning(bool running);
     
     // 刷新天气
     void refreshWeather();
@@ -106,6 +108,9 @@ private:
     QLabel* late_count_label_;
     QLabel* check_mode_label_;
     QLabel* attendance_date_label_;
+
+    QPushButton* start_stop_btn_;
+    bool recognition_running_;
     
     // AQI 和 UV 显示标签
     QLabel* aqi_label_;

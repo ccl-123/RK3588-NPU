@@ -63,7 +63,9 @@ RecognitionPage::RecognitionPage(QWidget* parent)
     , current_lat_(23.0215)   // 默认佛山坐标
     , current_lon_(113.1214)
     , location_fetched_(false)
-    , weather_service_(WeatherService::instance()) {
+    , weather_service_(WeatherService::instance())
+    , start_stop_btn_(nullptr)
+    , recognition_running_(false) {
     
     setObjectName("RecognitionPage");
     setAttribute(Qt::WA_StyledBackground, true);
@@ -335,6 +337,22 @@ void RecognitionPage::updateCheckMode(bool is_checkout_mode) {
         check_mode_label_->style()->unpolish(check_mode_label_);
         check_mode_label_->style()->polish(check_mode_label_);
     }
+}
+
+void RecognitionPage::setRecognitionRunning(bool running) {
+    recognition_running_ = running;
+    if (!start_stop_btn_) {
+        return;
+    }
+    if (recognition_running_) {
+        start_stop_btn_->setText(tr("■ 停止识别"));
+        start_stop_btn_->setProperty("buttonType", "danger");
+    } else {
+        start_stop_btn_->setText(tr("▶ 开始识别"));
+        start_stop_btn_->setProperty("buttonType", "primary");
+    }
+    start_stop_btn_->style()->unpolish(start_stop_btn_);
+    start_stop_btn_->style()->polish(start_stop_btn_);
 }
 
 void RecognitionPage::resetLocationCache() {
@@ -878,6 +896,7 @@ CardWidget* RecognitionPage::createStatusCard() {
 
     fps_label_ = new QLabel(tr("0 FPS"));
     fps_label_->setObjectName("FpsValue");
+    fps_label_->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     
     fps_item_layout->addWidget(fps_title);
     fps_item_layout->addWidget(fps_label_);
@@ -890,25 +909,27 @@ CardWidget* RecognitionPage::createStatusCard() {
     auto button_row = new QHBoxLayout();
     button_row->setSpacing(12);
 
-    auto start_btn = new QPushButton(tr("▶ 开始识别"), card);
-    start_btn->setProperty("buttonType", "primary");
-    start_btn->setMinimumHeight(40);
-    start_btn->setCursor(Qt::PointingHandCursor);
-    connect(start_btn, &QPushButton::clicked, this, &RecognitionPage::startRecognitionRequested);
+    start_stop_btn_ = new QPushButton(tr("▶ 开始识别"), card);
+    start_stop_btn_->setProperty("buttonType", "primary");
+    start_stop_btn_->setMinimumHeight(42);
+    start_stop_btn_->setCursor(Qt::PointingHandCursor);
+    connect(start_stop_btn_, &QPushButton::clicked, this, [this]() {
+        if (recognition_running_) {
+            emit stopRecognitionRequested();
+        } else {
+            emit startRecognitionRequested();
+        }
+        setRecognitionRunning(!recognition_running_);
+    });
 
-    auto stop_btn = new QPushButton(tr("■ 停止识别"), card);
-    stop_btn->setMinimumHeight(40);
-    stop_btn->setCursor(Qt::PointingHandCursor);
-    connect(stop_btn, &QPushButton::clicked, this, &RecognitionPage::stopRecognitionRequested);
-
-    auto register_btn = new QPushButton(tr("+ 注册人脸"), card);
-    register_btn->setObjectName("GhostButton");
-    register_btn->setMinimumHeight(40);
+    auto register_btn = new QPushButton(tr("＋ 注册人脸"), card);
+    register_btn->setObjectName("RegisterButton");
+    register_btn->setProperty("buttonType", "success");
+    register_btn->setMinimumHeight(42);
     register_btn->setCursor(Qt::PointingHandCursor);
     connect(register_btn, &QPushButton::clicked, this, &RecognitionPage::registerFaceRequested);
 
-    button_row->addWidget(start_btn);
-    button_row->addWidget(stop_btn);
+    button_row->addWidget(start_stop_btn_);
     button_row->addWidget(register_btn);
     button_row->addStretch();
 

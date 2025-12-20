@@ -921,6 +921,9 @@ void MainWindow::start_recognition() {
     if (status_label_) {
     status_label_->setText("运行中");
     }
+    if (recognition_page_) {
+        recognition_page_->setRecognitionRunning(true);
+    }
 
     // 设置帧回调（使用 Qt 信号槽机制确保线程安全）
     recognition_app_->set_frame_callback([this](const cv::Mat& frame, const std::vector<RecognitionResult>& results) {
@@ -993,6 +996,9 @@ void MainWindow::stop_recognition() {
     is_running_ = false;
     if (status_label_) {
     status_label_->setText("已停止");
+    }
+    if (recognition_page_) {
+        recognition_page_->setRecognitionRunning(false);
     }
 
     // 停止识别应用
