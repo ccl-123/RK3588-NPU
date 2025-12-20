@@ -114,13 +114,9 @@ bool UserService::delete_user(int user_id) {
 
     // 删除用户头像文件（若存在）
     if (!user_info.photo_path.empty()) {
-        std::filesystem::path photo_path(user_info.photo_path);
-        if (photo_path.is_relative()) {
-            photo_path = std::filesystem::absolute(photo_path);
-        }
         std::error_code ec;
-        if (!std::filesystem::remove(photo_path, ec) && ec) {
-            spdlog::warn("Failed to remove user photo: {} ({})", photo_path.string(), ec.message());
+        if (!std::filesystem::remove(user_info.photo_path, ec) && ec) {
+            spdlog::warn("Failed to remove user photo: {} ({})", user_info.photo_path, ec.message());
         }
     }
     
