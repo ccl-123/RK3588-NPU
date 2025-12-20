@@ -10,5 +10,5 @@ if [[ ! -x "${BIN}" ]]; then
   exit 1
 fi
 
-# Filter noisy rk-debug fence logs while keeping other output.
-exec stdbuf -oL -eL "${BIN}" 2>&1 | grep -vF "rk-debug out_fence_fd = 0"
+# Filter noisy rk-debug fence logs while keeping ANSI colors.
+exec script -q /dev/null -c "${BIN}" 2>&1 | grep --line-buffered -vF "rk-debug out_fence_fd = 0"
