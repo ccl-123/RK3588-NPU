@@ -510,9 +510,8 @@ void DashboardPage::on_ai_analysis_clicked() {
     });
 
     int count = 0;
-    detail_records_str = "【今日打卡明细】\n";
     if (today_records.empty()) {
-        detail_records_str += "暂无打卡记录\n";
+        detail_records_str = "暂无打卡记录\n";
     } else {
         for (const auto& r : today_records) {
             if (count++ >= 50) {
@@ -535,7 +534,7 @@ void DashboardPage::on_ai_analysis_clicked() {
             QString type_str = (r.check_type == db::CheckType::CHECK_IN) ? "签到" : "签退";
             QString time_str = QDateTime::fromTime_t(r.check_time).toString("HH:mm");
 
-            detail_records_str += QString("- [%1] %2(%3): %4 %5\n")
+            detail_records_str += QString("[%1] %2(%3): %4 %5\n")
                 .arg(time_str)
                 .arg(QString::fromStdString(r.user_name))
                 .arg(dept)
@@ -543,14 +542,17 @@ void DashboardPage::on_ai_analysis_clicked() {
                 .arg(status_str);
         }
     }
-    
+
     // 4. 发送请求
+    spdlog::info("Sending AI analysis with {} records", today_records.size());
     AiAnalysisService::instance()->requestAnalysis(today_stats, trend_summary, detail_records_str);
 }
 
 void DashboardPage::on_ai_analysis_started() {
     // 清空之前的分析结果
     if (insights_layout_) {
+        // ✅ 先清空指针，避免指向已删除的对象
+        ai_result_label_ = nullptr;
         clear_layout(insights_layout_);
 
         // 创建AI分析结果容器 - 专业的AI回复面板
@@ -626,21 +628,27 @@ void DashboardPage::on_ai_analysis_started() {
 }
 
 void DashboardPage::on_ai_result_ready(const QString& result) {
+    spdlog::info("Received AI result: {} chars", result.length());
+
     // 更新AI分析结果（增量模式）
     if (ai_result_label_) {
         QString current_text = ai_result_label_->text();
 
         // 如果是第一次收到数据，清空"正在分析中"的提示
         if (current_text.contains(tr("正在分析您的出勤数据"))) {
+            spdlog::info("First AI result, replacing placeholder");
             ai_result_label_->setText(result);
         } else {
             // 追加新内容（流式显示）
+            spdlog::info("Appending AI result");
             ai_result_label_->setText(current_text + result);
         }
 
         // 确保标签可见并更新
         ai_result_label_->updateGeometry();
         ai_result_label_->update();
+    } else {
+        spdlog::warn("ai_result_label_ is null, cannot display result");
     }
 }
 
@@ -657,7 +665,8 @@ void DashboardPage::on_ai_analysis_finished() {
     if (ai_result_label_ && insights_layout_) {
         QString current_text = ai_result_label_->text();
         ai_result_label_->setText(current_text + "\n\n✅ 分析完成");
-        ai_result_label_ = nullptr;
+        // ✅ 不要设置为 nullptr，让 Qt 管理生命周期
+        // 下次点击"智能分析"时会创建新的 label
     }
 
     ToastNotification::showMessage(this, tr("AI 分析"), tr("分析完成"), ToastNotification::Level::Success);

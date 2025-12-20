@@ -254,25 +254,13 @@ void AiAnalysisService::doRequest(const service::AttendanceStatistics& stats,
                 }
             }
 
-            // 如果没有 event 行，尝试从 data JSON 中解析 type（兼容模式）
-            if (eventType.isEmpty() && !dataBuffer.isEmpty()) {
-                QJsonDocument doc = QJsonDocument::fromJson(dataBuffer);
-                if (doc.isObject()) {
-                    QJsonObject root = doc.object();
-                    eventType = root["type"].toString();
-                }
-            }
-
-            if (eventType.isEmpty()) {
-                continue;  // 跳过无效事件
-            }
-
             // 解析 data JSON
+            QJsonObject root;
             QJsonObject payload;
             if (!dataBuffer.isEmpty()) {
                 QJsonDocument doc = QJsonDocument::fromJson(dataBuffer);
                 if (doc.isObject()) {
-                    QJsonObject root = doc.object();
+                    root = doc.object();
                     // 兼容两种格式：
                     // 1. {"type":"reply","payload":{...}}
                     // 2. {"payload":{...}}
@@ -284,12 +272,38 @@ void AiAnalysisService::doRequest(const service::AttendanceStatistics& stats,
                 }
             }
 
+            // 如果没有 event 行，尝试从 data JSON 中解析 type（兼容模式）
+            if (eventType.isEmpty()) {
+                eventType = root["type"].toString();
+            }
+            if (eventType.isEmpty()) {
+                eventType = root["event"].toString();
+            }
+
+            // 如果依然拿不到事件类型，但有 content，默认当作 reply 处理
+            if (eventType.isEmpty()) {
+                const QString content_probe = payload["content"].toString();
+                if (!content_probe.isEmpty()) {
+                    eventType = "reply";
+                }
+            }
+
+            if (eventType.isEmpty()) {
+                continue;  // 跳过无效事件
+            }
+
             // 处理各类事件
             if (eventType == "reply") {
                 // 处理回复事件
                 QString content = payload["content"].toString();
                 bool is_final = payload["is_final"].toBool();
+                if (!is_final && root.contains("is_final")) {
+                    is_final = root["is_final"].toBool();
+                }
                 bool is_evil = payload["is_evil"].toBool();
+
+                spdlog::debug("Reply event: content_len={}, is_final={}, is_evil={}",
+                             content.length(), is_final, is_evil);
 
                 if (is_evil) {
                     spdlog::warn("Content flagged as sensitive");
@@ -301,6 +315,7 @@ void AiAnalysisService::doRequest(const service::AttendanceStatistics& stats,
                 }
 
                 if (!content.isEmpty()) {
+                    spdlog::info("Received AI content: {} chars, is_final={}", content.length(), is_final);
                     // 处理 incremental 语义
                     if (is_incremental_) {
                         // incremental=true：content 是增量片段，需要 append
@@ -311,6 +326,8 @@ void AiAnalysisService::doRequest(const service::AttendanceStatistics& stats,
                         incremental_buffer_ = content;
                         emit analysisResultReady(content);
                     }
+                } else {
+                    spdlog::warn("Received empty content, is_final={}", is_final);
                 }
 
                 // 结束判断：is_final == true（不是 OpenAI 的 [DONE] 标记）
@@ -324,8 +341,9 @@ void AiAnalysisService::doRequest(const service::AttendanceStatistics& stats,
                         emit analysisFinished();
                     }
 
-                    // 异步清理
-                    QTimer::singleShot(0, this, &AiAnalysisService::cleanup);
+                    // 不要立即 cleanup()，让连接自然关闭
+                    // finished 信号会在连接关闭后触发，那时再清理
+                    // 这样可以确保所有数据都被处理完
                 }
             }
             else if (eventType == "error") {
@@ -458,16 +476,45 @@ void AiAnalysisService::doRequest(const service::AttendanceStatistics& stats,
 
             emit errorOccurred("网络请求失败: " + err);
             QTimer::singleShot(0, this, &AiAnalysisService::cleanup);
+            reply->deleteLater();
+            return;
         }
 
-        // 如果流式输出未收到结束事件（is_final），finished 也需要补发完成信号
-        // 防止重复 emit：检查 completed_ 标志
-        if (current_reply_ && !completed_) {
+        // HTTP 200 成功：对于 SSE 流式传输，finished 信号表示所有数据传输完成
+        spdlog::info("SSE connection finished (HTTP 200)");
+
+        // 正常情况下，应该在 readyRead 中收到 is_final=true 并设置 completed_=true
+        // 如果到这里 completed_ 还是 false，说明：
+        // 1. 服务器没有发送 is_final=true 就关闭了连接（异常情况）
+        // 2. 或者数据还在缓冲区中没有被 readyRead 处理（极少见）
+        if (!completed_) {
+            spdlog::warn("SSE connection closed without receiving is_final=true");
             completed_ = true;
-            emit analysisFinished();
+
+            // 如果有接收到数据，视为成功完成（容错处理）
+            if (!incremental_buffer_.isEmpty()) {
+                spdlog::info("Treating as completed due to received data");
+                emit analysisFinished();
+            } else {
+                // 没有收到任何数据，视为错误
+                emit errorOccurred("服务器未返回任何数据");
+            }
         }
 
-        QTimer::singleShot(0, this, &AiAnalysisService::cleanup);
+        //  正常完成：只清理资源，不调用 abort()
+        // 手动清理，避免调用 cleanup() 中的 abort()
+        if (timeout_timer_) {
+            timeout_timer_->stop();
+        }
+        if (current_reply_) {
+            current_reply_->deleteLater();
+            current_reply_.clear();
+        }
+        sse_buffer_.clear();
+        incremental_buffer_.clear();
+        current_retry_count_ = 0;
+        completed_ = false;
+
         reply->deleteLater();
     });
 }
