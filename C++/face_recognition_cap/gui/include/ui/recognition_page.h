@@ -63,6 +63,7 @@ signals:
     void startRecognitionRequested();
     void stopRecognitionRequested();
     void registerFaceRequested();
+    void refreshAttendanceRequested();
 
 private:
     CardWidget* createVideoCard();
@@ -102,6 +103,7 @@ private:
     QLabel* checkout_count_label_;
     QLabel* late_count_label_;
     QLabel* check_mode_label_;
+    QLabel* attendance_date_label_;
     
     // AQI 和 UV 显示标签
     QLabel* aqi_label_;

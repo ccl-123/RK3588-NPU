@@ -15,6 +15,7 @@
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QDate>
 #include <QLabel>
 #include <QProgressBar>
 #include <QPushButton>
@@ -52,6 +53,7 @@ RecognitionPage::RecognitionPage(QWidget* parent)
     , checkout_count_label_(nullptr)
     , late_count_label_(nullptr)
     , check_mode_label_(nullptr)
+    , attendance_date_label_(nullptr)
     , aqi_label_(nullptr)
     , uv_label_(nullptr)
     , sentence_en_label_(nullptr)
@@ -244,6 +246,9 @@ void RecognitionPage::updateClock(const QString& time) {
 void RecognitionPage::updateDate(const QString& date) {
     if (date_label_) {
         date_label_->setText(date);
+    }
+    if (attendance_date_label_) {
+        attendance_date_label_->setText(QDate::currentDate().toString("MM/dd ddd"));
     }
 }
 
@@ -912,12 +917,93 @@ CardWidget* RecognitionPage::createStatusCard() {
 
 CardWidget* RecognitionPage::createAttendanceCard() {
     auto card = new CardWidget();
-    card->setTitle(tr("今日实时考勤"));
+    card->setTitle(tr("今日签到"));
+
+    auto header = new QWidget(card->bodyContainer());
+    header->setObjectName("AttendanceHeader");
+    auto header_layout = new QHBoxLayout(header);
+    header_layout->setContentsMargins(0, 0, 0, 0);
+    header_layout->setSpacing(10);
+
+    attendance_date_label_ = new QLabel(QDate::currentDate().toString("MM/dd ddd"), header);
+    attendance_date_label_->setObjectName("AttendanceDateLabel");
+
+    auto filter_bar = new QWidget(header);
+    filter_bar->setObjectName("AttendanceFilterBar");
+    auto filter_layout = new QHBoxLayout(filter_bar);
+    filter_layout->setContentsMargins(0, 0, 0, 0);
+    filter_layout->setSpacing(6);
+
+    auto filter_all = new QPushButton(tr("全部"), filter_bar);
+    auto filter_checkin = new QPushButton(tr("签到"), filter_bar);
+    auto filter_checkout = new QPushButton(tr("签退"), filter_bar);
+    auto filter_abnormal = new QPushButton(tr("异常"), filter_bar);
+    const QList<QPushButton*> filter_buttons = {
+        filter_all, filter_checkin, filter_checkout, filter_abnormal
+    };
+    for (auto* btn : filter_buttons) {
+        btn->setObjectName("AttendanceFilterButton");
+        btn->setCursor(Qt::PointingHandCursor);
+        btn->setMinimumHeight(26);
+    }
+
+    auto set_active_filter = [filter_buttons](QPushButton* active) {
+        for (auto* btn : filter_buttons) {
+            btn->setProperty("active", btn == active ? "true" : "false");
+            btn->style()->unpolish(btn);
+            btn->style()->polish(btn);
+        }
+    };
+
+    set_active_filter(filter_all);
+
+    connect(filter_all, &QPushButton::clicked, this, [this, set_active_filter, filter_all]() {
+        if (attendance_list_) {
+            attendance_list_->setFilter(AttendanceListWidget::FilterType::All);
+        }
+        set_active_filter(filter_all);
+    });
+    connect(filter_checkin, &QPushButton::clicked, this, [this, set_active_filter, filter_checkin]() {
+        if (attendance_list_) {
+            attendance_list_->setFilter(AttendanceListWidget::FilterType::CheckIn);
+        }
+        set_active_filter(filter_checkin);
+    });
+    connect(filter_checkout, &QPushButton::clicked, this, [this, set_active_filter, filter_checkout]() {
+        if (attendance_list_) {
+            attendance_list_->setFilter(AttendanceListWidget::FilterType::CheckOut);
+        }
+        set_active_filter(filter_checkout);
+    });
+    connect(filter_abnormal, &QPushButton::clicked, this, [this, set_active_filter, filter_abnormal]() {
+        if (attendance_list_) {
+            attendance_list_->setFilter(AttendanceListWidget::FilterType::Abnormal);
+        }
+        set_active_filter(filter_abnormal);
+    });
+
+    filter_layout->addWidget(filter_all);
+    filter_layout->addWidget(filter_checkin);
+    filter_layout->addWidget(filter_checkout);
+    filter_layout->addWidget(filter_abnormal);
+
+    auto refresh_btn = new QPushButton(tr("刷新"), header);
+    refresh_btn->setObjectName("AttendanceActionButton");
+    refresh_btn->setCursor(Qt::PointingHandCursor);
+    refresh_btn->setMinimumHeight(26);
+    connect(refresh_btn, &QPushButton::clicked, this, &RecognitionPage::refreshAttendanceRequested);
+
+    header_layout->addWidget(attendance_date_label_);
+    header_layout->addStretch();
+    header_layout->addWidget(filter_bar);
+    header_layout->addWidget(refresh_btn);
 
     attendance_list_ = new AttendanceListWidget(card);
 
     auto layout = new QVBoxLayout(card->bodyContainer());
     layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(10);
+    layout->addWidget(header);
     layout->addWidget(attendance_list_);
 
     return card;

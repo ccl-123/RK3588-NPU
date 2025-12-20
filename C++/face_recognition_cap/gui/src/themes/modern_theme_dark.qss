@@ -713,6 +713,50 @@ QCalendarWidget QMenu {
     background-color: #1a1a1a;
 }
 
+#AttendanceHeader {
+    background: transparent;
+}
+
+#AttendanceDateLabel {
+    color: #bfbfbf;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+#AttendanceFilterBar {
+    background: transparent;
+}
+
+#AttendanceFilterButton {
+    background: rgba(24, 144, 255, 0.18);
+    border: 1px solid rgba(24, 144, 255, 0.35);
+    color: #69b1ff;
+    padding: 4px 10px;
+    border-radius: 13px;
+}
+
+#AttendanceFilterButton:hover {
+    background: rgba(24, 144, 255, 0.28);
+}
+
+#AttendanceFilterButton[active="true"] {
+    background: #1677ff;
+    border-color: #1677ff;
+    color: #ffffff;
+}
+
+#AttendanceActionButton {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #e8e8e8;
+    padding: 4px 10px;
+    border-radius: 8px;
+}
+
+#AttendanceActionButton:hover {
+    background: rgba(255, 255, 255, 0.14);
+}
+
 #VideoContainer {
     background-color: transparent;
 }

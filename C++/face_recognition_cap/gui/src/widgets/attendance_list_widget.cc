@@ -24,7 +24,7 @@ QSize AttendanceItemDelegate::sizeHint(const QStyleOptionViewItem& option,
                                        const QModelIndex& index) const {
     Q_UNUSED(option);
     Q_UNUSED(index);
-    return QSize(-1, 72); // 固定高度 72px，更宽敞
+    return QSize(-1, 86); // 固定高度 86px，更宽敞
 }
 
 void AttendanceItemDelegate::paint(QPainter* painter, const QStyleOptionViewItem& option, 
@@ -42,6 +42,7 @@ void AttendanceItemDelegate::paint(QPainter* painter, const QStyleOptionViewItem
     // bool isStranger = index.data(Qt::UserRole + 5).toBool(); // 陌生人不再显示在列表中
     QVariant avatarVar = index.data(Qt::UserRole + 6);
     int status = index.data(Qt::UserRole + 7).toInt(); // 新增状态字段
+    qint64 recordMs = index.data(Qt::UserRole + 8).toLongLong();
 
     QRect rect = option.rect;
 
@@ -72,6 +73,18 @@ void AttendanceItemDelegate::paint(QPainter* painter, const QStyleOptionViewItem
         painter->fillRect(rect, bgColor);
     }
 
+    // 新记录轻微高亮，便于捕捉最新签到
+    if (recordMs > 0) {
+        qint64 ageMs = QDateTime::currentMSecsSinceEpoch() - recordMs;
+        if (ageMs >= 0 && ageMs < 2500) {
+            double t = 1.0 - static_cast<double>(ageMs) / 2500.0;
+            QColor highlight = (checkType == 2) ? QColor("#1890ff") : QColor("#52c41a");
+            int alpha = isDarkMode ? 45 : 30;
+            highlight.setAlphaF((alpha + (40 * t)) / 255.0);
+            painter->fillRect(rect, highlight);
+        }
+    }
+
     // 2. 绘制头像 (左侧 40x40 圆形)
     int avatarSize = 40;
     int padding = 16;
@@ -99,42 +112,67 @@ void AttendanceItemDelegate::paint(QPainter* painter, const QStyleOptionViewItem
 
     // 3. 绘制姓名和部门 (中间)
     int textLeft = avatarRect.right() + 12;
-    int textWidth = rect.width() - textLeft - 80; // 右侧预留给时间
+    int textWidth = rect.width() - textLeft - 20; // 右侧信息放在主行末尾，减少空白
     
     // 姓名
     QRect nameRect(textLeft, rect.top() + 14, textWidth, 22);
     painter->setPen(textColor);
     QFont nameFont = painter->font();
-    nameFont.setPixelSize(15);
+    nameFont.setPixelSize(16);
     nameFont.setBold(true);
     painter->setFont(nameFont);
-    painter->drawText(nameRect, Qt::AlignLeft | Qt::AlignVCenter, name);
+    QFontMetrics nameFm(nameFont);
+    QString elidedName = nameFm.elidedText(name, Qt::ElideRight, nameRect.width());
+    painter->drawText(nameRect, Qt::AlignLeft | Qt::AlignVCenter, elidedName);
     
     // 部门 / 详情
-    QRect deptRect(textLeft, nameRect.bottom() + 2, textWidth, 18);
+    QRect deptRect(textLeft, nameRect.bottom() + 4, textWidth, 18);
     painter->setPen(subTextColor);
     QFont deptFont = painter->font();
-    deptFont.setPixelSize(12);
+    deptFont.setPixelSize(13);
     deptFont.setBold(false);
     painter->setFont(deptFont);
     QString subText = dept.isEmpty() ? "员工" : dept;
     painter->drawText(deptRect, Qt::AlignLeft | Qt::AlignVCenter, subText);
 
-    // 4. 绘制时间和状态 (右侧)
-    int rightPadding = 16;
-    int timeWidth = 70;
-    QRect rightRect(rect.right() - rightPadding - timeWidth, rect.top(), timeWidth, rect.height());
-    
-    // 时间
-    painter->setPen(subTextColor);
-    QFont timeFont = painter->font();
-    timeFont.setPixelSize(12);
-    painter->setFont(timeFont);
-    painter->drawText(rightRect, Qt::AlignRight | Qt::AlignVCenter, timeStr);
-    
-    // 状态点 (时间左边)
-    int statusSize = 8;
-    QRect statusRect(rightRect.left() - 12, rect.center().y() - statusSize/2, statusSize, statusSize);
+    // 4. 绘制时间/类型/相似度 (同一行，靠近姓名区域)
+    QFont infoFont = painter->font();
+    infoFont.setPixelSize(15);
+    infoFont.setBold(true);
+    painter->setFont(infoFont);
+    QFontMetrics infoFm(infoFont);
+
+    QString typeText = (checkType == 2) ? "签退" : "签到";
+    QString simText = QString("相似度 %1%").arg(
+        index.data(Qt::UserRole + 9).toFloat(), 0, 'f', 2);
+
+    int chipHeight = 24;
+    int chipPadding = 12;
+    int typeWidth = infoFm.horizontalAdvance(typeText) + chipPadding * 2;
+    int timeWidth = infoFm.horizontalAdvance(timeStr) + 6;
+    int simWidth = infoFm.horizontalAdvance(simText) + 6;
+    int gap = 10;
+    int abnormalWidth = 0;
+    if (status == 2 || status == 3) {
+        QString abnormalTextTmp = (status == 2) ? "迟到" : "早退";
+        abnormalWidth = infoFm.horizontalAdvance(abnormalTextTmp) + chipPadding * 2 + gap;
+    }
+    int infoTotal = typeWidth + abnormalWidth + gap + timeWidth + gap + simWidth;
+    int infoRight = rect.right() - 12;
+    int minInfoLeft = textLeft + 8;
+    int infoLeft = infoRight - infoTotal;
+    if (infoLeft < minInfoLeft) {
+        infoLeft = minInfoLeft;
+    }
+    int infoY = rect.center().y() - chipHeight / 2;
+
+    int timeStart = infoLeft + typeWidth + abnormalWidth + gap;
+    QRect timeRect(timeStart, infoY, timeWidth, chipHeight);
+    QRect simRect(timeRect.right() + gap, infoY, simWidth, chipHeight);
+
+    // 状态点 (信息区左侧)
+    int statusSize = 14;
+    QRect statusRect(infoLeft - 18, rect.center().y() - statusSize / 2, statusSize, statusSize);
     
     // 颜色逻辑修改：
     // status: 1=正常, 2=迟到, 3=早退
@@ -147,8 +185,79 @@ void AttendanceItemDelegate::paint(QPainter* painter, const QStyleOptionViewItem
     }
     
     painter->setBrush(statusColor);
+    painter->setPen(QPen(statusColor.darker(120), 1));
+    painter->drawEllipse(statusRect.adjusted(0, 0, -1, -1));
+    painter->setBrush(QColor(255, 255, 255, isDarkMode ? 80 : 120));
     painter->setPen(Qt::NoPen);
-    painter->drawEllipse(statusRect);
+    painter->drawEllipse(statusRect.adjusted(3, 3, -3, -3));
+
+    // 签到/签退标签 + 异常标签
+    QColor typeTextColor = Qt::white;
+
+    QString abnormalText;
+    if (status == 2) {
+        abnormalText = "迟到";
+    } else if (status == 3) {
+        abnormalText = "早退";
+    }
+
+    int chipY = infoY;
+    QFont chipFont = painter->font();
+    chipFont.setPixelSize(15);
+    chipFont.setBold(true);
+    painter->setFont(chipFont);
+    QFontMetrics chipFm(chipFont);
+    QRect typeRect(infoLeft, chipY, typeWidth, chipHeight);
+
+    QLinearGradient typeGrad(typeRect.topLeft(), typeRect.bottomRight());
+    if (checkType == 2) {
+        typeGrad.setColorAt(0, QColor("#3ba0ff"));
+        typeGrad.setColorAt(1, QColor("#1677ff"));
+    } else {
+        typeGrad.setColorAt(0, QColor("#6ad86a"));
+        typeGrad.setColorAt(1, QColor("#34a853"));
+    }
+    painter->setBrush(typeGrad);
+    painter->setPen(QPen(QColor(255, 255, 255, isDarkMode ? 50 : 80), 1));
+    painter->drawRoundedRect(typeRect, 10, 10);
+    painter->setPen(typeTextColor);
+    painter->drawText(typeRect, Qt::AlignCenter, typeText);
+
+    if (!abnormalText.isEmpty()) {
+        int abnormalChipWidth = chipFm.horizontalAdvance(abnormalText) + chipPadding * 2;
+        QRect abnormalRect(typeRect.right() + 8, chipY, abnormalChipWidth, chipHeight);
+        QLinearGradient abnormalGrad(abnormalRect.topLeft(), abnormalRect.bottomRight());
+        abnormalGrad.setColorAt(0, QColor("#ff7a7a"));
+        abnormalGrad.setColorAt(1, QColor("#ff4d4f"));
+        painter->setBrush(abnormalGrad);
+        painter->setPen(QPen(QColor(255, 255, 255, isDarkMode ? 50 : 80), 1));
+        painter->drawRoundedRect(abnormalRect, 10, 10);
+        painter->setPen(Qt::white);
+        painter->drawText(abnormalRect, Qt::AlignCenter, abnormalText);
+    }
+
+    // 时间 + 相似度（同一行）
+    QRect infoStripRect(timeRect.left() - 8, chipY - 2,
+                        simRect.right() - timeRect.left() + 16, chipHeight + 4);
+    QLinearGradient stripGrad(infoStripRect.topLeft(), infoStripRect.bottomRight());
+    if (isDarkMode) {
+        stripGrad.setColorAt(0, QColor(255, 255, 255, 28));
+        stripGrad.setColorAt(1, QColor(255, 255, 255, 14));
+    } else {
+        stripGrad.setColorAt(0, QColor(255, 255, 255, 200));
+        stripGrad.setColorAt(1, QColor(230, 236, 245, 160));
+    }
+    painter->setBrush(stripGrad);
+    painter->setPen(QPen(QColor(0, 0, 0, isDarkMode ? 0 : 20), 1));
+    painter->drawRoundedRect(infoStripRect, 12, 12);
+
+    painter->setPen(subTextColor);
+    QFont infoSubFont = painter->font();
+    infoSubFont.setPixelSize(14);
+    infoSubFont.setBold(false);
+    painter->setFont(infoSubFont);
+    painter->drawText(timeRect, Qt::AlignCenter, timeStr);
+    painter->drawText(simRect, Qt::AlignCenter, simText);
 
     // 5. 分割线 (底部)
     painter->setPen(dividerColor);
@@ -192,26 +301,58 @@ void AttendanceListWidget::setup_ui() {
 }
 
 void AttendanceListWidget::addRecord(const AttendanceItem& item) {
-    auto listItem = new QListWidgetItem();
-    
-    // 存储数据供 Delegate 使用
-    listItem->setData(Qt::UserRole + 1, item.name);
-    listItem->setData(Qt::UserRole + 2, item.department);
-    listItem->setData(Qt::UserRole + 3, item.time.toString("HH:mm:ss"));
-    listItem->setData(Qt::UserRole + 4, item.check_type);
-    // listItem->setData(Qt::UserRole + 5, item.is_stranger); // 不再需要存储陌生人信息
-    listItem->setData(Qt::UserRole + 6, item.avatar_path);
-    listItem->setData(Qt::UserRole + 7, item.status); // 存储状态
-    
-    // 插入到第一行
-    list_view_->insertItem(0, listItem);
-    
-    // 限制列表长度，防止内存无限增长 (保留最近50条)
-    if (list_view_->count() > 50) {
-        delete list_view_->takeItem(list_view_->count() - 1);
+    items_.insert(items_.begin(), item);
+    if (items_.size() > 50) {
+        items_.pop_back();
     }
+
+    rebuildList();
 }
 
 void AttendanceListWidget::clear() {
+    items_.clear();
     list_view_->clear();
+}
+
+void AttendanceListWidget::setFilter(FilterType filter) {
+    if (current_filter_ == filter) {
+        return;
+    }
+    current_filter_ = filter;
+    rebuildList();
+}
+
+bool AttendanceListWidget::matchesFilter(const AttendanceItem& item) const {
+    switch (current_filter_) {
+        case FilterType::CheckIn:
+            return item.check_type == 1;
+        case FilterType::CheckOut:
+            return item.check_type == 2;
+        case FilterType::Abnormal:
+            return item.status == 2 || item.status == 3;
+        case FilterType::All:
+        default:
+            return true;
+    }
+}
+
+void AttendanceListWidget::rebuildList() {
+    list_view_->clear();
+
+    for (const auto& item : items_) {
+        if (!matchesFilter(item)) {
+            continue;
+        }
+        auto listItem = new QListWidgetItem();
+        listItem->setData(Qt::UserRole + 1, item.name);
+        listItem->setData(Qt::UserRole + 2, item.department);
+        listItem->setData(Qt::UserRole + 3, item.time.toString("HH:mm:ss"));
+        listItem->setData(Qt::UserRole + 4, item.check_type);
+        listItem->setData(Qt::UserRole + 6, item.avatar_path);
+        listItem->setData(Qt::UserRole + 7, item.status);
+        listItem->setData(Qt::UserRole + 8, item.time.toMSecsSinceEpoch());
+        listItem->setData(Qt::UserRole + 9, item.similarity);
+
+        list_view_->addItem(listItem);
+    }
 }

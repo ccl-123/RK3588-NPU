@@ -44,6 +44,13 @@ class AttendanceListWidget : public QWidget {
     Q_OBJECT
 
 public:
+    enum class FilterType {
+        All,
+        CheckIn,
+        CheckOut,
+        Abnormal
+    };
+
     explicit AttendanceListWidget(QWidget* parent = nullptr);
     ~AttendanceListWidget();
 
@@ -53,11 +60,17 @@ public:
     // 清空列表
     void clear();
 
+    // 设置当前过滤器
+    void setFilter(FilterType filter);
+
 private:
     void setup_ui();
+    void rebuildList();
+    bool matchesFilter(const AttendanceItem& item) const;
     
     QListWidget* list_view_;
     std::vector<AttendanceItem> items_; // 本地缓存，用于 Delegate 访问
+    FilterType current_filter_ = FilterType::All;
 };
 
 #endif // ATTENDANCE_LIST_WIDGET_H

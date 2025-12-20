@@ -333,6 +333,11 @@ bool MainWindow::finish_initialization_after_core() {
             int check_type = attendance_service_ ? 
                 attendance_service_->auto_determine_check_type(result.user_id, current_time) : 1;
             
+            int attendance_status = 1;
+            if (attendance_service_) {
+                attendance_status = attendance_service_->determine_status(current_time, check_type);
+            }
+
             // 记录考勤
             if (attendance_service_) {
                 int record_id = attendance_service_->record_attendance(
@@ -364,7 +369,8 @@ bool MainWindow::finish_initialization_after_core() {
                                           Q_ARG(QString, QString::fromStdString(result.user_name)),
                                           Q_ARG(float, user_detection_.max_similarity),
                                           Q_ARG(bool, true),
-                                          Q_ARG(int, check_type));
+                                          Q_ARG(int, check_type),
+                                          Q_ARG(int, attendance_status));
             } else {
                 // 重复打卡 - 使用独立的冷却机制避免频繁播放
                 // 根据打卡类型选择对应的音频类型（签到和签退分别冷却）
@@ -799,6 +805,8 @@ void MainWindow::connect_page_signals() {
                 this, &MainWindow::on_action_close_camera);
         connect(recognition_page_, &RecognitionPage::registerFaceRequested,
                 this, &MainWindow::on_action_register_face);
+        connect(recognition_page_, &RecognitionPage::refreshAttendanceRequested,
+                this, &MainWindow::load_today_attendance);
     }
 
     if (user_page_) {
