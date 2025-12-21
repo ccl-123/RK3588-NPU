@@ -17,6 +17,7 @@
 #include <QUuid>
 #include <QTimer>
 #include <spdlog/spdlog.h>
+#include <cstring>  // for strlen
 
 AiAnalysisService* AiAnalysisService::instance() {
     static AiAnalysisService s_instance;
@@ -29,6 +30,29 @@ AiAnalysisService::AiAnalysisService(QObject* parent)
     , completed_(false)
     , is_incremental_(false) {  // 默认 false（文档说明）
     network_manager_ = new QNetworkAccessManager(this);
+
+    // 检查环境变量是否已设置
+    const char* app_key = Config::TencentAI::getAppKey();
+    const char* secret_id = Config::TencentAI::getSecretId();
+    const char* secret_key = Config::TencentAI::getSecretKey();
+
+    if (!app_key || strlen(app_key) == 0) {
+        spdlog::warn("TENCENT_APP_KEY environment variable is not set");
+    } else {
+        spdlog::info("TENCENT_APP_KEY loaded from environment (length: {})", strlen(app_key));
+    }
+
+    if (!secret_id || strlen(secret_id) == 0) {
+        spdlog::warn("TENCENT_SECRET_ID environment variable is not set");
+    } else {
+        spdlog::info("TENCENT_SECRET_ID loaded from environment: {}", secret_id);
+    }
+
+    if (!secret_key || strlen(secret_key) == 0) {
+        spdlog::warn("TENCENT_SECRET_KEY environment variable is not set");
+    } else {
+        spdlog::info("TENCENT_SECRET_KEY loaded from environment (length: {})", strlen(secret_key));
+    }
 
     // 创建超时定时器
     timeout_timer_ = new QTimer(this);
@@ -158,7 +182,7 @@ void AiAnalysisService::doRequest(const service::AttendanceStatistics& stats,
 
     // 必填字段
     jsonBody["session_id"] = session_id;
-    jsonBody["bot_app_key"] = QString::fromStdString(Config::TencentAI::APP_KEY);
+    jsonBody["bot_app_key"] = QString::fromUtf8(Config::TencentAI::getAppKey());
     jsonBody["visitor_biz_id"] = QString::fromStdString(Config::TencentAI::VISITOR_BIZ_ID);
     jsonBody["content"] = content;
 
