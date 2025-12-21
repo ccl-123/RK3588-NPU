@@ -538,8 +538,12 @@ void DashboardPage::on_ai_input_send() {
     if (!ai_input_) {
         return;
     }
+    if (is_analyzing_) {
+        AiAnalysisService::instance()->cancelAnalysis();
+        return;
+    }
     const QString user_text = ai_input_->text().trimmed();
-    if (user_text.isEmpty() || is_analyzing_) {
+    if (user_text.isEmpty()) {
         return;
     }
     ai_last_prompt_ = user_text;
@@ -559,7 +563,7 @@ void DashboardPage::on_ai_analysis_clicked() {
             is_analyzing_ = false;
             ai_result_label_ = nullptr;
             if (ai_analysis_btn_) {
-                ai_analysis_btn_->setText(tr("✨ 智能分析"));
+                ai_analysis_btn_->setText(tr("智能分析"));
                 ai_analysis_btn_->setEnabled(true);
             }
         }
@@ -667,8 +671,12 @@ void DashboardPage::on_ai_analysis_clicked() {
 void DashboardPage::on_ai_analysis_started() {
     // 更新按钮状态
     if (ai_analysis_btn_) {
-        ai_analysis_btn_->setText(tr("⏸ 取消分析"));
+        ai_analysis_btn_->setText(tr("取消分析"));
         ai_analysis_btn_->setEnabled(true);
+    }
+    if (ai_send_btn_) {
+        ai_send_btn_->setText(tr("停止"));
+        ai_send_btn_->setEnabled(true);
     }
 }
 
@@ -682,8 +690,12 @@ void DashboardPage::on_ai_analysis_finished() {
     ai_result_label_ = nullptr;
 
     if (ai_analysis_btn_) {
-        ai_analysis_btn_->setText(tr("✨ 智能分析"));
+        ai_analysis_btn_->setText(tr("智能分析"));
         ai_analysis_btn_->setEnabled(true);
+    }
+    if (ai_send_btn_) {
+        ai_send_btn_->setText(tr("发送"));
+        ai_send_btn_->setEnabled(true);
     }
 
     ToastNotification::showMessage(this, tr("AI 分析"), tr("分析完成"), ToastNotification::Level::Success);
@@ -696,8 +708,12 @@ void DashboardPage::on_ai_error(const QString& error) {
     ai_result_label_ = nullptr;
 
     if (ai_analysis_btn_) {
-        ai_analysis_btn_->setText(tr("✨ 智能分析"));
+        ai_analysis_btn_->setText(tr("智能分析"));
         ai_analysis_btn_->setEnabled(true);
+    }
+    if (ai_send_btn_) {
+        ai_send_btn_->setText(tr("发送"));
+        ai_send_btn_->setEnabled(true);
     }
 
     // 显示错误信息面板
@@ -711,8 +727,12 @@ void DashboardPage::on_ai_analysis_cancelled() {
     ai_result_label_ = nullptr;
 
     if (ai_analysis_btn_) {
-        ai_analysis_btn_->setText(tr("✨ 智能分析"));
+        ai_analysis_btn_->setText(tr("智能分析"));
         ai_analysis_btn_->setEnabled(true);
+    }
+    if (ai_send_btn_) {
+        ai_send_btn_->setText(tr("发送"));
+        ai_send_btn_->setEnabled(true);
     }
 
     appendChatMessage("assistant", tr("分析已取消"));
@@ -894,10 +914,12 @@ void DashboardPage::setup_ui() {
 
     insight_header_layout->addStretch();
 
-    // AI 分析按钮（移到智能分析板块右侧）
-    ai_analysis_btn_ = new QPushButton(tr("✨ 智能分析"), insight_header);
+    // AI 分析按钮（智能分析板块右侧）
+    ai_analysis_btn_ = new QPushButton(tr("智能分析"), insight_header);
     ai_analysis_btn_->setObjectName("DashboardAiButton");
     ai_analysis_btn_->setCursor(Qt::PointingHandCursor);
+    ai_analysis_btn_->setIcon(SvgIconManager::icon(":/icons/status/info.svg", QSize(16, 16), QColor("#ffffff")));
+    ai_analysis_btn_->setIconSize(QSize(16, 16));
     ai_analysis_btn_->setStyleSheet(R"(
         QPushButton {
             background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #722ed1, stop:1 #eb2f96);
@@ -922,7 +944,7 @@ void DashboardPage::setup_ui() {
     insight_header_layout->addWidget(ai_analysis_btn_);
 
     insight_card->setHeaderWidget(insight_header);
-    insight_card->setMinimumHeight(360);
+    insight_card->setMinimumHeight(980);
     auto insight_layout = new QVBoxLayout(insight_card->bodyContainer());
     insight_layout->setContentsMargins(0, 0, 0, 0);
     insight_layout->setSpacing(10);
@@ -932,6 +954,7 @@ void DashboardPage::setup_ui() {
     ai_scroll_->setFrameShape(QFrame::NoFrame);
     ai_scroll_->setObjectName("AiChatScroll");
     ai_scroll_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    ai_scroll_->setMinimumHeight(560);
 
     ai_chat_container_ = new QWidget(ai_scroll_);
     ai_chat_container_->setObjectName("AiChatContainer");
@@ -944,6 +967,44 @@ void DashboardPage::setup_ui() {
     ai_chat_layout_->addItem(ai_chat_spacer_);
 
     insight_layout->addWidget(ai_scroll_, 1);
+
+    auto quick_row = new QWidget(insight_card);
+    quick_row->setObjectName("AiQuickRow");
+    auto quick_layout = new QHBoxLayout(quick_row);
+    quick_layout->setContentsMargins(0, 0, 0, 0);
+    quick_layout->setSpacing(8);
+
+    auto template_btn = new QPushButton(tr("提示词模板"), quick_row);
+    template_btn->setObjectName("AiQuickButton");
+    connect(template_btn, &QPushButton::clicked, this, [this]() {
+        if (ai_input_) {
+            ai_input_->setText(tr("请按【总体概览 / 异常分析 / 趋势变化 / 管理建议】输出今日考勤分析。"));
+            ai_input_->setFocus();
+        }
+    });
+    quick_layout->addWidget(template_btn);
+
+    auto clear_btn = new QPushButton(tr("清空"), quick_row);
+    clear_btn->setObjectName("AiQuickButton");
+    connect(clear_btn, &QPushButton::clicked, this, [this]() {
+        if (!ai_chat_layout_) {
+            return;
+        }
+        QLayoutItem* item = nullptr;
+        while ((item = ai_chat_layout_->takeAt(0)) != nullptr) {
+            if (item->widget()) {
+                item->widget()->deleteLater();
+            }
+            delete item;
+        }
+        ai_chat_spacer_ = new QSpacerItem(0, 0, QSizePolicy::Minimum, QSizePolicy::Expanding);
+        ai_chat_layout_->addItem(ai_chat_spacer_);
+        appendChatMessage("assistant", tr("对话已清空，输入问题即可开始新的分析。"));
+    });
+    quick_layout->addWidget(clear_btn);
+    quick_layout->addStretch();
+
+    insight_layout->addWidget(quick_row);
 
     auto input_row = new QWidget(insight_card);
     input_row->setObjectName("AiChatInputRow");

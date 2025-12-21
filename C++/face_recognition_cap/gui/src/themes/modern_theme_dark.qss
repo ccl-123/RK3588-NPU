@@ -1794,7 +1794,7 @@ QProgressBar#DashboardRankBar::chunk {
 
 #AiChatText {
     color: #f0f0f0;
-    font-size: 13px;
+    font-size: 14px;
     background: transparent;
 }
 
@@ -1802,8 +1802,26 @@ QProgressBar#DashboardRankBar::chunk {
     background: transparent;
 }
 
+#AiQuickRow {
+    background: transparent;
+}
+
+#AiQuickButton {
+    min-height: 30px;
+    padding: 0 14px;
+    border-radius: 999px;
+    border: 1px solid #15395b;
+    background-color: #112a45;
+    color: #69c0ff;
+    font-weight: 600;
+}
+
+#AiQuickButton:hover {
+    background-color: #15395b;
+}
+
 #AiChatInput {
-    min-height: 36px;
+    min-height: 40px;
     padding: 8px 12px;
     border-radius: 10px;
     border: 1px solid #303030;
@@ -1812,7 +1830,7 @@ QProgressBar#DashboardRankBar::chunk {
 }
 
 #AiChatSendButton {
-    min-height: 36px;
+    min-height: 40px;
     min-width: 80px;
     padding: 0 16px;
     border-radius: 10px;
