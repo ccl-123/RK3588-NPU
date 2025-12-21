@@ -133,6 +133,13 @@ bool extract_feature_from_frame(const cv::Mat& frame, std::vector<float>& featur
 - `register_user(...)`: 注册人员信息。
 - `add_face_feature(...)`: 绑定人脸特征向量。
 
+### AiAnalysisService
+**文件**: `gui/include/services/ai_analysis_service.h`
+
+- `requestAnalysis(...)`: 发送考勤数据至 LLM，支持多维度（今日/近7日/近30日）分析。
+- `cancelAnalysis()`: 取消正在进行的推理请求。
+- `signals`: 提供 `analysisResultReady` (增量流式输出)、`analysisFinished` 等信号。
+
 ---
 
 ## Hardware 层 API

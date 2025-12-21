@@ -12,6 +12,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QNetworkProxyFactory>
+#include <QStyleFactory>
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/rotating_file_sink.h>
@@ -52,8 +53,6 @@ int main(int argc, char* argv[]) {
     
     // 创建 Qt 应用
     QApplication app(argc, argv);
-    // 让 Qt 网络请求使用系统代理配置（环境变量/系统代理），避免“天气/每日一言”请求失败
-    QNetworkProxyFactory::setUseSystemConfiguration(true);
     app.setApplicationName("人脸识别考勤系统");
     app.setApplicationVersion("2.1.0");
     app.setOrganizationName("FaceRecognition");

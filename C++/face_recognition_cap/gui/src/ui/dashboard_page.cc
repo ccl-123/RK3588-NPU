@@ -904,6 +904,9 @@ void DashboardPage::setup_ui() {
     ai_input_ = new QLineEdit(input_row);
     ai_input_->setObjectName("AiChatInput");
     ai_input_->setPlaceholderText(tr("输入问题，获取 AI 考勤分析"));
+    // 确保输入法支持
+    ai_input_->setAttribute(Qt::WA_InputMethodEnabled, true);
+    ai_input_->setInputMethodHints(Qt::ImhNone); // 允许所有输入
     connect(ai_input_, &QLineEdit::returnPressed, this, &DashboardPage::on_ai_input_send);
     input_layout->addWidget(ai_input_, 1);
 
