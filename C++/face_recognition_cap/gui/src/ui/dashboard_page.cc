@@ -19,6 +19,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMap>
+#include <QMenu>
 #include <QPainter>
 #include <QPainterPath>
 #include <QProgressBar>
@@ -243,7 +244,8 @@ DashboardPage::DashboardPage(QWidget* parent)
     , ai_chat_layout_(nullptr)
     , ai_chat_spacer_(nullptr)
     , ai_input_(nullptr)
-    , ai_send_btn_(nullptr) {
+    , ai_send_btn_(nullptr)
+    , ai_data_range_days_(1) {
     setup_ui();
 
     // 连接 AI 服务信号
@@ -304,7 +306,7 @@ void DashboardPage::appendChatMessage(const QString& role, const QString& text) 
 
     auto label = new QLabel(text, bubble);
     label->setObjectName("AiChatText");
-    label->setStyleSheet("font-size: 16px;");
+    label->setStyleSheet("font-size: 18px;");
     label->setWordWrap(true);
     label->setTextInteractionFlags(Qt::TextSelectableByMouse);
     bubble_layout->addWidget(label);
@@ -397,6 +399,9 @@ void DashboardPage::on_ai_analysis_clicked() {
 
     is_analyzing_ = true;
 
+    int range_days = ai_data_range_days_;
+    ai_data_range_days_ = 1; // 重置为默认
+
     QString user_prompt;
     bool appended_user = false;
     if (!ai_last_prompt_.isEmpty()) {
@@ -412,50 +417,49 @@ void DashboardPage::on_ai_analysis_clicked() {
         user_prompt = tr("请生成今日考勤综合分析。");
     }
     
-    // 1. 获取今日统计
-    std::string today_str = QDate::currentDate().toString("yyyy-MM-dd").toStdString();
-    auto today_stats = attendance_service_->get_statistics(today_str);
-    
-    // 2. 获取趋势简报 (最近7天)
+    // 1. 获取统计数据 (最近 range_days 天)
     QDate end_date = QDate::currentDate();
-    QDate start_date = end_date.addDays(-6);
-    auto range_stats = attendance_service_->get_statistics_range(
-        start_date.toString("yyyy-MM-dd").toStdString(),
-        end_date.toString("yyyy-MM-dd").toStdString()
-    );
+    QDate start_date = end_date.addDays(-(range_days - 1));
+    std::string start_str = start_date.toString("yyyy-MM-dd").toStdString();
+    std::string end_str = end_date.toString("yyyy-MM-dd").toStdString();
+
+    auto today_stats = attendance_service_->get_statistics(end_date.toString("yyyy-MM-dd").toStdString());
+    auto range_stats = attendance_service_->get_statistics_range(start_str, end_str);
     
     QString trend_summary;
     for (const auto& s : range_stats) {
-        trend_summary += QString("%1: 出勤%2人, 迟到%3人\n")
+        trend_summary += QString("%1: 出勤%2人, 迟到%3人, 早退%4人\n")
             .arg(QString::fromStdString(s.date).right(5))
             .arg(s.check_in_count)
-            .arg(s.late_count);
+            .arg(s.late_count)
+            .arg(s.early_leave_count);
     }
     
-    // 3. 获取今日详细记录 (用于深度分析：姓名、部门、时间、状态)
+    // 2. 获取详细记录
     QString detail_records_str;
-    auto today_records = attendance_service_->query_records_by_date(today_str);
+    auto range_records = attendance_service_->query_records_range(start_str, end_str);
     
-    // 预加载所有用户部门信息以减少数据库查询
+    // 预加载所有用户部门信息
     std::unordered_map<int, std::string> user_depts;
     auto all_users = user_service_->get_all_users();
     for (const auto& u : all_users) {
         user_depts[u.user_id] = u.department;
     }
 
-    // 按时间排序
-    std::sort(today_records.begin(), today_records.end(), 
+    // 按时间排序 (倒序)
+    std::sort(range_records.begin(), range_records.end(), 
         [](const db::AttendanceRecord& a, const db::AttendanceRecord& b) {
-            return a.check_time < b.check_time;
+            return a.check_time > b.check_time;
     });
 
     int count = 0;
-    if (today_records.empty()) {
+    int max_records = (range_days > 7) ? 500 : 200; // 提高上限，范围大时传更多数据
+    if (range_records.empty()) {
         detail_records_str = "暂无打卡记录\n";
     } else {
-        for (const auto& r : today_records) {
-            if (count++ >= 50) {
-                detail_records_str += "...(更多记录已省略)\n";
+        for (const auto& r : range_records) {
+            if (count++ >= max_records) {
+                detail_records_str += QString("...(更多%1条记录已省略)\n").arg(range_records.size() - max_records);
                 break;
             }
             
@@ -472,7 +476,7 @@ void DashboardPage::on_ai_analysis_clicked() {
             else status_str = "未知";
             
             QString type_str = (r.check_type == db::CheckType::CHECK_IN) ? "签到" : "签退";
-            QString time_str = QDateTime::fromTime_t(r.check_time).toString("HH:mm");
+            QString time_str = QDateTime::fromTime_t(r.check_time).toString("MM-dd HH:mm");
 
             detail_records_str += QString("[%1] %2(%3): %4 %5\n")
                 .arg(time_str)
@@ -483,14 +487,14 @@ void DashboardPage::on_ai_analysis_clicked() {
         }
     }
 
-    // 4. 发送请求
+    // 3. 发送请求
     if (!appended_user && !user_prompt.isEmpty()) {
         appendChatMessage("user", user_prompt);
     }
 
     appendChatMessage("assistant", tr("正在分析中，请稍候..."));
-    spdlog::info("Sending AI analysis with {} records", today_records.size());
-    AiAnalysisService::instance()->requestAnalysis(today_stats, trend_summary, detail_records_str, user_prompt);
+    spdlog::info("Sending AI analysis with {} records for last {} days", range_records.size(), range_days);
+    AiAnalysisService::instance()->requestAnalysis(today_stats, trend_summary, detail_records_str, user_prompt, range_days);
 }
 
 void DashboardPage::on_ai_analysis_started() {
@@ -812,12 +816,61 @@ void DashboardPage::setup_ui() {
 
     auto template_btn = new QPushButton(tr("提示词模板"), quick_row);
     template_btn->setObjectName("AiQuickButton");
-    connect(template_btn, &QPushButton::clicked, this, [this]() {
+    
+    QMenu* template_menu = new QMenu(template_btn);
+    template_menu->addAction(tr("综合深度分析"), [this]() {
         if (ai_input_) {
             ai_input_->setText(tr("请按【总体概览 / 异常分析 / 趋势变化 / 管理建议】输出今日考勤分析。"));
             ai_input_->setFocus();
         }
     });
+    template_menu->addAction(tr("异常行为诊断"), [this]() {
+        if (ai_input_) {
+            ai_input_->setText(tr("请重点分析今日考勤中的异常打卡行为（迟到/早退/未打卡），识别潜在规律，并给出管理建议。"));
+            ai_input_->setFocus();
+        }
+    });
+    template_menu->addAction(tr("部门出勤对比"), [this]() {
+        if (ai_input_) {
+            ai_input_->setText(tr("请对比各部门的出勤到岗情况，分析表现优异和落后的部门，并尝试分析可能的原因。"));
+            ai_input_->setFocus();
+        }
+    });
+    template_menu->addAction(tr("趋势风险预测"), [this]() {
+        if (ai_input_) {
+            ai_input_->setText(tr("根据近7日的趋势数据，分析出勤率和异常率的变化，预测未来的出勤趋势并指出风险点。"));
+            ai_input_->setFocus();
+        }
+    });
+    template_menu->addSeparator();
+    template_menu->addAction(tr("详细打卡清单"), [this]() {
+        if (ai_input_) {
+            ai_input_->setText(tr("请整理并列出今日所有的详细考勤记录，包括打卡人、部门、打卡时间和当前状态。"));
+            ai_input_->setFocus();
+        }
+    });
+    template_menu->addSeparator();
+    template_menu->addAction(tr("近7日全量深度分析"), [this]() {
+        ai_data_range_days_ = 7;
+        if (ai_input_) {
+            ai_input_->setText(tr("请结合我提供的近7日全量详细考勤数据，从出勤规律、部门差异、异常趋势等方面进行深度分析，并给出管理建议。"));
+            ai_input_->setFocus();
+        }
+    });
+    template_menu->addAction(tr("近30日全量趋势诊断"), [this]() {
+        ai_data_range_days_ = 30;
+        if (ai_input_) {
+            ai_input_->setText(tr("请分析近30日的考勤全量详细数据，识别长期存在的考勤问题，评价员工出勤稳定性，并提出优化考勤制度的建议。"));
+            ai_input_->setFocus();
+        }
+    });
+    template_menu->addAction(tr("生成考勤周报"), [this]() {
+        if (ai_input_) {
+            ai_input_->setText(tr("请结合今日数据和近7日趋势，生成一份简明扼要的考勤周报总结。"));
+            ai_input_->setFocus();
+        }
+    });
+    template_btn->setMenu(template_menu);
     quick_layout->addWidget(template_btn);
 
     auto clear_btn = new QPushButton(tr("清空"), quick_row);

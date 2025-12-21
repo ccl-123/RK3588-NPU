@@ -231,6 +231,15 @@ std::vector<db::AttendanceRecord> AttendanceService::query_records_by_date(
     return record_dao_->find_by_date(date);
 }
 
+std::vector<db::AttendanceRecord> AttendanceService::query_records_range(
+    const std::string& start_date, const std::string& end_date) {
+    
+    std::time_t start_time = parse_time(start_date + " 00:00:00");
+    std::time_t end_time = parse_time(end_date + " 23:59:59");
+    
+    return record_dao_->find_by_time_range(start_time, end_time);
+}
+
 AttendanceStatistics AttendanceService::get_statistics(const std::string& date) {
     AttendanceStatistics stats;
     stats.date = date;

@@ -102,7 +102,7 @@ public:
                           int duplicate_check_interval = Config::Default::DUPLICATE_CHECK_INTERVAL);
     
     /**
-     * @brief 查询用户考勤记录
+     * @brief 查询用户的考勤记录
      * @param user_id 用户ID
      * @param start_date 开始日期(YYYY-MM-DD)
      * @param end_date 结束日期(YYYY-MM-DD)
@@ -118,7 +118,15 @@ public:
      * @return 考勤记录列表
      */
     std::vector<db::AttendanceRecord> query_records_by_date(const std::string& date);
-    
+
+    /**
+     * @brief 查询指定日期范围的考勤记录
+     * @param start_date 开始日期(YYYY-MM-DD)
+     * @param end_date 结束日期(YYYY-MM-DD)
+     * @return 考勤记录列表
+     */
+    std::vector<db::AttendanceRecord> query_records_range(const std::string& start_date, const std::string& end_date);
+
     /**
      * @brief 获取考勤统计
      * @param date 日期(YYYY-MM-DD)

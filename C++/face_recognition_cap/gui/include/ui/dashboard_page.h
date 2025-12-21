@@ -75,6 +75,7 @@ private:
     QLineEdit* ai_input_;
     QPushButton* ai_send_btn_;
     QString ai_last_prompt_;
+    int ai_data_range_days_;
 
 private slots:
     void on_ai_analysis_clicked();
