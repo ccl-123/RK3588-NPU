@@ -5,8 +5,12 @@
 class QComboBox;
 class QLabel;
 class QPushButton;
+class QLineEdit;
+class QScrollArea;
+class QScrollBar;
 class QVBoxLayout;
 class QShowEvent;
+class QSpacerItem;
 
 namespace service {
 class AttendanceService;
@@ -30,9 +34,13 @@ private slots:
     void on_refresh_clicked();
     void on_range_changed(int index);
     void on_filter_changed(int index);
+    void on_ai_input_send();
 
 private:
     void setup_ui();
+    void appendChatMessage(const QString& role, const QString& text);
+    void updateAssistantMessage(const QString& text, bool append);
+    void scrollChatToBottom();
 
     service::AttendanceService* attendance_service_;
     service::UserService* user_service_;
@@ -56,7 +64,6 @@ private:
     QWidget* trend_chart_;
     QWidget* donut_chart_;
     QWidget* bar_chart_;
-    QVBoxLayout* insights_layout_;
     QVBoxLayout* alerts_layout_;
     QVBoxLayout* dept_rank_layout_;
 
@@ -64,6 +71,13 @@ private:
     QPushButton* ai_analysis_btn_;
     bool is_analyzing_;
     QLabel* ai_result_label_;  // AI分析结果显示标签
+    QScrollArea* ai_scroll_;
+    QWidget* ai_chat_container_;
+    QVBoxLayout* ai_chat_layout_;
+    QSpacerItem* ai_chat_spacer_;
+    QLineEdit* ai_input_;
+    QPushButton* ai_send_btn_;
+    QString ai_last_prompt_;
 
 private slots:
     void on_ai_analysis_clicked();

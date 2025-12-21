@@ -25,7 +25,8 @@ public:
     // detail_records: 详细记录字符串
     void requestAnalysis(const service::AttendanceStatistics& stats,
                          const QString& trend_summary,
-                         const QString& detail_records = "");
+                         const QString& detail_records = "",
+                         const QString& user_prompt = "");
 
     // 取消当前分析请求
     void cancelAnalysis();
@@ -56,6 +57,7 @@ private:
     void doRequest(const service::AttendanceStatistics& stats,
                    const QString& trend_summary,
                    const QString& detail_records,
+                   const QString& user_prompt,
                    int retry_count = 0);
 
     QNetworkAccessManager* network_manager_;
@@ -78,6 +80,7 @@ private:
     service::AttendanceStatistics current_stats_;
     QString current_trend_summary_;
     QString current_detail_records_;
+    QString current_user_prompt_;
     int current_retry_count_;
 
     // 防止重复 emit analysisFinished（关键：确保信号只发一次）

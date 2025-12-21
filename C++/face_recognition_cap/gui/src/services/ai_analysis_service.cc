@@ -76,7 +76,8 @@ AiAnalysisService::AiAnalysisService(QObject* parent)
                 // 延迟后重试
                 QTimer::singleShot(RETRY_DELAY_MS * (current_retry_count_ + 1), this, [this]() {
                     doRequest(current_stats_, current_trend_summary_,
-                             current_detail_records_, current_retry_count_ + 1);
+                             current_detail_records_, current_user_prompt_,
+                             current_retry_count_ + 1);
                 });
             } else {
                 emit errorOccurred("请求超时，请检查网络连接后重试");
@@ -117,7 +118,8 @@ void AiAnalysisService::cancelAnalysis() {
 
 void AiAnalysisService::requestAnalysis(const service::AttendanceStatistics& stats,
                                         const QString& trend_summary,
-                                        const QString& detail_records) {
+                                        const QString& detail_records,
+                                        const QString& user_prompt) {
     // 如果已有请求在进行，先取消
     if (current_reply_) {
         spdlog::warn("Previous AI analysis request is still running, cancelling it");
@@ -129,6 +131,7 @@ void AiAnalysisService::requestAnalysis(const service::AttendanceStatistics& sta
     current_trend_summary_ = trend_summary;
     current_detail_records_ = detail_records;
     current_retry_count_ = 0;
+    current_user_prompt_ = user_prompt;
     completed_ = false;  // 重置完成标志
     incremental_buffer_.clear();  // 清空增量缓冲
 
@@ -136,12 +139,13 @@ void AiAnalysisService::requestAnalysis(const service::AttendanceStatistics& sta
     emit analysisStarted();
 
     // 执行请求
-    doRequest(stats, trend_summary, detail_records, 0);
+    doRequest(stats, trend_summary, detail_records, user_prompt, 0);
 }
 
 void AiAnalysisService::doRequest(const service::AttendanceStatistics& stats,
                                    const QString& trend_summary,
                                    const QString& detail_records,
+                                   const QString& user_prompt,
                                    int retry_count) {
     current_retry_count_ = retry_count;
 
@@ -162,7 +166,8 @@ void AiAnalysisService::doRequest(const service::AttendanceStatistics& stats,
         "迟到人数: %5\n"
         "早退人数: %6\n\n"
         "【今日打卡明细】\n%7\n\n"
-        "【近7天趋势数据】\n%8"
+        "【近7天趋势数据】\n%8\n\n"
+        "【用户问题】\n%9"
     ).arg(QString::fromStdString(stats.date))
      .arg(stats.total_count)
      .arg(stats.check_in_count)
@@ -170,7 +175,8 @@ void AiAnalysisService::doRequest(const service::AttendanceStatistics& stats,
      .arg(stats.late_count)
      .arg(stats.early_leave_count)
      .arg(detail_records)
-     .arg(trend_summary);
+     .arg(trend_summary)
+     .arg(user_prompt.isEmpty() ? QStringLiteral("请生成今日考勤综合分析。") : user_prompt);
 
     // 生成唯一的 session_id 和 request_id
     // 文档说 request_id "非必填但建议必填"，用于排查串联
@@ -466,7 +472,8 @@ void AiAnalysisService::doRequest(const service::AttendanceStatistics& stats,
                             // 延迟后重试
                             QTimer::singleShot(RETRY_DELAY_MS * (current_retry_count_ + 1), this, [this]() {
                                 doRequest(current_stats_, current_trend_summary_,
-                                         current_detail_records_, current_retry_count_ + 1);
+                                         current_detail_records_, current_user_prompt_,
+                                         current_retry_count_ + 1);
                             });
                             return;
                         }
@@ -493,7 +500,8 @@ void AiAnalysisService::doRequest(const service::AttendanceStatistics& stats,
                 // 延迟后重试
                 QTimer::singleShot(RETRY_DELAY_MS * (current_retry_count_ + 1), this, [this]() {
                     doRequest(current_stats_, current_trend_summary_,
-                             current_detail_records_, current_retry_count_ + 1);
+                             current_detail_records_, current_user_prompt_,
+                             current_retry_count_ + 1);
                 });
                 return;
             }

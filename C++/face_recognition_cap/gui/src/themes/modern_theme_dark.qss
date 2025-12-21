@@ -1762,3 +1762,66 @@ QProgressBar#DashboardRankBar::chunk {
     font-size: 12px;
     background: transparent;
 }
+
+/* ========================================
+   AI 对话面板
+   ======================================== */
+
+#AiChatScroll {
+    background: transparent;
+    border: none;
+}
+
+#AiChatContainer {
+    background: transparent;
+}
+
+#AiChatBubble {
+    background: #262626;
+    border-radius: 12px;
+    border: 1px solid #303030;
+}
+
+#AiChatBubble[role="assistant"] {
+    background: #112a45;
+    border: 1px solid #15395b;
+}
+
+#AiChatBubble[role="user"] {
+    background: #162312;
+    border: 1px solid #274916;
+}
+
+#AiChatText {
+    color: #f0f0f0;
+    font-size: 13px;
+    background: transparent;
+}
+
+#AiChatInputRow {
+    background: transparent;
+}
+
+#AiChatInput {
+    min-height: 36px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    border: 1px solid #303030;
+    background-color: #1f1f1f;
+    color: #f0f0f0;
+}
+
+#AiChatSendButton {
+    min-height: 36px;
+    min-width: 80px;
+    padding: 0 16px;
+    border-radius: 10px;
+    border: none;
+    background-color: #177ddc;
+    color: #ffffff;
+    font-weight: 600;
+}
+
+#AiChatSendButton:hover {
+    background-color: #3c9ae8;
+}
