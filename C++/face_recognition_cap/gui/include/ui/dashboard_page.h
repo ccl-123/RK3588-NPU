@@ -62,10 +62,7 @@ private:
     QLabel* checkout_label_;
 
     QWidget* trend_chart_;
-    QWidget* donut_chart_;
-    QWidget* bar_chart_;
     QVBoxLayout* alerts_layout_;
-    QVBoxLayout* dept_rank_layout_;
 
     // AI 分析相关
     QPushButton* ai_analysis_btn_;

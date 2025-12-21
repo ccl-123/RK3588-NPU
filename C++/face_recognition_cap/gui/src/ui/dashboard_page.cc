@@ -200,179 +200,6 @@ private:
     QString x_title_;
 };
 
-struct DonutSegment {
-    double value;
-    QColor color;
-    QString label;
-};
-
-class DonutChartWidget : public QWidget {
-public:
-    explicit DonutChartWidget(QWidget* parent = nullptr)
-        : QWidget(parent)
-        , thickness_(12) {
-        setMinimumSize(160, 160);
-        setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-    }
-
-    void setSegments(const std::vector<DonutSegment>& segments) {
-        segments_ = segments;
-        update();
-    }
-
-    void setCenterText(const QString& title, const QString& value) {
-        center_title_ = title;
-        center_value_ = value;
-        update();
-    }
-
-protected:
-    void paintEvent(QPaintEvent* event) override {
-        Q_UNUSED(event);
-        QPainter painter(this);
-        painter.setRenderHint(QPainter::Antialiasing);
-
-        const int diameter = std::min(width(), height()) - 32;
-        if (diameter <= 0) {
-            return;
-        }
-        const QRectF ring_rect(
-            (width() - diameter) / 2.0,
-            (height() - diameter) / 2.0,
-            diameter,
-            diameter);
-
-        double total = 0.0;
-        for (const auto& segment : segments_) {
-            total += segment.value;
-        }
-
-        if (total <= 0.0) {
-            painter.setPen(QColor(140, 140, 140));
-            painter.drawText(rect(), Qt::AlignCenter, tr("暂无分布数据"));
-            return;
-        }
-
-        double start_angle = 90.0;
-        for (const auto& segment : segments_) {
-            const double span = 360.0 * (segment.value / total);
-            QPen pen(segment.color, thickness_, Qt::SolidLine, Qt::RoundCap);
-            painter.setPen(pen);
-            painter.setBrush(Qt::NoBrush);
-            painter.drawArc(ring_rect, static_cast<int>(start_angle * 16),
-                           static_cast<int>(-span * 16));
-            start_angle -= span;
-        }
-
-        painter.setPen(QColor(60, 60, 60));
-        QFont value_font = painter.font();
-        value_font.setPointSize(18);
-        value_font.setBold(true);
-        painter.setFont(value_font);
-        painter.drawText(rect().adjusted(0, -6, 0, 0), Qt::AlignCenter, center_value_);
-
-        painter.setPen(QColor(140, 140, 140));
-        QFont title_font = painter.font();
-        title_font.setPointSize(10);
-        title_font.setBold(false);
-        painter.setFont(title_font);
-        painter.drawText(rect().adjusted(0, 22, 0, 0), Qt::AlignCenter, center_title_);
-    }
-
-private:
-    std::vector<DonutSegment> segments_;
-    int thickness_;
-    QString center_title_;
-    QString center_value_;
-};
-
-class BarChartWidget : public QWidget {
-public:
-    explicit BarChartWidget(QWidget* parent = nullptr)
-        : QWidget(parent) {
-        setMinimumHeight(140);
-        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    }
-
-    void setValues(const std::vector<double>& values, const QStringList& labels) {
-        values_ = values;
-        labels_ = labels;
-        update();
-    }
-
-    void setAxisTitles(const QString& y_title, const QString& x_title) {
-        y_title_ = y_title;
-        x_title_ = x_title;
-        update();
-    }
-
-protected:
-    void paintEvent(QPaintEvent* event) override {
-        Q_UNUSED(event);
-        QPainter painter(this);
-        painter.setRenderHint(QPainter::Antialiasing);
-
-        const QRectF bounds = rect().adjusted(32, 8, -12, -28);
-        if (values_.empty()) {
-            painter.setPen(QColor(140, 140, 140));
-            painter.drawText(rect(), Qt::AlignCenter, tr("暂无时段数据"));
-            return;
-        }
-
-        double max_value = 0.0;
-        for (double v : values_) {
-            max_value = std::max(max_value, v);
-        }
-        if (max_value <= 0.0) {
-            max_value = 1.0;
-        }
-
-        const int count = static_cast<int>(values_.size());
-        const double step = bounds.width() / std::max(1, count);
-        const double bar_width = step * 0.55;
-
-        painter.setPen(Qt::NoPen);
-        for (int i = 0; i < count; ++i) {
-            const double ratio = values_[i] / max_value;
-            const double height = bounds.height() * ratio;
-            const double x = bounds.left() + step * i + (step - bar_width) / 2;
-            const double y = bounds.bottom() - height;
-
-            QLinearGradient gradient(QPointF(x, y), QPointF(x, bounds.bottom()));
-            gradient.setColorAt(0.0, QColor(54, 207, 201, 200));
-            gradient.setColorAt(1.0, QColor(54, 207, 201, 80));
-            painter.setBrush(gradient);
-            painter.drawRoundedRect(QRectF(x, y, bar_width, height), 4, 4);
-        }
-
-        painter.setPen(QColor(140, 140, 140));
-        painter.setFont(QFont(painter.font().family(), 9));
-        for (int i = 0; i < count && i < labels_.size(); ++i) {
-            const double x = bounds.left() + step * i + step / 2 - 18;
-            painter.drawText(QRectF(x, bounds.bottom() + 6, 36, 14),
-                             Qt::AlignCenter, labels_.at(i));
-        }
-
-        painter.drawText(QRectF(4, bounds.top() - 4, 26, 14), Qt::AlignLeft, tr("人"));
-        painter.drawText(QRectF(bounds.right() - 90, bounds.bottom() + 20, 90, 14),
-                         Qt::AlignRight, tr("时段"));
-        if (!y_title_.isEmpty()) {
-            painter.drawText(QRectF(bounds.left(), bounds.top() - 14, 160, 14),
-                             Qt::AlignLeft, y_title_);
-        }
-        if (!x_title_.isEmpty()) {
-            painter.drawText(QRectF(bounds.right() - 120, bounds.bottom() + 20, 120, 14),
-                             Qt::AlignRight, x_title_);
-        }
-    }
-
-private:
-    std::vector<double> values_;
-    QStringList labels_;
-    QString y_title_;
-    QString x_title_;
-};
-
 void clear_layout(QLayout* layout) {
     if (!layout) {
         return;
@@ -407,10 +234,7 @@ DashboardPage::DashboardPage(QWidget* parent)
     , abnormal_rate_label_(nullptr)
     , checkout_label_(nullptr)
     , trend_chart_(nullptr)
-    , donut_chart_(nullptr)
-    , bar_chart_(nullptr)
     , alerts_layout_(nullptr)
-    , dept_rank_layout_(nullptr)
     , ai_analysis_btn_(nullptr)
     , is_analyzing_(false)
     , ai_result_label_(nullptr)
@@ -480,6 +304,7 @@ void DashboardPage::appendChatMessage(const QString& role, const QString& text) 
 
     auto label = new QLabel(text, bubble);
     label->setObjectName("AiChatText");
+    label->setStyleSheet("font-size: 16px;");
     label->setWordWrap(true);
     label->setTextInteractionFlags(Qt::TextSelectableByMouse);
     bubble_layout->addWidget(label);
@@ -908,14 +733,25 @@ void DashboardPage::setup_ui() {
     insight_header_layout->setContentsMargins(0, 0, 0, 0);
     insight_header_layout->setSpacing(12);
 
-    auto insight_title = new QLabel(tr("智能分析"), insight_header);
+    auto ai_title_layout = new QHBoxLayout();
+    ai_title_layout->setSpacing(8);
+    ai_title_layout->setContentsMargins(0,0,0,0);
+    
+    auto icon_label = new QLabel(insight_header);
+    icon_label->setPixmap(SvgIconManager::icon(":/icons/status/info.svg", QSize(24, 24), QColor("#722ed1")).pixmap(24, 24));
+    ai_title_layout->addWidget(icon_label);
+
+    auto insight_title = new QLabel(tr("智能考勤助手 AI Agent"), insight_header);
     insight_title->setObjectName("CardTitle");
-    insight_header_layout->addWidget(insight_title);
+    insight_title->setStyleSheet("font-size: 18px; font-weight: bold; color: #1f1f1f;");
+    ai_title_layout->addWidget(insight_title);
+    
+    insight_header_layout->addLayout(ai_title_layout);
 
     insight_header_layout->addStretch();
 
     // AI 分析按钮（智能分析板块右侧）
-    ai_analysis_btn_ = new QPushButton(tr("智能分析"), insight_header);
+    ai_analysis_btn_ = new QPushButton(tr("开始分析"), insight_header);
     ai_analysis_btn_->setObjectName("DashboardAiButton");
     ai_analysis_btn_->setCursor(Qt::PointingHandCursor);
     ai_analysis_btn_->setIcon(SvgIconManager::icon(":/icons/status/info.svg", QSize(16, 16), QColor("#ffffff")));
@@ -1091,44 +927,8 @@ void DashboardPage::setup_ui() {
     trend_layout->addWidget(trend_chart, 1);
     trend_chart_ = trend_chart;
 
-    chart_row->addWidget(trend_card, 3);
+    chart_row->addWidget(trend_card, 1);
 
-    auto dist_card = new CardWidget(content);
-    dist_card->setTitle(tr("异常分布"));
-    auto dist_layout = new QVBoxLayout(dist_card->bodyContainer());
-    dist_layout->setContentsMargins(0, 0, 0, 0);
-    dist_layout->setSpacing(16);
-
-    auto dist_top = new QHBoxLayout();
-    dist_top->setSpacing(16);
-
-    auto donut = new DonutChartWidget(dist_card);
-    donut->setObjectName("DashboardDonutChart");
-    dist_top->addWidget(donut, 1);
-    donut_chart_ = donut;
-
-    auto dist_info = new QWidget(dist_card);
-    auto dist_info_layout = new QVBoxLayout(dist_info);
-    dist_info_layout->setContentsMargins(0, 0, 0, 0);
-    dist_info_layout->setSpacing(10);
-    auto dist_title = new QLabel(tr("异常明细（部门签到 Top 5）"), dist_info);
-    dist_title->setObjectName("DashboardSectionTitle");
-    dist_info_layout->addWidget(dist_title);
-    dept_rank_layout_ = new QVBoxLayout();
-    dept_rank_layout_->setSpacing(8);
-    dist_info_layout->addLayout(dept_rank_layout_);
-    dist_info_layout->addStretch();
-    dist_top->addWidget(dist_info, 1);
-
-    dist_layout->addLayout(dist_top);
-
-    auto bar = new BarChartWidget(dist_card);
-    bar->setObjectName("DashboardBarChart");
-    bar->setAxisTitles(tr("签到人数（人）"), tr("签到时段"));
-    dist_layout->addWidget(bar);
-    bar_chart_ = bar;
-
-    chart_row->addWidget(dist_card, 2);
     layout->addLayout(chart_row);
     layout->addStretch();
 }
@@ -1347,88 +1147,6 @@ void DashboardPage::refreshData() {
 
     if (trend_chart_) {
         static_cast<TrendChartWidget*>(trend_chart_)->setSeries(series);
-    }
-
-    std::vector<DonutSegment> segments;
-    segments.push_back({static_cast<double>(late_count), QColor("#fa8c16"), tr("迟到")});
-    segments.push_back({static_cast<double>(early_count), QColor("#f5222d"), tr("早退")});
-    segments.push_back({static_cast<double>(missing_count), QColor("#722ed1"), tr("未打卡")});
-    segments.push_back({static_cast<double>(low_similarity), QColor("#13c2c2"), tr("低相似度")});
-    if (donut_chart_) {
-        auto donut = static_cast<DonutChartWidget*>(donut_chart_);
-        donut->setSegments(segments);
-        donut->setCenterText(tr("异常占比"),
-                             QString::number((late_count + early_count + low_similarity) > 0
-                                                 ? (static_cast<double>(late_count + early_count + low_similarity) /
-                                                    std::max(1, checked_in + checked_out) * 100.0)
-                                                 : 0.0,
-                                             'f', 1) + "%");
-    }
-
-    if (dept_rank_layout_) {
-        clear_layout(dept_rank_layout_);
-        std::vector<std::pair<QString, int>> dept_sorted;
-        dept_sorted.reserve(dept_checkin_counts.size());
-        for (auto it = dept_checkin_counts.cbegin(); it != dept_checkin_counts.cend(); ++it) {
-            dept_sorted.emplace_back(it.key(), it.value());
-        }
-        std::sort(dept_sorted.begin(), dept_sorted.end(),
-                  [](const auto& a, const auto& b) { return a.second > b.second; });
-        const int max_count = dept_sorted.empty() ? 1 : dept_sorted.front().second;
-        const int show_count = std::min(5, static_cast<int>(dept_sorted.size()));
-        for (int i = 0; i < show_count; ++i) {
-            auto row = new QWidget();
-            row->setObjectName("DashboardRankItem");
-            auto row_layout = new QHBoxLayout(row);
-            row_layout->setContentsMargins(0, 0, 0, 0);
-            row_layout->setSpacing(8);
-
-            auto name_label = new QLabel(dept_sorted[i].first, row);
-            name_label->setObjectName("DashboardRankName");
-            row_layout->addWidget(name_label);
-
-            auto bar = new QProgressBar(row);
-            bar->setObjectName("DashboardRankBar");
-            bar->setRange(0, max_count);
-            bar->setValue(dept_sorted[i].second);
-            bar->setTextVisible(false);
-            bar->setFixedHeight(8);
-            row_layout->addWidget(bar, 1);
-
-            auto value_label = new QLabel(QString::number(dept_sorted[i].second), row);
-            value_label->setObjectName("DashboardRankValue");
-            row_layout->addWidget(value_label);
-
-            dept_rank_layout_->addWidget(row);
-        }
-        if (show_count == 0) {
-            auto empty = new QLabel(tr("暂无部门签到数据"));
-            empty->setObjectName("DashboardEmptyText");
-            dept_rank_layout_->addWidget(empty);
-        }
-    }
-
-    if (bar_chart_) {
-        std::vector<double> bars(6, 0.0);
-        QStringList labels = {QStringLiteral("07"), QStringLiteral("08"), QStringLiteral("09"),
-                              QStringLiteral("10"), QStringLiteral("11"), QStringLiteral("12")};
-        for (const auto& record : records) {
-            if (record.check_type != db::CheckType::CHECK_IN) {
-                continue;
-            }
-            if (filter_dept) {
-                auto it = user_departments.find(record.user_id);
-                if (it == user_departments.end() || it->second != dept_filter) {
-                    continue;
-                }
-            }
-            const QDateTime dt = QDateTime::fromTime_t(record.check_time);
-            const int hour = dt.time().hour();
-            if (hour >= 7 && hour <= 12) {
-                bars[hour - 7] += 1.0;
-            }
-        }
-        static_cast<BarChartWidget*>(bar_chart_)->setValues(bars, labels);
     }
 
     // 智能分析区域由 AI 对话面板负责渲染，不在刷新中重置
