@@ -257,8 +257,45 @@ target_link_libraries(db_tool
 # install target and libraries
 set(CMAKE_INSTALL_PREFIX ${CMAKE_SOURCE_DIR}/install/${TARGET_NAME})
 install(TARGETS ${TARGET_NAME} DESTINATION ./)
-install(TARGETS db_tool DESTINATION ./)
+
+# 仅当 db_tool 不存在时才安装，避免重复编译和替换
+install(CODE "
+    set(DB_TOOL_SRC \"${CMAKE_BINARY_DIR}/db_tool\")
+    set(DB_TOOL_DST \"${CMAKE_INSTALL_PREFIX}/db_tool\")
+    if(NOT EXISTS \${DB_TOOL_DST})
+        message(STATUS \"Installing db_tool: \${DB_TOOL_DST}\")
+        file(COPY \${DB_TOOL_SRC} DESTINATION \"${CMAKE_INSTALL_PREFIX}/\")
+        file(CHMOD \${DB_TOOL_DST} FILE_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+    else()
+        message(STATUS \"db_tool already exists, skipping: \${DB_TOOL_DST}\")
+    endif()
+")
 
 install(PROGRAMS ${RKNN_RT_LIB} DESTINATION lib)
 install(PROGRAMS ${RGA_LIB} DESTINATION lib)
-install(DIRECTORY data DESTINATION ./)
+
+# 安装 data 目录时排除数据库文件，避免覆盖用户运行时的数据
+install(DIRECTORY data DESTINATION ./
+        PATTERN "*.db" EXCLUDE
+        PATTERN "*.db-journal" EXCLUDE
+        PATTERN "*.db-wal" EXCLUDE
+        PATTERN "*.db-shm" EXCLUDE)
+
+# 仅当源数据库存在时才安装，避免重复生成
+# 如果源数据库不存在，用户需要手动运行 scripts/setup_database.sh 初始化
+install(CODE "
+    set(DB_SRC \"${CMAKE_SOURCE_DIR}/data/database/face_recognition.db\")
+    set(DB_DST \"${CMAKE_INSTALL_PREFIX}/data/database/face_recognition.db\")
+
+    if(EXISTS \${DB_SRC})
+        if(NOT EXISTS \${DB_DST})
+            message(STATUS \"Installing database from source: \${DB_SRC}\")
+            file(COPY \${DB_SRC} DESTINATION \"${CMAKE_INSTALL_PREFIX}/data/database/\")
+        else()
+            message(STATUS \"Database already exists at destination, skipping: \${DB_DST}\")
+        endif()
+    else()
+        message(STATUS \"Source database not found: \${DB_SRC}\")
+        message(STATUS \"To initialize database, run: bash scripts/setup_database.sh\")
+    endif()
+")
