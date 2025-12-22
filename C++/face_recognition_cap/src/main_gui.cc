@@ -48,9 +48,14 @@ void setup_logger() {
 }
 
 int main(int argc, char* argv[]) {
+    // 设置输入法环境变量（必须在 QApplication 创建之前）
+    // 支持 fcitx5 中文输入
+    qputenv("QT_IM_MODULE", "fcitx5");
+    qputenv("XMODIFIERS", "@im=fcitx5");
+
     // 初始化日志系统
     setup_logger();
-    
+
     // 创建 Qt 应用
     QApplication app(argc, argv);
     app.setApplicationName("人脸识别考勤系统");
