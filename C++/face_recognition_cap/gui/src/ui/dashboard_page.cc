@@ -1267,6 +1267,8 @@ void DashboardPage::refreshData() {
             empty->setObjectName("DashboardEmptyText");
             alerts_layout_->addWidget(empty);
         }
+        
+        alerts_layout_->addStretch();
     }
 
     need_refresh_ = false;
