@@ -256,6 +256,7 @@ DashboardPage::DashboardPage(QWidget* parent)
     , ai_data_today_btn_(nullptr)
     , ai_data_7day_btn_(nullptr)
     , ai_data_30day_btn_(nullptr)
+    , ai_data_qa_btn_(nullptr)
     , ai_data_range_label_(nullptr) {
     setup_ui();
 
@@ -411,7 +412,9 @@ void DashboardPage::on_ai_analysis_clicked() {
     is_analyzing_ = true;
 
     // 使用当前选择的数据范围（不再自动重置）
+    // 0 表示纯问答模式（不附带考勤数据）
     int range_days = ai_data_range_days_;
+    bool is_qa_mode = (range_days == 0);
 
     QString user_prompt;
     bool appended_user = false;
@@ -426,14 +429,41 @@ void DashboardPage::on_ai_analysis_clicked() {
         appended_user = true;
     } else {
         // 根据数据范围生成默认提示
-        if (range_days == 1) {
+        if (is_qa_mode) {
+            // 纯问答模式需要用户输入问题
+            is_analyzing_ = false;
+            appendChatMessage("assistant", tr("请输入您的问题后再发送。"));
+            return;
+        } else if (range_days == 1) {
             user_prompt = tr("请生成今日考勤综合分析。");
         } else {
             user_prompt = tr("请生成近%1日考勤综合分析。").arg(range_days);
         }
     }
-    
-    // 1. 获取统计数据 (最近 range_days 天)
+
+    // 纯问答模式：跳过数据收集，直接发送用户问题
+    if (is_qa_mode) {
+        if (!appended_user && !user_prompt.isEmpty()) {
+            appendChatMessage("user", user_prompt);
+        }
+        appendChatMessage("assistant", tr("正在思考中，请稍候..."));
+        spdlog::info("Sending pure Q&A request (no attendance data)");
+
+        // 创建空的统计数据
+        service::AttendanceStatistics empty_stats;
+        empty_stats.date = QDate::currentDate().toString("yyyy-MM-dd").toStdString();
+        empty_stats.total_count = 0;
+        empty_stats.check_in_count = 0;
+        empty_stats.check_out_count = 0;
+        empty_stats.late_count = 0;
+        empty_stats.early_leave_count = 0;
+
+        // 发送纯问答请求（空数据 + 用户问题，range_days=0 标识纯问答模式）
+        AiAnalysisService::instance()->requestAnalysis(empty_stats, QString(), QString(), user_prompt, 0);
+        return;
+    }
+
+    // 正常模式：获取考勤统计数据
     QDate end_date = QDate::currentDate();
     QDate start_date = end_date.addDays(-(range_days - 1));
     std::string start_str = start_date.toString("yyyy-MM-dd").toStdString();
@@ -441,7 +471,7 @@ void DashboardPage::on_ai_analysis_clicked() {
 
     auto today_stats = attendance_service_->get_statistics(end_date.toString("yyyy-MM-dd").toStdString());
     auto range_stats = attendance_service_->get_statistics_range(start_str, end_str);
-    
+
     QString trend_summary;
     for (const auto& s : range_stats) {
         trend_summary += QString("%1: 出勤%2人, 迟到%3人, 早退%4人\n")
@@ -450,11 +480,11 @@ void DashboardPage::on_ai_analysis_clicked() {
             .arg(s.late_count)
             .arg(s.early_leave_count);
     }
-    
-    // 2. 获取详细记录
+
+    // 获取详细记录
     QString detail_records_str;
     auto range_records = attendance_service_->query_records_range(start_str, end_str);
-    
+
     // 预加载所有用户部门信息
     std::unordered_map<int, std::string> user_depts;
     auto all_users = user_service_->get_all_users();
@@ -463,7 +493,7 @@ void DashboardPage::on_ai_analysis_clicked() {
     }
 
     // 按时间排序 (倒序)
-    std::sort(range_records.begin(), range_records.end(), 
+    std::sort(range_records.begin(), range_records.end(),
         [](const db::AttendanceRecord& a, const db::AttendanceRecord& b) {
             return a.check_time > b.check_time;
     });
@@ -478,7 +508,7 @@ void DashboardPage::on_ai_analysis_clicked() {
                 detail_records_str += QString("...(更多%1条记录已省略)\n").arg(range_records.size() - max_records);
                 break;
             }
-            
+
             QString dept = "未知部门";
             if (user_depts.find(r.user_id) != user_depts.end()) {
                 dept = QString::fromStdString(user_depts[r.user_id]);
@@ -490,7 +520,7 @@ void DashboardPage::on_ai_analysis_clicked() {
             else if (r.status == db::AttendanceStatus::STATUS_LATE) status_str = "迟到";
             else if (r.status == db::AttendanceStatus::STATUS_EARLY_LEAVE) status_str = "早退";
             else status_str = "未知";
-            
+
             QString type_str = (r.check_type == db::CheckType::CHECK_IN) ? "签到" : "签退";
             QString time_str = QDateTime::fromTime_t(r.check_time).toString("MM-dd HH:mm");
 
@@ -503,7 +533,7 @@ void DashboardPage::on_ai_analysis_clicked() {
         }
     }
 
-    // 3. 发送请求
+    // 发送请求
     if (!appended_user && !user_prompt.isEmpty()) {
         appendChatMessage("user", user_prompt);
     }
@@ -955,6 +985,15 @@ void DashboardPage::setup_ui() {
     connect(ai_data_30day_btn_, &QPushButton::clicked, this, [this]() { on_data_range_changed(30); });
     quick_layout->addWidget(ai_data_30day_btn_);
 
+    // 纯问答按钮（不附带考勤数据）
+    ai_data_qa_btn_ = new QPushButton(tr("纯问答"), quick_row);
+    ai_data_qa_btn_->setObjectName("AiDataRangeButton");
+    ai_data_qa_btn_->setCheckable(true);
+    ai_data_qa_btn_->setStyleSheet(range_btn_style);
+    ai_data_qa_btn_->setToolTip(tr("仅发送问题给AI，不附带考勤数据"));
+    connect(ai_data_qa_btn_, &QPushButton::clicked, this, [this]() { on_data_range_changed(0); });  // 0 表示纯问答模式
+    quick_layout->addWidget(ai_data_qa_btn_);
+
     // 显示当前数据范围的记录数
     ai_data_range_label_ = new QLabel(tr("(今日数据)"), quick_row);
     ai_data_range_label_->setStyleSheet("color: #52c41a; font-size: 11px;");
@@ -1398,6 +1437,9 @@ void DashboardPage::refreshData() {
 }
 
 void DashboardPage::update_data_range_buttons() {
+    // 0 表示纯问答模式
+    bool is_qa_mode = (ai_data_range_days_ == 0);
+
     if (ai_data_today_btn_) {
         ai_data_today_btn_->setChecked(ai_data_range_days_ == 1);
     }
@@ -1407,27 +1449,37 @@ void DashboardPage::update_data_range_buttons() {
     if (ai_data_30day_btn_) {
         ai_data_30day_btn_->setChecked(ai_data_range_days_ == 30);
     }
+    if (ai_data_qa_btn_) {
+        ai_data_qa_btn_->setChecked(is_qa_mode);
+    }
 
     // 更新标签显示
-    if (ai_data_range_label_ && attendance_service_) {
-        QDate end_date = QDate::currentDate();
-        QDate start_date = end_date.addDays(-(ai_data_range_days_ - 1));
-        std::string start_str = start_date.toString("yyyy-MM-dd").toStdString();
-        std::string end_str = end_date.toString("yyyy-MM-dd").toStdString();
-        auto records = attendance_service_->query_records_range(start_str, end_str);
+    if (ai_data_range_label_) {
+        if (is_qa_mode) {
+            // 纯问答模式不显示数据条数
+            ai_data_range_label_->setText(tr("(无数据)"));
+            ai_data_range_label_->setStyleSheet("color: #888; font-size: 11px;");
+        } else if (attendance_service_) {
+            QDate end_date = QDate::currentDate();
+            QDate start_date = end_date.addDays(-(ai_data_range_days_ - 1));
+            std::string start_str = start_date.toString("yyyy-MM-dd").toStdString();
+            std::string end_str = end_date.toString("yyyy-MM-dd").toStdString();
+            auto records = attendance_service_->query_records_range(start_str, end_str);
 
-        QString range_text;
-        if (ai_data_range_days_ == 1) {
-            range_text = tr("(今日%1条)").arg(records.size());
-        } else {
-            range_text = tr("(近%1日%2条)").arg(ai_data_range_days_).arg(records.size());
+            QString range_text;
+            if (ai_data_range_days_ == 1) {
+                range_text = tr("(今日%1条)").arg(records.size());
+            } else {
+                range_text = tr("(近%1日%2条)").arg(ai_data_range_days_).arg(records.size());
+            }
+            ai_data_range_label_->setText(range_text);
+            ai_data_range_label_->setStyleSheet("color: #52c41a; font-size: 11px;");
         }
-        ai_data_range_label_->setText(range_text);
     }
 }
 
 void DashboardPage::on_data_range_changed(int days) {
     ai_data_range_days_ = days;
     update_data_range_buttons();
-    spdlog::info("AI data range changed to {} days", days);
+    spdlog::info("AI data range changed to {} days (0=Q&A mode)", days);
 }

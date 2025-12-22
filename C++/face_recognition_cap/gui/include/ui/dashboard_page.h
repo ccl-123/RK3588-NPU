@@ -88,6 +88,7 @@ private:
     QPushButton* ai_data_today_btn_;
     QPushButton* ai_data_7day_btn_;
     QPushButton* ai_data_30day_btn_;
+    QPushButton* ai_data_qa_btn_;  // 纯问答模式按钮（不附带考勤数据）
     QLabel* ai_data_range_label_;  // 显示当前选中的数据范围
 
     void update_data_range_buttons();  // 更新按钮选中状态
