@@ -252,7 +252,11 @@ DashboardPage::DashboardPage(QWidget* parent)
     , ai_chat_spacer_(nullptr)
     , ai_input_(nullptr)
     , ai_send_btn_(nullptr)
-    , ai_data_range_days_(1) {
+    , ai_data_range_days_(1)
+    , ai_data_today_btn_(nullptr)
+    , ai_data_7day_btn_(nullptr)
+    , ai_data_30day_btn_(nullptr)
+    , ai_data_range_label_(nullptr) {
     setup_ui();
 
     // 连接 AI 服务信号
@@ -406,8 +410,8 @@ void DashboardPage::on_ai_analysis_clicked() {
 
     is_analyzing_ = true;
 
+    // 使用当前选择的数据范围（不再自动重置）
     int range_days = ai_data_range_days_;
-    ai_data_range_days_ = 1; // 重置为默认
 
     QString user_prompt;
     bool appended_user = false;
@@ -421,7 +425,12 @@ void DashboardPage::on_ai_analysis_clicked() {
         appendChatMessage("user", user_prompt);
         appended_user = true;
     } else {
-        user_prompt = tr("请生成今日考勤综合分析。");
+        // 根据数据范围生成默认提示
+        if (range_days == 1) {
+            user_prompt = tr("请生成今日考勤综合分析。");
+        } else {
+            user_prompt = tr("请生成近%1日考勤综合分析。").arg(range_days);
+        }
     }
     
     // 1. 获取统计数据 (最近 range_days 天)
@@ -854,28 +863,19 @@ void DashboardPage::setup_ui() {
     template_menu->addSeparator();
     template_menu->addAction(tr("详细打卡清单"), [this]() {
         if (ai_input_) {
-            ai_input_->setText(tr("请整理并列出今日所有的详细考勤记录，包括打卡人、部门、打卡时间和当前状态。"));
+            ai_input_->setText(tr("请整理并列出所有的详细考勤记录，包括打卡人、部门、打卡时间和当前状态。"));
             ai_input_->setFocus();
         }
     });
-    template_menu->addSeparator();
-    template_menu->addAction(tr("近7日全量深度分析"), [this]() {
-        ai_data_range_days_ = 7;
+    template_menu->addAction(tr("迟到人员排名"), [this]() {
         if (ai_input_) {
-            ai_input_->setText(tr("请结合我提供的近7日全量详细考勤数据，从出勤规律、部门差异、异常趋势等方面进行深度分析，并给出管理建议。"));
-            ai_input_->setFocus();
-        }
-    });
-    template_menu->addAction(tr("近30日全量趋势诊断"), [this]() {
-        ai_data_range_days_ = 30;
-        if (ai_input_) {
-            ai_input_->setText(tr("请分析近30日的考勤全量详细数据，识别长期存在的考勤问题，评价员工出勤稳定性，并提出优化考勤制度的建议。"));
+            ai_input_->setText(tr("请统计谁迟到次数最多，列出迟到排名前5的员工及其迟到次数。"));
             ai_input_->setFocus();
         }
     });
     template_menu->addAction(tr("生成考勤周报"), [this]() {
         if (ai_input_) {
-            ai_input_->setText(tr("请结合今日数据和近7日趋势，生成一份简明扼要的考勤周报总结。"));
+            ai_input_->setText(tr("请生成一份简明扼要的考勤周报总结。"));
             ai_input_->setFocus();
         }
     });
@@ -900,6 +900,66 @@ void DashboardPage::setup_ui() {
         appendChatMessage("assistant", tr("对话已清空，输入问题即可开始新的分析。"));
     });
     quick_layout->addWidget(clear_btn);
+
+    // 分隔符
+    auto separator = new QFrame(quick_row);
+    separator->setFrameShape(QFrame::VLine);
+    separator->setStyleSheet("color: #444;");
+    quick_layout->addWidget(separator);
+
+    // 数据范围标签
+    auto range_label = new QLabel(tr("数据范围:"), quick_row);
+    range_label->setStyleSheet("color: #888; font-size: 12px;");
+    quick_layout->addWidget(range_label);
+
+    // 数据范围按钮组
+    QString range_btn_style = R"(
+        QPushButton {
+            background-color: #2a2a2a;
+            color: #888;
+            border: 1px solid #444;
+            border-radius: 12px;
+            padding: 4px 12px;
+            font-size: 12px;
+        }
+        QPushButton:hover {
+            background-color: #3a3a3a;
+            color: #fff;
+        }
+        QPushButton:checked {
+            background-color: #1890ff;
+            color: white;
+            border-color: #1890ff;
+        }
+    )";
+
+    ai_data_today_btn_ = new QPushButton(tr("今日"), quick_row);
+    ai_data_today_btn_->setObjectName("AiDataRangeButton");
+    ai_data_today_btn_->setCheckable(true);
+    ai_data_today_btn_->setChecked(true);
+    ai_data_today_btn_->setStyleSheet(range_btn_style);
+    connect(ai_data_today_btn_, &QPushButton::clicked, this, [this]() { on_data_range_changed(1); });
+    quick_layout->addWidget(ai_data_today_btn_);
+
+    ai_data_7day_btn_ = new QPushButton(tr("近7日"), quick_row);
+    ai_data_7day_btn_->setObjectName("AiDataRangeButton");
+    ai_data_7day_btn_->setCheckable(true);
+    ai_data_7day_btn_->setStyleSheet(range_btn_style);
+    connect(ai_data_7day_btn_, &QPushButton::clicked, this, [this]() { on_data_range_changed(7); });
+    quick_layout->addWidget(ai_data_7day_btn_);
+
+    ai_data_30day_btn_ = new QPushButton(tr("近30日"), quick_row);
+    ai_data_30day_btn_->setObjectName("AiDataRangeButton");
+    ai_data_30day_btn_->setCheckable(true);
+    ai_data_30day_btn_->setStyleSheet(range_btn_style);
+    connect(ai_data_30day_btn_, &QPushButton::clicked, this, [this]() { on_data_range_changed(30); });
+    quick_layout->addWidget(ai_data_30day_btn_);
+
+    // 显示当前数据范围的记录数
+    ai_data_range_label_ = new QLabel(tr("(今日数据)"), quick_row);
+    ai_data_range_label_->setStyleSheet("color: #52c41a; font-size: 11px;");
+    quick_layout->addWidget(ai_data_range_label_);
+
     quick_layout->addStretch();
 
     insight_layout->addWidget(quick_row);
@@ -1335,4 +1395,39 @@ void DashboardPage::refreshData() {
     }
 
     need_refresh_ = false;
+}
+
+void DashboardPage::update_data_range_buttons() {
+    if (ai_data_today_btn_) {
+        ai_data_today_btn_->setChecked(ai_data_range_days_ == 1);
+    }
+    if (ai_data_7day_btn_) {
+        ai_data_7day_btn_->setChecked(ai_data_range_days_ == 7);
+    }
+    if (ai_data_30day_btn_) {
+        ai_data_30day_btn_->setChecked(ai_data_range_days_ == 30);
+    }
+
+    // 更新标签显示
+    if (ai_data_range_label_ && attendance_service_) {
+        QDate end_date = QDate::currentDate();
+        QDate start_date = end_date.addDays(-(ai_data_range_days_ - 1));
+        std::string start_str = start_date.toString("yyyy-MM-dd").toStdString();
+        std::string end_str = end_date.toString("yyyy-MM-dd").toStdString();
+        auto records = attendance_service_->query_records_range(start_str, end_str);
+
+        QString range_text;
+        if (ai_data_range_days_ == 1) {
+            range_text = tr("(今日%1条)").arg(records.size());
+        } else {
+            range_text = tr("(近%1日%2条)").arg(ai_data_range_days_).arg(records.size());
+        }
+        ai_data_range_label_->setText(range_text);
+    }
+}
+
+void DashboardPage::on_data_range_changed(int days) {
+    ai_data_range_days_ = days;
+    update_data_range_buttons();
+    spdlog::info("AI data range changed to {} days", days);
 }

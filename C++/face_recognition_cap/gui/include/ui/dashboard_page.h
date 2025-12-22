@@ -84,6 +84,14 @@ private:
     QString ai_last_prompt_;
     int ai_data_range_days_;
 
+    // 数据范围选择按钮
+    QPushButton* ai_data_today_btn_;
+    QPushButton* ai_data_7day_btn_;
+    QPushButton* ai_data_30day_btn_;
+    QLabel* ai_data_range_label_;  // 显示当前选中的数据范围
+
+    void update_data_range_buttons();  // 更新按钮选中状态
+
 private slots:
     void on_ai_analysis_clicked();
     void on_ai_result_ready(const QString& result);
@@ -91,4 +99,5 @@ private slots:
     void on_ai_error(const QString& error);
     void on_ai_analysis_started();
     void on_ai_analysis_cancelled();
+    void on_data_range_changed(int days);
 };
