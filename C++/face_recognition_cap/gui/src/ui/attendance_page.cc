@@ -377,9 +377,8 @@ void AttendancePage::filter_records() {
     
     // Update table
     records_table_->setRowCount(0);
-    // Reverse order for display (newest first)
-    for (auto it = filtered_records_.rbegin(); it != filtered_records_.rend(); ++it) {
-        const auto& record = *it;
+    // 数据已按 check_time DESC 排序（新的在前），直接正向迭代即可
+    for (const auto& record : filtered_records_) {
         int row = records_table_->rowCount();
         records_table_->insertRow(row);
 
