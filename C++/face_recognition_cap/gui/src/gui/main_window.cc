@@ -931,13 +931,22 @@ void MainWindow::apply_theme() {
 }
 
 void MainWindow::start_recognition() {
-    if (is_running_ || !recognition_app_) {
+    if (!recognition_app_) {
+        return;
+    }
+    if (is_running_) {
+        if (recognition_page_) {
+            recognition_page_->setRecognitionRunning(true);
+        }
+        if (status_label_) {
+            status_label_->setText(tr("运行中"));
+        }
         return;
     }
 
     is_running_ = true;
     if (status_label_) {
-    status_label_->setText("运行中");
+        status_label_->setText("运行中");
     }
     if (recognition_page_) {
         recognition_page_->setRecognitionRunning(true);
@@ -1008,12 +1017,18 @@ void MainWindow::drain_latest_frame() {
 
 void MainWindow::stop_recognition() {
     if (!is_running_) {
+        if (recognition_page_) {
+            recognition_page_->setRecognitionRunning(false);
+        }
+        if (status_label_) {
+            status_label_->setText(tr("已停止"));
+        }
         return;
     }
 
     is_running_ = false;
     if (status_label_) {
-    status_label_->setText("已停止");
+        status_label_->setText("已停止");
     }
     if (recognition_page_) {
         recognition_page_->setRecognitionRunning(false);

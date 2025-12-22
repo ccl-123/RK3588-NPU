@@ -919,7 +919,6 @@ CardWidget* RecognitionPage::createStatusCard() {
         } else {
             emit startRecognitionRequested();
         }
-        setRecognitionRunning(!recognition_running_);
     });
 
     auto register_btn = new QPushButton(tr("＋ 注册人脸"), card);
