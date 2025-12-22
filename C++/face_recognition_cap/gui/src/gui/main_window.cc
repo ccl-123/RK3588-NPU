@@ -441,6 +441,7 @@ bool MainWindow::finish_initialization_after_core() {
     // 6. 设置页面服务
     if (attendance_page_) {
         attendance_page_->setAttendanceService(attendance_service_.get());
+        attendance_page_->setUserService(user_service_.get());
     }
     if (dashboard_page_) {
         dashboard_page_->setAttendanceService(attendance_service_.get());

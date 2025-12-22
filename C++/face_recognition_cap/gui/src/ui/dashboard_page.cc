@@ -228,12 +228,19 @@ DashboardPage::DashboardPage(QWidget* parent)
     , attendance_rate_label_(nullptr)
     , attendance_detail_label_(nullptr)
     , checkin_label_(nullptr)
+    , checkin_sub_label_(nullptr)
     , late_label_(nullptr)
+    , late_sub_label_(nullptr)
     , early_label_(nullptr)
+    , early_sub_label_(nullptr)
     , missing_label_(nullptr)
+    , missing_sub_label_(nullptr)
     , similarity_label_(nullptr)
+    , similarity_sub_label_(nullptr)
     , abnormal_rate_label_(nullptr)
+    , abnormal_rate_sub_label_(nullptr)
     , checkout_label_(nullptr)
+    , checkout_sub_label_(nullptr)
     , trend_chart_(nullptr)
     , alerts_layout_(nullptr)
     , ai_analysis_btn_(nullptr)
@@ -612,6 +619,7 @@ void DashboardPage::setup_ui() {
     filters_layout->setSpacing(12);
 
     range_combo_ = new QComboBox(filters_group);
+    range_combo_->addItem(tr("今日"), 1);
     range_combo_->addItem(tr("近7天"), 7);
     range_combo_->addItem(tr("近30天"), 30);
     range_combo_->setObjectName("DashboardFilterCombo");
@@ -699,30 +707,31 @@ void DashboardPage::setup_ui() {
         return card;
     };
 
-    kpi_layout->addWidget(make_kpi(tr("今日到岗率"), ":/icons/status/check-circle.svg",
+    kpi_layout->addWidget(make_kpi(tr("到岗率"), ":/icons/status/check-circle.svg",
                                    QColor("#1677ff"), &attendance_rate_label_,
                                    &attendance_detail_label_, tr("实到 0 / 应到 0")), 0, 0);
     kpi_layout->addWidget(make_kpi(tr("签到人数"), ":/icons/status/user-check.svg",
                                    QColor("#52c41a"), &checkin_label_,
-                                   nullptr, tr("今日")), 0, 1);
+                                   &checkin_sub_label_, tr("今日")), 0, 1);
     kpi_layout->addWidget(make_kpi(tr("迟到人数"), ":/icons/status/alert-circle.svg",
                                    QColor("#fa8c16"), &late_label_,
-                                   nullptr, tr("今日")), 0, 2);
+                                   &late_sub_label_, tr("今日")), 0, 2);
     kpi_layout->addWidget(make_kpi(tr("早退人数"), ":/icons/status/x-circle.svg",
                                    QColor("#f5222d"), &early_label_,
-                                   nullptr, tr("今日")), 0, 3);
+                                   &early_sub_label_, tr("今日")), 0, 3);
     kpi_layout->addWidget(make_kpi(tr("未打卡"), ":/icons/status/user-x.svg",
                                    QColor("#722ed1"), &missing_label_,
-                                   nullptr, tr("今日")), 1, 0);
+                                   &missing_sub_label_, tr("今日")), 1, 0);
     kpi_layout->addWidget(make_kpi(tr("平均相似度"), ":/icons/status/info.svg",
                                    QColor("#13c2c2"), &similarity_label_,
-                                   nullptr, tr("今日")), 1, 1);
-    kpi_layout->addWidget(make_kpi(tr("异常识别率"), ":/icons/status/alert-circle.svg",
+                                   &similarity_sub_label_, tr("今日")), 1, 1);
+    // 将“异常识别率”替换为“异常记录数”，统计迟到/早退的记录条数
+    kpi_layout->addWidget(make_kpi(tr("异常记录数"), ":/icons/status/alert-circle.svg",
                                    QColor("#d46b08"), &abnormal_rate_label_,
-                                   nullptr, tr("今日")), 1, 2);
+                                   &abnormal_rate_sub_label_, tr("迟到+早退条数")), 1, 2);
     kpi_layout->addWidget(make_kpi(tr("签退人数"), ":/icons/status/user-check.svg",
                                    QColor("#9254de"), &checkout_label_,
-                                   nullptr, tr("今日")), 1, 3);
+                                   &checkout_sub_label_, tr("今日")), 1, 3);
 
     layout->addWidget(kpi_container);
 
@@ -923,10 +932,26 @@ void DashboardPage::setup_ui() {
     auto alert_card = new CardWidget(content);
     alert_card->setTitle(tr("异常列表"));
     alert_card->setMinimumHeight(300);
-    auto alert_layout = new QVBoxLayout(alert_card->bodyContainer());
+
+    // 异常列表卡片内部使用独立的滚动区域，避免数据多时拉长整个 Dashboard 页面
+    auto alert_card_layout = new QVBoxLayout(alert_card->bodyContainer());
+    alert_card_layout->setContentsMargins(0, 0, 0, 0);
+    alert_card_layout->setSpacing(0);
+
+    auto alert_scroll = new QScrollArea(alert_card);
+    alert_scroll->setWidgetResizable(true);
+    alert_scroll->setFrameShape(QFrame::NoFrame);
+    alert_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+
+    auto alert_container = new QWidget(alert_scroll);
+    alert_scroll->setWidget(alert_container);
+
+    auto alert_layout = new QVBoxLayout(alert_container);
     alert_layout->setContentsMargins(0, 0, 0, 0);
     alert_layout->setSpacing(10);
     alerts_layout_ = alert_layout;
+
+    alert_card_layout->addWidget(alert_scroll);
     top_row->addWidget(alert_card, 1);
 
     layout->addLayout(top_row);
@@ -1039,8 +1064,18 @@ void DashboardPage::refreshData() {
         }
     }
 
-    const QString today = QDate::currentDate().toString("yyyy-MM-dd");
-    auto records = attendance_service_->query_records_by_date(today.toStdString());
+    int range_days = 1;
+    if (range_combo_) {
+        range_days = range_combo_->currentData().toInt();
+        if (range_days <= 0) range_days = 1;
+    }
+
+    QDate end_date = QDate::currentDate();
+    QDate start_date = end_date.addDays(-(range_days - 1));
+    std::string start_str = start_date.toString("yyyy-MM-dd").toStdString();
+    std::string end_str = end_date.toString("yyyy-MM-dd").toStdString();
+
+    auto records = attendance_service_->query_records_range(start_str, end_str);
 
     std::unordered_set<int> checkin_users;
     std::unordered_set<int> checkout_users;
@@ -1090,9 +1125,22 @@ void DashboardPage::refreshData() {
     }
 
     // 业务规则：有签退但无签到，判定为迟到
+    // 注意：这里不仅要计入迟到人数统计，还要补充到异常记录列表中
     for (const auto user_id : checkout_users) {
         if (checkin_users.find(user_id) == checkin_users.end()) {
             late_users.insert(user_id);
+
+            // 从打卡记录中找到该用户最近的一条签退记录，将其视为“推断迟到”记录
+            auto it = std::find_if(records.rbegin(), records.rend(),
+                                   [user_id](const db::AttendanceRecord& r) {
+                                       return r.user_id == user_id &&
+                                              r.check_type == db::CheckType::CHECK_OUT;
+                                   });
+            if (it != records.rend()) {
+                db::AttendanceRecord inferred = *it;
+                inferred.status = db::AttendanceStatus::STATUS_LATE;
+                abnormal_records.push_back(inferred);
+            }
         }
     }
 
@@ -1107,37 +1155,61 @@ void DashboardPage::refreshData() {
     const int missing_count = std::max(0, total_users - present_count);
     const double attendance_rate = (total_users > 0) ? (static_cast<double>(present_count) / total_users) : 0.0;
     const double avg_similarity = (similarity_count > 0) ? (similarity_sum / similarity_count) : 0.0;
-    const double abnormal_rate = filtered_records == 0
-        ? 0.0
-        : (static_cast<double>(low_similarity) / filtered_records);
+    const int abnormal_record_count = static_cast<int>(abnormal_records.size());
+
+    QString range_str;
+    if (range_days == 1) range_str = tr("今日");
+    else if (range_days == 7) range_str = tr("近7日");
+    else if (range_days == 30) range_str = tr("近30日");
+    else range_str = tr("近 %1 天").arg(range_days);
 
     if (attendance_rate_label_) {
         attendance_rate_label_->setText(QString::number(attendance_rate * 100.0, 'f', 1) + "%");
     }
     if (attendance_detail_label_) {
-        attendance_detail_label_->setText(tr("实到 %1 / 应到 %2").arg(present_count).arg(total_users));
+        // For range view, "Real/Expected" might be ambiguous. 
+        // Maybe change to "Active / Total"
+        if (range_days == 1) {
+            attendance_detail_label_->setText(tr("实到 %1 / 应到 %2").arg(present_count).arg(total_users));
+        } else {
+            attendance_detail_label_->setText(tr("活跃 %1 / 总数 %2").arg(present_count).arg(total_users));
+        }
     }
     if (checkin_label_) {
         checkin_label_->setText(QString::number(checked_in));
     }
+    if (checkin_sub_label_) checkin_sub_label_->setText(range_str);
+
     if (late_label_) {
         late_label_->setText(QString::number(late_count));
     }
+    if (late_sub_label_) late_sub_label_->setText(range_str);
+
     if (early_label_) {
         early_label_->setText(QString::number(early_count));
     }
+    if (early_sub_label_) early_sub_label_->setText(range_str);
+
     if (missing_label_) {
         missing_label_->setText(QString::number(missing_count));
     }
+    if (missing_sub_label_) missing_sub_label_->setText(range_str);
+
     if (similarity_label_) {
         similarity_label_->setText(QString::number(avg_similarity, 'f', 2));
     }
+    if (similarity_sub_label_) similarity_sub_label_->setText(range_str);
+
+    // “异常记录数”卡片：展示迟到/早退记录条数，帮助快速掌握异常事件量
     if (abnormal_rate_label_) {
-        abnormal_rate_label_->setText(QString::number(abnormal_rate * 100.0, 'f', 1) + "%");
+        abnormal_rate_label_->setText(QString::number(abnormal_record_count));
     }
+    if (abnormal_rate_sub_label_) abnormal_rate_sub_label_->setText(range_str);
+
     if (checkout_label_) {
         checkout_label_->setText(QString::number(checked_out));
     }
+    if (checkout_sub_label_) checkout_sub_label_->setText(range_str);
 
     if (data_coverage_label_) {
         data_coverage_label_->setText(tr("数据覆盖率 %1%")
@@ -1147,21 +1219,9 @@ void DashboardPage::refreshData() {
         last_sync_label_->setText(tr("最后同步 %1").arg(QTime::currentTime().toString("HH:mm")));
     }
 
-    int range_days = 7;
-    if (range_combo_) {
-        range_days = range_combo_->currentData().toInt();
-        if (range_days <= 0) {
-            range_days = 7;
-        }
-    }
-
     TrendSeries series;
     series.primary.reserve(range_days);
     series.secondary.reserve(range_days);
-
-    // 计算日期范围
-    QDate end_date = QDate::currentDate();
-    QDate start_date = end_date.addDays(-(range_days - 1));
     
     // 使用优化的批量查询接口，一次性获取所有统计数据
     auto range_stats = attendance_service_->get_statistics_range(
@@ -1214,7 +1274,8 @@ void DashboardPage::refreshData() {
                       return a.check_time > b.check_time;
                   });
 
-        const int show_count = std::min(5, static_cast<int>(abnormal_records.size()));
+        // 这里不再限制只显示前 5 条，由外层滚动容器控制整体高度，确保近7日/近30日异常记录完整可见
+        const int show_count = static_cast<int>(abnormal_records.size());
         for (int i = 0; i < show_count; ++i) {
             const auto& record = abnormal_records[i];
             auto row = new QFrame();
@@ -1236,8 +1297,10 @@ void DashboardPage::refreshData() {
             info_layout->setSpacing(2);
             auto name_label = new QLabel(name, info_group);
             name_label->setObjectName("DashboardAlertName");
+            
+            QString time_format = (range_days > 1) ? "MM-dd HH:mm" : "HH:mm";
             auto time_label = new QLabel(
-                QDateTime::fromTime_t(record.check_time).toString("HH:mm"),
+                QDateTime::fromTime_t(record.check_time).toString(time_format),
                 info_group);
             time_label->setObjectName("DashboardAlertTime");
             info_layout->addWidget(name_label);

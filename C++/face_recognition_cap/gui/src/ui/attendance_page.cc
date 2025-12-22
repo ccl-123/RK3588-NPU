@@ -28,6 +28,7 @@
 AttendancePage::AttendancePage(QWidget* parent)
     : QWidget(parent)
     , attendance_service_(nullptr)
+    , user_service_(nullptr)
     , mode_group_(nullptr)
     , radio_single_(nullptr)
     , radio_range_(nullptr)
@@ -52,13 +53,19 @@ AttendancePage::AttendancePage(QWidget* parent)
 void AttendancePage::setAttendanceService(service::AttendanceService* service) {
     attendance_service_ = service;
     if (attendance_service_) {
-        load_user_list();
         // Default to today
         QDate today = QDate::currentDate();
         if (start_date_edit_) start_date_edit_->setDate(today);
         if (end_date_edit_) end_date_edit_->setDate(today);
-        
+
         load_attendance_records();
+    }
+}
+
+void AttendancePage::setUserService(service::UserService* service) {
+    user_service_ = service;
+    if (user_service_) {
+        load_user_list();
     }
 }
 
@@ -319,11 +326,37 @@ void AttendancePage::load_attendance_records() {
 }
 
 void AttendancePage::load_user_list() {
-    if (!attendance_service_ || !user_combo_) {
+    if (!user_service_ || !user_combo_) {
         return;
     }
-    // In a real app, this should query userService->get_all_users()
-    // For now, we rely on records or just keep "All Users" until we fetch
+
+    // 保存当前选中项
+    int current_user_id = user_combo_->currentData().toInt();
+
+    // 清空并重新加载
+    user_combo_->blockSignals(true);
+    user_combo_->clear();
+    user_combo_->addItem(tr("全部用户"), -1);
+
+    // 加载所有启用的用户
+    auto users = user_service_->get_all_users(db::UserStatus::USER_ENABLED);
+    for (const auto& user : users) {
+        QString display_name = QString::fromStdString(user.user_name);
+        if (!user.department.empty()) {
+            display_name += QString(" (%1)").arg(QString::fromStdString(user.department));
+        }
+        user_combo_->addItem(display_name, user.user_id);
+    }
+
+    // 恢复之前的选择（如果存在）
+    int index = user_combo_->findData(current_user_id);
+    if (index >= 0) {
+        user_combo_->setCurrentIndex(index);
+    }
+
+    user_combo_->blockSignals(false);
+
+    spdlog::info("Loaded {} users into combo box", users.size());
 }
 
 void AttendancePage::filter_records() {
@@ -356,11 +389,6 @@ void AttendancePage::filter_records() {
 
         auto name_item = new QTableWidgetItem(QString::fromStdString(record.user_name));
         records_table_->setItem(row, 1, name_item);
-        
-        // Auto-populate user combo if needed (optional optimization)
-        if (user_combo_ && user_combo_->findData(record.user_id) == -1) {
-             user_combo_->addItem(QString::fromStdString(record.user_name), record.user_id);
-        }
 
         auto time_item = new QTableWidgetItem(format_timestamp(record.check_time));
         time_item->setTextAlignment(Qt::AlignCenter);

@@ -12,6 +12,7 @@
 #include <unordered_map>
 
 #include "service/attendance_service.h"
+#include "service/user_service.h"
 #include "database/database_types.h"
 
 class ModernTableView;
@@ -23,6 +24,7 @@ public:
     explicit AttendancePage(QWidget* parent = nullptr);
 
     void setAttendanceService(service::AttendanceService* service);
+    void setUserService(service::UserService* service);
 
 private slots:
     void on_query_clicked();
@@ -62,6 +64,7 @@ private:
     
     // Service
     service::AttendanceService* attendance_service_;
+    service::UserService* user_service_;
     
     // Filter widgets
     QButtonGroup* mode_group_;

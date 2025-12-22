@@ -54,12 +54,19 @@ private:
     QLabel* attendance_rate_label_;
     QLabel* attendance_detail_label_;
     QLabel* checkin_label_;
+    QLabel* checkin_sub_label_;
     QLabel* late_label_;
+    QLabel* late_sub_label_;
     QLabel* early_label_;
+    QLabel* early_sub_label_;
     QLabel* missing_label_;
+    QLabel* missing_sub_label_;
     QLabel* similarity_label_;
+    QLabel* similarity_sub_label_;
     QLabel* abnormal_rate_label_;
+    QLabel* abnormal_rate_sub_label_;
     QLabel* checkout_label_;
+    QLabel* checkout_sub_label_;
 
     QWidget* trend_chart_;
     QVBoxLayout* alerts_layout_;
