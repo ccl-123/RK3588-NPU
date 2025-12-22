@@ -141,7 +141,8 @@ void VideoDisplayWidget::draw_face_results(QPainter& painter, double scale, int 
 
         // 绘制名称和相似度（使用 Qt 绘制以支持中文）
         QString name_text = QString::fromStdString(result.name);
-        QString label_text = QString("%1 (%.2f)").arg(name_text).arg(result.similarity);
+        // 使用 %1/%2 占位符并限制相似度为两位小数
+        QString label_text = QString("%1 (%2)").arg(name_text).arg(result.similarity, 0, 'f', 2);
 
         // 设置字体
         QFont font("WenQuanYi Micro Hei", 14, QFont::Bold);  // 使用支持中文的字体
