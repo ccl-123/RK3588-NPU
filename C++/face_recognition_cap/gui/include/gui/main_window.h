@@ -83,6 +83,7 @@ signals:
 
 protected:
     void closeEvent(QCloseEvent* event) override;
+    void changeEvent(QEvent* event) override;
 
 public slots:
     // 数据刷新槽（公开，供子窗口调用）
@@ -103,6 +104,7 @@ private slots:
     void on_action_register_face();
     void on_action_about();
     void on_action_toggle_theme();
+    void on_action_toggle_maximize();  // 切换窗口最大化/还原
     void update_status();
     void on_frame_ready(const cv::Mat& frame, const std::vector<RecognitionResult>& results);
     void on_recognition_result(int user_id, const QString& name, float similarity, bool is_new_attendance, int check_type = 1, int status = 1);

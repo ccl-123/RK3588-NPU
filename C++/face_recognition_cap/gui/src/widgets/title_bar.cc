@@ -26,6 +26,7 @@ TitleBar::TitleBar(QWidget* parent)
     , theme_button_(new IconButton(this))
     , user_button_(new IconButton(this))
     , minimize_button_(new IconButton(this))
+    , maximize_button_(new IconButton(this))
     , close_button_(new IconButton(this)) {
     setObjectName("TitleBar");
     setFixedHeight(56);
@@ -66,6 +67,12 @@ TitleBar::TitleBar(QWidget* parent)
     minimize_button_->setToolTip(tr("最小化"));
     minimize_button_->setFixedSize(36, 36);
 
+    // 最大化按钮
+    maximize_button_->setObjectName("MaximizeButton");
+    maximize_button_->setSvg(":/icons/ui/maximize.svg", QSize(16, 16));
+    maximize_button_->setToolTip(tr("最大化"));
+    maximize_button_->setFixedSize(36, 36);
+
     // 关闭按钮
     close_button_->setObjectName("CloseButton");
     close_button_->setSvg(":/icons/actions/close.svg", QSize(16, 16));
@@ -85,12 +92,14 @@ TitleBar::TitleBar(QWidget* parent)
     layout->addWidget(user_button_);
     layout->addSpacing(8);
     layout->addWidget(minimize_button_);
+    layout->addWidget(maximize_button_);
     layout->addWidget(close_button_);
 
     connect(theme_button_, &QToolButton::clicked, this, &TitleBar::requestToggleTheme);
     connect(minimize_button_, &QToolButton::clicked, this, &TitleBar::requestMinimize);
+    connect(maximize_button_, &QToolButton::clicked, this, &TitleBar::requestMaximize);
     connect(close_button_, &QToolButton::clicked, this, &TitleBar::requestClose);
-    
+
     // 不使用内联样式，让全局 QSS 控制主题
 }
 
@@ -159,8 +168,37 @@ void TitleBar::mousePressEvent(QMouseEvent* event) {
 
 void TitleBar::mouseMoveEvent(QMouseEvent* event) {
     if (event->buttons() & Qt::LeftButton) {
-        parentWidget()->move(event->globalPos() - drag_pos_);
+        // 只有在非最大化状态下才允许拖动
+        QWidget* parent = parentWidget();
+        if (parent && !parent->isMaximized() && !parent->isFullScreen()) {
+            parent->move(event->globalPos() - drag_pos_);
+        }
         event->accept();
+    }
+}
+
+void TitleBar::mouseDoubleClickEvent(QMouseEvent* event) {
+    if (event->button() == Qt::LeftButton) {
+        // 双击标题栏切换最大化状态
+        emit requestMaximize();
+        event->accept();
+    }
+}
+
+void TitleBar::updateMaximizeIcon() {
+    QWidget* parent = parentWidget();
+    if (!parent || !maximize_button_) {
+        return;
+    }
+
+    if (parent->isMaximized() || parent->isFullScreen()) {
+        // 已最大化，显示恢复图标
+        maximize_button_->setSvg(":/icons/ui/minimize.svg", QSize(16, 16));
+        maximize_button_->setToolTip(tr("还原"));
+    } else {
+        // 正常状态，显示最大化图标
+        maximize_button_->setSvg(":/icons/ui/maximize.svg", QSize(16, 16));
+        maximize_button_->setToolTip(tr("最大化"));
     }
 }
 

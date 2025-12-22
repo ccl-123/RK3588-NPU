@@ -775,6 +775,7 @@ void MainWindow::setup_ui() {
     apply_theme();
 
     connect(title_bar_, &TitleBar::requestMinimize, this, &MainWindow::showMinimized);
+    connect(title_bar_, &TitleBar::requestMaximize, this, &MainWindow::on_action_toggle_maximize);
     connect(title_bar_, &TitleBar::requestClose, this, &MainWindow::close);
     connect(title_bar_, &TitleBar::requestToggleTheme, this, &MainWindow::on_action_toggle_theme);
 }
@@ -1469,6 +1470,31 @@ void MainWindow::on_action_toggle_theme() {
     is_dark_theme_ = !is_dark_theme_;
     apply_theme();
     spdlog::info("Theme toggled: {}", is_dark_theme_ ? "dark" : "light");
+}
+
+void MainWindow::on_action_toggle_maximize() {
+    if (isMaximized() || isFullScreen()) {
+        showNormal();
+        spdlog::info("Window restored to normal");
+    } else {
+        showMaximized();
+        spdlog::info("Window maximized");
+    }
+    // 更新 TitleBar 的最大化图标
+    if (title_bar_) {
+        title_bar_->updateMaximizeIcon();
+    }
+}
+
+void MainWindow::changeEvent(QEvent* event) {
+    QMainWindow::changeEvent(event);
+
+    // 窗口状态变化时更新 TitleBar 的最大化图标
+    if (event->type() == QEvent::WindowStateChange) {
+        if (title_bar_) {
+            title_bar_->updateMaximizeIcon();
+        }
+    }
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {

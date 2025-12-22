@@ -21,6 +21,7 @@ public:
     void setBreadcrumb(const QStringList& crumbs);
     void setUserMenu(QMenu* menu);
     void setHeadlines(const QStringList& headlines);
+    void updateMaximizeIcon();  // 根据窗口状态更新图标
 
 signals:
     void requestMinimize();
@@ -31,6 +32,7 @@ signals:
 protected:
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
+    void mouseDoubleClickEvent(QMouseEvent* event) override;
     void paintEvent(QPaintEvent* event) override;
 
 private:
@@ -41,6 +43,7 @@ private:
     IconButton* theme_button_;
     IconButton* user_button_;
     IconButton* minimize_button_;
+    IconButton* maximize_button_;  // 最大化按钮
     IconButton* close_button_;
 };
 
