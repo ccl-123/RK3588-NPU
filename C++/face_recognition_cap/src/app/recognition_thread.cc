@@ -200,11 +200,10 @@ void RecognitionThread::process_task(RecognitionTask& task) {
         cv::Scalar color = is_recognized ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255);
         
         cv::rectangle(render_img, cv::Point(x1, y1), cv::Point(x2, y2), color, 2);
-        
-        char label[256];
-        snprintf(label, sizeof(label), "%s (%.2f)", name.c_str(), max_score);
-        cv::putText(render_img, label, cv::Point(x1, y1 - 10),
-                   cv::FONT_HERSHEY_SIMPLEX, 0.7, color, 2);
+
+        // 注意：名称文字由 Qt 层的 VideoDisplayWidget 使用 QPainter 绘制
+        // OpenCV 的 Hershey 字体不支持中文，会显示为问号
+        // 因此这里只绘制人脸框，不绘制文字
         
         // 累计时间
         total_align_time += (get_us(t_align_end) - get_us(t_align_start)) / 1000;

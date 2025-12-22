@@ -131,7 +131,7 @@ void VideoDisplayWidget::draw_face_results(QPainter& painter, double scale, int 
     if (face_results_.empty() || current_frame_.empty()) {
         return;
     }
-    
+
     for (const auto& result : face_results_) {
         // 转换坐标
         int x = offset_x + static_cast<int>(result.box.x * scale);
@@ -139,28 +139,50 @@ void VideoDisplayWidget::draw_face_results(QPainter& painter, double scale, int 
         int w = static_cast<int>(result.box.width * scale);
         int h = static_cast<int>(result.box.height * scale);
 
-        // 注意：人脸框和名称已经由 OpenCV 在图像上绘制，这里不再重复绘制
-        // 只绘制额外的提示信息（如"已签到"）
+        // 绘制名称和相似度（使用 Qt 绘制以支持中文）
+        QString name_text = QString::fromStdString(result.name);
+        QString label_text = QString("%1 (%.2f)").arg(name_text).arg(result.similarity);
 
-        // 如果已打卡，在人脸框上方显示状态提示
+        // 设置字体
+        QFont font("WenQuanYi Micro Hei", 14, QFont::Bold);  // 使用支持中文的字体
+        painter.setFont(font);
+        QFontMetrics fm(font);
+        int text_width = fm.horizontalAdvance(label_text);
+        int text_height = fm.height();
+
+        // 名称位置：人脸框上方
+        int name_x = x;
+        int name_y = y - 10;
+
+        // 绘制名称背景
+        QColor bg_color(0, 0, 0, 160);
+        painter.fillRect(name_x - 2, name_y - text_height, text_width + 4, text_height + 4, bg_color);
+
+        // 绘制名称文字（识别成功绿色，否则红色）
+        QColor text_color = result.is_recognized ? QColor(0, 255, 0) : QColor(255, 0, 0);
+        painter.setPen(text_color);
+        painter.drawText(name_x, name_y, label_text);
+
+        // 如果已打卡，在名称上方显示状态提示
         if (result.is_recognized && result.is_duplicate) {
-            painter.setFont(QFont("Arial", 12, QFont::Bold));
+            QFont status_font("WenQuanYi Micro Hei", 12, QFont::Bold);
+            painter.setFont(status_font);
             painter.setPen(Qt::green);
 
             // 根据打卡类型显示不同文字
-            QString status_text = (result.check_type == 2) ? 
+            QString status_text = (result.check_type == 2) ?
                 QString::fromUtf8("已签退") : QString::fromUtf8("已签到");
-            QFontMetrics fm(painter.font());
-            int text_width = fm.horizontalAdvance(status_text);
-            int text_height = fm.height();
+            QFontMetrics status_fm(status_font);
+            int status_width = status_fm.horizontalAdvance(status_text);
+            int status_height = status_fm.height();
 
-            // 在人脸框上方居中显示（名称上方）
-            int text_x = x + (w - text_width) / 2;
-            int text_y = y - 35;  // 在名称上方，留出空间
+            // 在名称上方居中显示
+            int status_x = x + (w - status_width) / 2;
+            int status_y = name_y - text_height - 5;
 
             // 绘制半透明背景
-            painter.fillRect(text_x - 5, text_y - text_height + 5, text_width + 10, text_height + 5, QColor(0, 0, 0, 180));
-            painter.drawText(text_x, text_y, status_text);
+            painter.fillRect(status_x - 5, status_y - status_height + 5, status_width + 10, status_height + 5, QColor(0, 0, 0, 180));
+            painter.drawText(status_x, status_y, status_text);
         }
     }
 }

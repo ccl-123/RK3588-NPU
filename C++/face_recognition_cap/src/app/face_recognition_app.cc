@@ -867,17 +867,19 @@ bool FaceRecognitionApp::process_single_frame(cv::Mat& frame, std::vector<Recogn
 
         cv::rectangle(frame, cv::Point(x1, y1), cv::Point(x2, y2), color, 2);
 
-        // 显示姓名和置信度（在检测框上方）
-        char text[256];
-        if (max_similarity >= config_.facenet_threshold) {
-            snprintf(text, sizeof(text), "%s (%.2f)", matched_name.c_str(), max_similarity);
-        } else {
-            snprintf(text, sizeof(text), "Unknown (%.2f)", max_similarity);
+        // 注意：如果是 GUI 模式，名称文字由 Qt 层的 VideoDisplayWidget 使用 QPainter 绘制
+        // OpenCV 的 Hershey 字体不支持中文，会显示为问号
+        // 命令行模式下仍使用 cv::putText（仅英文名或 ID 可正常显示）
+        if (!frame_callback_) {
+            char text[256];
+            if (max_similarity >= config_.facenet_threshold) {
+                snprintf(text, sizeof(text), "%s (%.2f)", matched_name.c_str(), max_similarity);
+            } else {
+                snprintf(text, sizeof(text), "Unknown (%.2f)", max_similarity);
+            }
+            cv::putText(frame, text, cv::Point(x1, y1 - 10),
+                       cv::FONT_HERSHEY_SIMPLEX, 0.7, color, 2);
         }
-
-        // 显示文本在检测框上方
-        cv::putText(frame, text, cv::Point(x1, y1 - 10),
-                   cv::FONT_HERSHEY_SIMPLEX, 0.7, color, 2);
 
         // 释放 FaceNet 输出资源
         facenet_output_release(
