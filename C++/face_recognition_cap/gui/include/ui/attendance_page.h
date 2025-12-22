@@ -5,8 +5,9 @@
 #include <QPushButton>
 #include <QLabel>
 #include <QComboBox>
-#include <QCheckBox>
 #include <QVBoxLayout>
+#include <QButtonGroup>
+#include <QRadioButton>
 #include <vector>
 #include <unordered_map>
 
@@ -27,10 +28,9 @@ private slots:
     void on_query_clicked();
     void on_export_clicked();
     void on_refresh_clicked();
-    void on_start_date_changed(const QDate& date);
-    void on_end_date_changed(const QDate& date);
+    void on_filter_mode_changed(int id);
+    void on_date_changed();
     void on_user_combo_changed(int index);
-    void on_date_range_toggled(bool checked);
 
 private:
     // UI Setup methods
@@ -45,19 +45,33 @@ private:
     void update_statistics();
     void filter_records();
     void export_to_csv(const QString& filename);
+    void batch_export_by_user();
+    void export_specific_user();
+    void write_csv(const std::vector<db::AttendanceRecord>& records, const QString& filename);
     
     // Helper methods
     QString format_timestamp(time_t timestamp) const;
     QString get_check_type_text(int check_type) const;
     QString get_status_text(int status) const;
+    void update_ui_state();
+
+    enum FilterMode {
+        Mode_SingleDay = 0,
+        Mode_DateRange = 1
+    };
     
     // Service
     service::AttendanceService* attendance_service_;
     
     // Filter widgets
-    QCheckBox* date_range_checkbox_;
+    QButtonGroup* mode_group_;
+    QRadioButton* radio_single_;
+    QRadioButton* radio_range_;
+    
     QDateEdit* start_date_edit_;
     QDateEdit* end_date_edit_;
+    QLabel* range_separator_label_;
+    
     QComboBox* user_combo_;
     QPushButton* query_btn_;
     QPushButton* export_btn_;
@@ -76,9 +90,9 @@ private:
     // Data
     std::vector<db::AttendanceRecord> all_records_;
     std::vector<db::AttendanceRecord> filtered_records_;
-    std::unordered_map<int, std::string> user_id_to_name_;
     
-    // Loading state
+    // State
+    FilterMode current_mode_;
     bool is_loading_;
 };
 
