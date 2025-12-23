@@ -41,7 +41,14 @@ _deps
 
 # 日志文件
 *.log
+build.log
+build_cross.log
 *.txt.bak
+
+# 交叉编译相关
+C++/face_recognition_cap/build_cross.sh
+C++/face_recognition_cap/cmake/
+C++/face_recognition_cap/deps_aarch64/
 
 # 操作系统文件
 .DS_Store
