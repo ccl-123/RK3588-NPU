@@ -20,29 +20,35 @@
 
 ## Project Introduction
 
-This project is a high-performance face recognition attendance system designed specifically for the Rockchip RK3588 platform. It not only achieves extreme performance through deep integration of RKNN hardware acceleration inference, RGA graphics acceleration engine, and V4L2 zero-copy capture technology, but also **fully integrates the Tencent Cloud Hunyuan Large Language Model (LLM)** to create an intelligent "Attendance AI Assistant".
+This project is a high-performance face recognition attendance system designed specifically for the Rockchip RK3588 platform. It not only achieves extreme performance through deep integration of RKNN hardware acceleration inference, RGA graphics acceleration engine, and V4L2 zero-copy capture technology, but also **pioneers a "Dual-Engine" intelligent analysis capability**.
 
-The system no longer just records clock-ins; it can analyze attendance patterns, diagnose abnormal behaviors, and automatically generate analysis reports through natural language dialogue, upgrading traditional hardware terminals into intelligent management Agents with logical thinking capabilities.
+The system no longer just records clock-ins; it integrates **On-Device Offline Large Language Model (Local LLM)** with **Cloud LLM API**, enabling deep analysis of attendance patterns, diagnosis of abnormal behaviors, and automatic report generation through natural language dialogue. It upgrades traditional hardware terminals into intelligent management Agents with logical thinking capabilities, fully supporting **offline closed-loop operation** to ensuring data privacy and security.
 
 ---
 
 ## Core Features
 
-### 🤖 AI-Driven Intelligent Management
-- **Attendance AI Assistant**: Integrated with Tencent Cloud Hunyuan LLM, supporting complex attendance data interaction via natural language.
-- **Full Data Deep Analysis**: Supports multi-dimensional diagnosis (attendance rate, departmental comparison, abnormal trends) on "Today / Last 7 Days / Last 30 Days" full detailed attendance data.
-- **Intelligent Diagnosis & Prediction**: AI automatically identifies potential attendance anomaly patterns (such as long-term late arrivals, early departure trends) and provides targeted management suggestions.
-- **Instant Weekly Report Generation**: Generates structured and professional attendance weekly reports and trend reports with one click based on real-time attendance streams.
+### 🤖 Dual-Engine AI Agent
+- **On-Device LLM (Local Mode)**: Deep integration with **RKLLM**, running 2B/7B class LLMs (e.g., Qwen-2B) locally on the RK3588 NPU.
+  - **Offline Operation**: No internet required, data never leaves the device, ensuring high privacy.
+  - **NPU Acceleration**: Fully utilizes NPU computing power, with fast inference (~10 token/s) and < 200ms first-token latency.
+- **Cloud LLM (Cloud Mode)**: Seamless integration with standard Cloud LLM APIs for complex general knowledge queries.
+- **One-Click Switch**: Unique NPU resource scheduling mechanism allows smooth switching between "Face Recognition Mode" and "LLM Analysis Mode".
+
+### 📊 Full Data Intelligent Diagnosis
+- **Multi-dimensional Analysis**: Supports deep diagnosis on "Today / Last 7 Days / Last 30 Days" full attendance data.
+- **Intelligent Insight**: Instantly identifies potential attendance anomaly patterns (e.g., long-term lateness, early departure trends) and provides targeted management suggestions.
+- **Streaming Reports**: Smooth typewriter-style streaming response for both local and cloud modes.
 
 ### 🚀 Extreme Performance Optimization
-- **NPU Hardware Acceleration**: Integrated with RKNN Runtime, implementing full-process NPU offloading for YOLOv8-face detection and FaceNet recognition, greatly reducing CPU load.
-- **RGA Graphics Acceleration**: Utilizes the Rockchip RGA 2D hardware engine to handle image scaling, flipping, and format conversion (YUV -> RGB), eliminating image preprocessing bottlenecks.
-- **Zero-Copy Capture**: Implements zero-copy data flow from kernel to application layer based on V4L2 + mmap + shared_ptr mechanism, optimizing memory bandwidth utilization.
-- **Multi-Threaded Pipeline**: Adopts a 5-stage pipeline design of capture, preprocessing, detection, recognition, and rendering to maximize parallel processing capabilities.
+- **Dynamic NPU Resource Scheduling**: Implements a **mutual exclusion resource management strategy** for RKNN (Vision) and RKLLM (Language), resolving NPU contention deadlocks and ensuring both run at full speed in exclusive mode.
+- **NPU Hardware Acceleration**: Integrated with RKNN Runtime, implementing full-process NPU offloading for YOLOv8-face detection and FaceNet recognition.
+- **RGA Graphics Acceleration**: Utilizes the Rockchip RGA 2D hardware engine for image scaling, flipping, and format conversion (YUV -> RGB).
+- **Multi-Threaded Pipeline**: Adopts a 5-stage pipeline design to maximize parallel processing capabilities.
 
-### 💼 Comprehensive Business Functions
+### 🛡️ Comprehensive Business Functions
 - **Flexible Interaction Modes**: Provides a modern touch-enabled GUI interface based on Qt5, while also supporting Headless CLI operation mode.
-- **Attendance Management System**: Built-in SQLite3 database, supporting minute-level flexible rule engine and multi-frame anti-shake recognition algorithms.
+- **High-Performance Database**: Built-in SQLite3, supporting sub-second queries and writes for millions of records.
 - **High Robustness Design**: Includes automatic recovery mechanism for camera hot-plugging, real-time synchronization, and dynamic loading of face feature libraries.
 
 ---
@@ -52,14 +58,15 @@ The system no longer just records clock-ins; it can analyze attendance patterns,
 | Module | Technology | Description |
 | :--- | :--- | :--- |
 | **Language** | **C++17** | Core logic development, fully utilizing new standard library features |
-| **AI Agent / LLM** | **Tencent Cloud Hunyuan LLM** | **Core Highlight: Intelligent Analysis Dialogue System based on SSE Protocol** |
+| **Local LLM** | **RKLLM Runtime** | **Core Highlight: RK3588 NPU Offline LLM Inference (Qwen-2B)** |
+| **Cloud LLM** | Cloud LLM API | Backup Online LLM Engine (SSE Streaming Protocol) |
 | **UI Framework** | Qt 5.15+ | Modern graphical user interface, supporting dynamic theme switching |
 | **Deep Learning** | RKNN Toolkit2 | NPU Model Inference (YOLOv8, FaceNet) |
 | **Computer Vision** | OpenCV 4.5+ | Image processing and algorithm assistance |
 | **Hardware Accel** | Rockchip RGA | 2D Hardware Acceleration Engine |
 | **Data Capture** | V4L2 | Linux Video Driver Interface (mmap zero-copy mode) |
 | **Database** | SQLite3 | Embedded local storage, DAO architecture design |
-| **Logging** | spdlog | Asynchronous high-performance logging |
+| **Concurrency** | C++ Thread + Qt Signal | Multi-threaded pipeline and asynchronous event-driven |
 
 ---
 
