@@ -150,4 +150,14 @@ namespace TencentAI {
     }
 }
 
+// 本地 LLM 配置
+namespace LocalLLM {
+    // 模型路径 (板端绝对路径)
+    inline const char* MODEL_PATH = "/home/firefly/open_project/qwen3-vl-2b-instruct_w8a8_rk3588.rkllm";
+    
+    // 推理参数
+    constexpr int MAX_NEW_TOKENS = 512;
+    constexpr int MAX_CONTEXT_LEN = 4096;
+}
+
 } // namespace Config

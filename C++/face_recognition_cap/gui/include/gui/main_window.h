@@ -167,6 +167,7 @@ private:
     
     // 系统状态
     bool is_running_;
+    bool recognition_paused_for_llm_;   // 识别是否因 LLM 而暂停（用于恢复）
     int frame_count_;
     double fps_;
     std::chrono::steady_clock::time_point last_fps_time_;

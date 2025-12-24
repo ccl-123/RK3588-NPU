@@ -17,6 +17,8 @@
 #include <sys/time.h>
 #include <iostream>
 #include <cstring>
+#include <thread>
+#include <chrono>
 
 FaceRecognitionApp::FaceRecognitionApp()
     : preprocess_thread_(nullptr)
@@ -34,6 +36,7 @@ FaceRecognitionApp::FaceRecognitionApp()
     , attendance_service_(nullptr)
     , camera_initialized_(false)
     , camera_error_("")
+    , models_loaded_(false)
 {
 }
 
@@ -170,6 +173,7 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
     recognition_thread_->start();
 
     initialized_ = true;
+    models_loaded_ = true;
     spdlog::info("App initialized successfully");
     spdlog::info("Post process config: box_conf_threshold = {:.2f}, nms_threshold = {:.2f}",
                  config_.box_conf_threshold, config_.nms_threshold);
@@ -220,6 +224,12 @@ int FaceRecognitionApp::run() {
 
     if (!preprocess_thread_) {
         spdlog::error("Cannot run: preprocessing thread not created");
+        return -1;
+    }
+
+    // 检查模型是否已加载
+    if (!models_loaded_) {
+        spdlog::error("Cannot run: models not loaded. Call reload_models() first.");
         return -1;
     }
 
@@ -401,7 +411,127 @@ void FaceRecognitionApp::cleanup() {
     feature_library_.clear();
 
     initialized_ = false;
+    models_loaded_ = false;
     spdlog::info("Cleanup complete");
+}
+
+// ==================== NPU 资源管理接口 ====================
+// 
+// RK3588 NPU 资源共享说明：
+//   - RKNN (人脸检测/识别) 和 RKLLM (语言模型) 共用同一个 NPU
+//   - 两者不能同时高效运行，必须完全互斥使用
+//   - 进入智能看板页面时：释放 RKNN → 加载 RKLLM
+//   - 回到实时识别页面时：释放 RKLLM → 加载 RKNN
+//
+// 关键点：
+//   1. 必须先停止所有使用 NPU 的工作线程
+//   2. 然后调用 rknn_destroy / rkllm_destroy 释放模型
+//   3. 等待 NPU 驱动完全释放资源（约 500ms）
+//   4. 才能加载另一个模型
+// =========================================================
+
+bool FaceRecognitionApp::release_models() {
+    if (!initialized_) {
+        spdlog::warn("Cannot release models: app not initialized");
+        return false;
+    }
+
+    if (running_) {
+        spdlog::error("Cannot release models while app is running. Please stop first.");
+        return false;
+    }
+
+    if (!models_loaded_) {
+        spdlog::info("Models already released");
+        return true;
+    }
+
+    spdlog::info("Releasing RKNN models to free NPU resources for LLM...");
+
+    // 【关键】先停止所有 NPU 工作线程
+    // 原因：这些线程持有 model_manager_ 引用，会阻止 NPU 资源完全释放
+    // 如果不停止这些线程，RKLLM 推理会因资源抢占而极慢（5分钟 vs 5秒）
+    if (postprocess_thread_) {
+        postprocess_thread_->stop();
+        postprocess_thread_.reset();
+        spdlog::info("Postprocess thread stopped");
+    }
+
+    if (recognition_thread_) {
+        recognition_thread_->stop();
+        recognition_thread_.reset();
+        spdlog::info("Recognition thread stopped");
+    }
+
+    // 释放 RKNN 模型（调用 rknn_destroy）
+    model_manager_.release();
+    models_loaded_ = false;
+
+    // 【关键】等待 NPU 驱动完全释放资源
+    // 原因：rknn_destroy 是异步的，如果立即加载 RKLLM 可能导致资源冲突崩溃
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    spdlog::info("RKNN models released, NPU resources are now available for LLM");
+    return true;
+}
+
+bool FaceRecognitionApp::reload_models() {
+    if (!initialized_) {
+        spdlog::warn("Cannot reload models: app not initialized");
+        return false;
+    }
+
+    if (running_) {
+        spdlog::error("Cannot reload models while app is running.");
+        return false;
+    }
+
+    if (models_loaded_) {
+        spdlog::info("Models already loaded");
+        return true;
+    }
+
+    spdlog::info("Reloading RKNN models...");
+
+    // 重新初始化人脸检测模型
+    if (model_manager_.init_face_detector(config_.retinaface_model_path.c_str()) != 0) {
+        spdlog::error("Failed to reload YOLOv8-face model");
+        return false;
+    }
+
+    // 重新初始化 FaceNet 模型
+    if (model_manager_.init_facenet(config_.facenet_model_path.c_str()) != 0) {
+        spdlog::error("Failed to reload FaceNet model");
+        return false;
+    }
+
+    // 更新性能监控的 NPU 上下文（用于统计 NPU 内存使用）
+    perf_monitor_.set_npu_contexts(
+        *model_manager_.get_face_detector_ctx(),
+        *model_manager_.get_facenet_ctx());
+
+    // 【关键】重新创建并启动工作线程
+    // 这些线程在 release_models() 时被销毁，需要重新创建
+    if (!recognition_thread_) {
+        recognition_thread_ = std::make_unique<RecognitionThread>(
+            &model_manager_, &feature_library_,
+            dst_landmark_, config_.facenet_threshold,
+            &perf_monitor_);
+        recognition_thread_->start();
+        spdlog::info("Recognition thread recreated");
+    }
+
+    if (!postprocess_thread_) {
+        postprocess_thread_ = std::make_unique<PostprocessThread>(
+            &model_manager_, recognition_thread_.get(), &perf_monitor_,
+            config_.box_conf_threshold, config_.nms_threshold);
+        postprocess_thread_->start();
+        spdlog::info("Postprocess thread recreated");
+    }
+
+    models_loaded_ = true;
+    spdlog::info("RKNN models reloaded successfully");
+    return true;
 }
 
 /**

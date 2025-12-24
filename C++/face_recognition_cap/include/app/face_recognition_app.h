@@ -193,6 +193,33 @@ public:
      */
     bool is_running() const { return running_; }
 
+    // ==================== NPU 资源管理接口 ====================
+    // RK3588 的 NPU 被 RKNN (人脸模型) 和 RKLLM (语言模型) 共享
+    // 两者必须完全互斥使用才能获得最佳性能
+    
+    /**
+     * @brief 释放 RKNN 人脸模型资源，为 RKLLM 腾出 NPU
+     * @return true 成功释放, false 失败或正在运行中无法释放
+     * @warning 调用此函数前必须先停止识别 (running_ == false)
+     * @note 会停止 postprocess_thread_ 和 recognition_thread_
+     * @note 释放后需调用 reload_models() 恢复人脸识别功能
+     */
+    bool release_models();
+
+    /**
+     * @brief 重新加载 RKNN 人脸模型，恢复人脸识别功能
+     * @return true 成功加载, false 失败
+     * @note 会重新创建 postprocess_thread_ 和 recognition_thread_
+     * @note 调用前应确保 RKLLM 模型已释放
+     */
+    bool reload_models();
+
+    /**
+     * @brief 检查 RKNN 模型是否已加载
+     * @return true 模型已加载可用, false 模型未加载
+     */
+    bool are_models_loaded() const { return models_loaded_; }
+
     // ==================== GUI 人脸注册接口 ====================
 
     /**
@@ -297,6 +324,9 @@ private:
     // 摄像头状态（优雅降级支持）
     bool camera_initialized_;       // 摄像头是否成功初始化
     std::string camera_error_;      // 摄像头错误信息
+    
+    // 模型状态（LLM 资源管理）
+    bool models_loaded_;            // 人脸模型是否已加载
 };
 
 #endif // _FACE_RECOGNITION_APP_H_

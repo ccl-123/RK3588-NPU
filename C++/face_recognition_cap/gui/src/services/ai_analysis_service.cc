@@ -10,6 +10,7 @@
 #include "services/ai_analysis_service.h"
 #include "service/attendance_service.h"
 #include "config/config.h"
+#include "app/local_llm_thread.h"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -29,8 +30,18 @@ AiAnalysisService::AiAnalysisService(QObject* parent)
     : QObject(parent)
     , current_retry_count_(0)
     , completed_(false)
-    , is_incremental_(false) {  // 默认 false（文档说明）
+    , is_incremental_(false)
+    , current_backend_(LLMBackendType::Cloud)
+    , local_analyzing_(false) {
     network_manager_ = new QNetworkAccessManager(this);
+    
+    // 连接 LocalLLMThread 信号
+    auto local_llm = LocalLLMThread::instance();
+    connect(local_llm, &LocalLLMThread::modelReady, this, &AiAnalysisService::onLocalLLMReady);
+    connect(local_llm, &LocalLLMThread::modelFailed, this, &AiAnalysisService::onLocalLLMFailed);
+    connect(local_llm, &LocalLLMThread::chunkReady, this, &AiAnalysisService::onLocalLLMChunk);
+    connect(local_llm, &LocalLLMThread::inferenceFinished, this, &AiAnalysisService::onLocalLLMFinished);
+    connect(local_llm, &LocalLLMThread::errorOccurred, this, &AiAnalysisService::onLocalLLMError);
 
     // 检查环境变量是否已设置
     const char* app_key = Config::TencentAI::getAppKey();
@@ -76,7 +87,7 @@ AiAnalysisService::AiAnalysisService(QObject* parent)
 
                 // 延迟后重试
                 QTimer::singleShot(RETRY_DELAY_MS * (current_retry_count_ + 1), this, [this]() {
-                    doRequest(current_stats_, current_trend_summary_,
+                    doCloudRequest(current_stats_, current_trend_summary_,
                              current_detail_records_, current_user_prompt_,
                              current_range_days_,
                              current_retry_count_ + 1);
@@ -108,13 +119,46 @@ void AiAnalysisService::cleanup() {
     incremental_buffer_.clear();
     current_retry_count_ = 0;
     completed_ = false;  // 重置完成标志，为下一次请求做准备
+    local_analyzing_ = false;
+}
+
+void AiAnalysisService::setBackend(LLMBackendType backend) {
+    if (current_backend_ != backend) {
+        current_backend_ = backend;
+        spdlog::info("LLM backend switched to: {}", backend == LLMBackendType::Local ? "Local" : "Cloud");
+        emit backendChanged(backend);
+    }
+}
+
+bool AiAnalysisService::initializeLocalLLM(const QString& model_path) {
+    return LocalLLMThread::instance()->initModel(model_path);
+}
+
+bool AiAnalysisService::isLocalLLMReady() const {
+    return LocalLLMThread::instance()->isModelReady();
+}
+
+bool AiAnalysisService::isAnalyzing() const {
+    if (current_backend_ == LLMBackendType::Local) {
+        return local_analyzing_;
+    }
+    return current_reply_ != nullptr;
 }
 
 void AiAnalysisService::cancelAnalysis() {
-    if (current_reply_) {
-        spdlog::info("AI analysis cancelled by user");
-        cleanup();
-        emit analysisCancelled();
+    if (current_backend_ == LLMBackendType::Local) {
+        if (local_analyzing_) {
+            LocalLLMThread::instance()->abortInference();
+            local_analyzing_ = false;
+            spdlog::info("Local LLM analysis cancelled by user");
+            emit analysisCancelled();
+        }
+    } else {
+        if (current_reply_) {
+            spdlog::info("Cloud AI analysis cancelled by user");
+            cleanup();
+            emit analysisCancelled();
+        }
     }
 }
 
@@ -142,26 +186,19 @@ void AiAnalysisService::requestAnalysis(const service::AttendanceStatistics& sta
     // 发送开始信号
     emit analysisStarted();
 
-    // 执行请求
-    doRequest(stats, trend_summary, detail_records, user_prompt, range_days, 0);
+    // 根据后端类型选择执行方式
+    if (current_backend_ == LLMBackendType::Local) {
+        doLocalRequest(stats, trend_summary, detail_records, user_prompt, range_days);
+    } else {
+        doCloudRequest(stats, trend_summary, detail_records, user_prompt, range_days, 0);
+    }
 }
 
-void AiAnalysisService::doRequest(const service::AttendanceStatistics& stats,
-                                   const QString& trend_summary,
-                                   const QString& detail_records,
-                                   const QString& user_prompt,
-                                   int range_days,
-                                   int retry_count) {
-    current_retry_count_ = retry_count;
-
-    QUrl url(QString::fromStdString(Config::TencentAI::API_URL));
-    QNetworkRequest request(url);
-
-    // 设置请求头（SSE 接口需要 Content-Type 和 Accept）
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    request.setRawHeader("Accept", "text/event-stream");  // 关键：告诉代理/CDN 这是 SSE 流
-
-    // 构建数据内容
+QString AiAnalysisService::buildPrompt(const service::AttendanceStatistics& stats,
+                                       const QString& trend_summary,
+                                       const QString& detail_records,
+                                       const QString& user_prompt,
+                                       int range_days) {
     QString current_time_str = QDateTime::currentDateTime().toString("MM月dd日 HH:mm");
     QString content;
 
@@ -204,6 +241,26 @@ void AiAnalysisService::doRequest(const service::AttendanceStatistics& stats,
          .arg(trend_summary)
          .arg(user_prompt.isEmpty() ? QStringLiteral("请生成今日考勤综合分析。") : user_prompt);
     }
+    return content;
+}
+
+void AiAnalysisService::doCloudRequest(const service::AttendanceStatistics& stats,
+                                       const QString& trend_summary,
+                                       const QString& detail_records,
+                                       const QString& user_prompt,
+                                       int range_days,
+                                       int retry_count) {
+    current_retry_count_ = retry_count;
+
+    QUrl url(QString::fromStdString(Config::TencentAI::API_URL));
+    QNetworkRequest request(url);
+
+    // 设置请求头（SSE 接口需要 Content-Type 和 Accept）
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    request.setRawHeader("Accept", "text/event-stream");  // 关键：告诉代理/CDN 这是 SSE 流
+
+    // 构建 Prompt
+    QString content = buildPrompt(stats, trend_summary, detail_records, user_prompt, range_days);
 
     // 生成唯一的 session_id 和 request_id
     // 文档说 request_id "非必填但建议必填"，用于排查串联
@@ -498,8 +555,9 @@ void AiAnalysisService::doRequest(const service::AttendanceStatistics& stats,
 
                             // 延迟后重试
                             QTimer::singleShot(RETRY_DELAY_MS * (current_retry_count_ + 1), this, [this]() {
-                                doRequest(current_stats_, current_trend_summary_,
+                                doCloudRequest(current_stats_, current_trend_summary_,
                                          current_detail_records_, current_user_prompt_,
+                                         current_range_days_,
                                          current_retry_count_ + 1);
                             });
                             return;
@@ -526,7 +584,7 @@ void AiAnalysisService::doRequest(const service::AttendanceStatistics& stats,
 
                 // 延迟后重试
                 QTimer::singleShot(RETRY_DELAY_MS * (current_retry_count_ + 1), this, [this]() {
-                    doRequest(current_stats_, current_trend_summary_,
+                    doCloudRequest(current_stats_, current_trend_summary_,
                              current_detail_records_, current_user_prompt_,
                              current_range_days_,
                              current_retry_count_ + 1);
@@ -577,4 +635,47 @@ void AiAnalysisService::doRequest(const service::AttendanceStatistics& stats,
 
         reply->deleteLater();
     });
+}
+
+// === 本地 LLM 处理 ===
+
+void AiAnalysisService::doLocalRequest(const service::AttendanceStatistics& stats,
+                                       const QString& trend_summary,
+                                       const QString& detail_records,
+                                       const QString& user_prompt,
+                                       int range_days) {
+    auto local_llm = LocalLLMThread::instance();
+    if (!local_llm->isModelReady()) {
+        emit errorOccurred("本地模型未初始化，请先加载模型");
+        return;
+    }
+
+    QString prompt = buildPrompt(stats, trend_summary, detail_records, user_prompt, range_days);
+    local_analyzing_ = true;
+    spdlog::info("Sending prompt to local LLM ({} chars)", prompt.length());
+    local_llm->requestInference(prompt);
+}
+
+void AiAnalysisService::onLocalLLMReady() {
+    spdlog::info("Local LLM model loaded");
+    emit localLLMReady();
+}
+
+void AiAnalysisService::onLocalLLMFailed(const QString& error) {
+    spdlog::error("Local LLM init failed: {}", error.toStdString());
+    emit errorOccurred("本地模型加载失败: " + error);
+}
+
+void AiAnalysisService::onLocalLLMChunk(const QString& chunk) {
+    emit analysisResultReady(chunk);
+}
+
+void AiAnalysisService::onLocalLLMFinished() {
+    local_analyzing_ = false;
+    emit analysisFinished();
+}
+
+void AiAnalysisService::onLocalLLMError(const QString& error) {
+    local_analyzing_ = false;
+    emit errorOccurred(error);
 }

@@ -23,6 +23,7 @@
 #include "widgets/title_bar.h"
 #include "widgets/toast_notification.h"
 #include "widgets/attendance_list_widget.h"
+#include "app/local_llm_thread.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -128,6 +129,7 @@ MainWindow::MainWindow(QWidget* parent)
     , status_timer_(nullptr)
     , registration_dialog_(nullptr)
     , is_running_(false)
+    , recognition_paused_for_llm_(false)
     , frame_count_(0)
     , fps_(0.0)
     , camera_id_(0)
@@ -835,12 +837,57 @@ void MainWindow::setup_navigation() {
 }
     });
 
+    // ==================== NPU 资源切换逻辑 ====================
+    // RK3588 的 NPU 被 RKNN (人脸检测/识别) 和 RKLLM (语言模型) 共享
+    // 两者不能同时高效运行，必须完全互斥使用：
+    //   - 进入 Dashboard (智能看板): 释放 RKNN → 让 RKLLM 获得全部 NPU 资源
+    //   - 回到 Recognition (实时画面): 释放 RKLLM → 让 RKNN 获得全部 NPU 资源
+    // =========================================================
     connect(router_, &UiRouter::routeChanged, this, [this](const QString& key, QWidget*) {
         QString breadcrumb;
         if (key == "recognition") {
             breadcrumb = tr("实时画面");
+            
+            // === 回到实时识别页面：释放 RKLLM → 加载 RKNN ===
+            if (recognition_paused_for_llm_) {
+                recognition_paused_for_llm_ = false;
+                
+                // 步骤1: 异步释放 RKLLM 模型（释放 NPU 给人脸识别）
+                auto local_llm = LocalLLMThread::instance();
+                if (local_llm->isModelReady()) {
+                    local_llm->releaseModelAsync();
+                    spdlog::info("LLM model release requested for face recognition");
+                }
+                
+                // 步骤2: 重新加载 RKNN 模型和工作线程
+                if (recognition_app_ && !recognition_app_->are_models_loaded()) {
+                    if (recognition_app_->reload_models()) {
+                        spdlog::info("RKNN models reloaded after LLM usage");
+                    } else {
+                        spdlog::error("Failed to reload RKNN models!");
+                    }
+                }
+                
+                // 步骤3: 启动人脸识别
+                start_recognition();
+                spdlog::info("Recognition resumed (back to recognition page)");
+            }
         } else if (key == "dashboard") {
             breadcrumb = tr("智能看板");
+            
+            // === 进入智能看板页面：释放 RKNN → 为 RKLLM 腾出 NPU ===
+            if (is_running_) {
+                recognition_paused_for_llm_ = true;
+                stop_recognition();
+                spdlog::info("Recognition paused (entering dashboard for LLM)");
+            }
+            
+            // 释放 RKNN 模型（包括停止工作线程），彻底释放 NPU 资源
+            if (recognition_app_ && recognition_app_->are_models_loaded()) {
+                if (recognition_app_->release_models()) {
+                    spdlog::info("RKNN models released for LLM performance boost");
+                }
+            }
         } else if (key == "attendance") {
             breadcrumb = tr("考勤记录");
         } else if (key == "users") {

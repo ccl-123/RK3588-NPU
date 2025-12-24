@@ -176,6 +176,9 @@ void PerformanceMonitor::set_npu_contexts(rknn_context detector_ctx, rknn_contex
 }
 
 void PerformanceMonitor::print_report() {
+    // 暂时屏蔽性能日志，方便调试 LLM
+    return;
+    
     if (detection_times_.empty()) return;
 
     double avg_pre   = get_average(preprocess_times_);

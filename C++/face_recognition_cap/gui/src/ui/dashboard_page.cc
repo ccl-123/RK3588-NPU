@@ -1,5 +1,6 @@
 #include "ui/dashboard_page.h"
 #include "services/ai_analysis_service.h"
+#include "config/config.h"
 
 #include "database/database_types.h"
 #include "service/attendance_service.h"
@@ -257,7 +258,10 @@ DashboardPage::DashboardPage(QWidget* parent)
     , ai_data_7day_btn_(nullptr)
     , ai_data_30day_btn_(nullptr)
     , ai_data_qa_btn_(nullptr)
-    , ai_data_range_label_(nullptr) {
+    , ai_data_range_label_(nullptr)
+    , backend_toggle_btn_(nullptr)
+    , backend_status_label_(nullptr)
+    , is_local_llm_(false) {
     setup_ui();
 
     // 连接 AI 服务信号
@@ -267,6 +271,9 @@ DashboardPage::DashboardPage(QWidget* parent)
     connect(ai_service, &AiAnalysisService::analysisFinished, this, &DashboardPage::on_ai_analysis_finished);
     connect(ai_service, &AiAnalysisService::errorOccurred, this, &DashboardPage::on_ai_error);
     connect(ai_service, &AiAnalysisService::analysisCancelled, this, &DashboardPage::on_ai_analysis_cancelled);
+    
+    // 连接本地 LLM 信号
+    connect(ai_service, &AiAnalysisService::localLLMReady, this, &DashboardPage::on_local_llm_ready);
 }
 
 void DashboardPage::setAttendanceService(service::AttendanceService* service) {
@@ -799,7 +806,7 @@ void DashboardPage::setup_ui() {
     ai_title_layout->addWidget(insight_title);
     
     insight_header_layout->addLayout(ai_title_layout);
-
+    
     insight_header_layout->addStretch();
 
     // AI 分析按钮（智能分析板块右侧）
@@ -1017,6 +1024,45 @@ void DashboardPage::setup_ui() {
     ai_input_->setInputMethodHints(Qt::ImhNone); // 允许所有输入
     connect(ai_input_, &QLineEdit::returnPressed, this, &DashboardPage::on_ai_input_send);
     input_layout->addWidget(ai_input_, 1);
+    
+    // 本地/云端 LLM 切换按钮（浅色风格，显示当前模式）
+    backend_toggle_btn_ = new QPushButton(tr("云端大模型"), input_row);
+    backend_toggle_btn_->setObjectName("BackendToggle");
+    backend_toggle_btn_->setCheckable(true);
+    backend_toggle_btn_->setMinimumWidth(90);
+    backend_toggle_btn_->setCursor(Qt::PointingHandCursor);
+    backend_toggle_btn_->setToolTip(tr("点击切换到本地大模型"));
+    backend_toggle_btn_->setStyleSheet(R"(
+        QPushButton {
+            background-color: #e6f7ff;
+            color: #1890ff;
+            border: 1px solid #91d5ff;
+            border-radius: 4px;
+            padding: 4px 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        QPushButton:hover {
+            background-color: #bae7ff;
+            border-color: #1890ff;
+        }
+        QPushButton:checked {
+            background-color: #f6ffed;
+            color: #52c41a;
+            border-color: #b7eb8f;
+        }
+        QPushButton:checked:hover {
+            background-color: #d9f7be;
+            border-color: #52c41a;
+        }
+    )");
+    connect(backend_toggle_btn_, &QPushButton::toggled, this, &DashboardPage::on_backend_toggled);
+    input_layout->addWidget(backend_toggle_btn_);
+    
+    // 后端状态标签（显示就绪/加载中）
+    backend_status_label_ = new QLabel(input_row);
+    backend_status_label_->setStyleSheet("color: #888; font-size: 11px; min-width: 50px;");
+    input_layout->addWidget(backend_status_label_);
 
     ai_send_btn_ = new QPushButton(tr("发送"), input_row);
     ai_send_btn_->setObjectName("AiChatSendButton");
@@ -1482,4 +1528,54 @@ void DashboardPage::on_data_range_changed(int days) {
     ai_data_range_days_ = days;
     update_data_range_buttons();
     spdlog::info("AI data range changed to {} days (0=Q&A mode)", days);
+}
+
+void DashboardPage::on_backend_toggled(bool checked) {
+    is_local_llm_ = checked;
+    
+    // 更新按钮文字和提示
+    if (backend_toggle_btn_) {
+        backend_toggle_btn_->setText(checked ? tr("本地大模型") : tr("云端大模型"));
+        backend_toggle_btn_->setToolTip(checked 
+            ? tr("点击切换到云端大模型") 
+            : tr("点击切换到本地大模型"));
+    }
+    
+    if (backend_status_label_) {
+        backend_status_label_->setText(checked ? tr("加载中...") : tr(""));
+    }
+    
+    // 切换服务后端
+    auto backend = checked ? LLMBackendType::Local : LLMBackendType::Cloud;
+    AiAnalysisService::instance()->setBackend(backend);
+    
+    if (checked) {
+        // 如果切换到本地且模型未加载，则初始化
+        QString model_path = Config::LocalLLM::MODEL_PATH;
+        if (!AiAnalysisService::instance()->isLocalLLMReady()) {
+            ToastNotification::showMessage(this, tr("AI 模型"), tr("正在加载本地模型..."), ToastNotification::Level::Info);
+            AiAnalysisService::instance()->initializeLocalLLM(model_path);
+        } else {
+            if (backend_status_label_) {
+                backend_status_label_->setText(tr("就绪"));
+                backend_status_label_->setStyleSheet("color: #52c41a; font-size: 10px; min-width: 40px;");
+            }
+        }
+    } else {
+        ToastNotification::showMessage(this, tr("AI 模型"), tr("已切换至云端 API"), ToastNotification::Level::Info);
+    }
+}
+
+void DashboardPage::on_local_llm_ready() {
+    if (is_local_llm_ && backend_status_label_) {
+        backend_status_label_->setText(tr("就绪"));
+        backend_status_label_->setStyleSheet("color: #52c41a; font-size: 11px;");
+        ToastNotification::showMessage(this, tr("AI 模型"), tr("本地模型加载完成"), ToastNotification::Level::Success);
+    }
+}
+
+void DashboardPage::on_local_llm_progress(int percent) {
+    if (is_local_llm_ && backend_status_label_) {
+        backend_status_label_->setText(tr("加载中 %1%").arg(percent));
+    }
 }

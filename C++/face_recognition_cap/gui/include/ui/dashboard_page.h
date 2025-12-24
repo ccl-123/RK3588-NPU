@@ -101,4 +101,15 @@ private slots:
     void on_ai_analysis_started();
     void on_ai_analysis_cancelled();
     void on_data_range_changed(int days);
+    
+    // 后端切换相关
+    void on_backend_toggled(bool checked);
+    void on_local_llm_ready();
+    void on_local_llm_progress(int percent);
+
+private:
+    // LLM 后端切换
+    QPushButton* backend_toggle_btn_;
+    QLabel* backend_status_label_;
+    bool is_local_llm_;
 };

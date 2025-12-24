@@ -31,6 +31,11 @@ set(RKNN_RT_LIB ${RKNN_API_PATH}/${LIB_ARCH}/librknnrt.so)
 include_directories(${RKNN_API_PATH}/include)
 include_directories(${CMAKE_SOURCE_DIR}/../3rdparty)
 
+# rkllm api
+set(RKLLM_API_PATH ${CMAKE_SOURCE_DIR}/../rkllm_runtime)
+include_directories(${RKLLM_API_PATH}/include)
+set(RKLLM_RT_LIB ${RKLLM_API_PATH}/lib/librkllmrt.so)
+
 # opencv
 find_package(OpenCV REQUIRED)
 
@@ -102,6 +107,7 @@ set(APP_SOURCES
     src/app/model_manager.cc
     src/app/feature_library.cc
     src/app/face_recognition_app.cc
+    # local_llm_thread.cc 移到 GUI_SOURCES，因为依赖 Qt
 )
 
 set(MAIN_SOURCES
@@ -141,6 +147,7 @@ if(Qt5_FOUND)
         gui/src/ui/attendance_page.cc
         gui/src/ui/user_management_page.cc
         gui/src/ui/settings_page.cc
+        src/app/local_llm_thread.cc
         gui/src/themes/ui_resources.qrc
         gui/resources/resources.qrc
     )
@@ -162,6 +169,7 @@ add_executable(${TARGET_NAME}
 
 target_link_libraries(${TARGET_NAME}
   ${RKNN_RT_LIB}
+  ${RKLLM_RT_LIB}
   ${RGA_LIB}
   ${OpenCV_LIBS}
   ${SQLite3_LIBRARIES}
@@ -201,6 +209,7 @@ if(Qt5_FOUND)
         gui/include/ui/attendance_page.h
         gui/include/ui/user_management_page.h
         gui/include/ui/settings_page.h
+        include/app/local_llm_thread.h
     )
 
     add_executable(${TARGET_NAME}_gui
@@ -225,6 +234,7 @@ if(Qt5_FOUND)
 
     target_link_libraries(${TARGET_NAME}_gui
         ${RKNN_RT_LIB}
+        ${RKLLM_RT_LIB}
         ${RGA_LIB}
         ${OpenCV_LIBS}
         ${SQLite3_LIBRARIES}

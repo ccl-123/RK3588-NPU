@@ -135,10 +135,19 @@ if [ "$DO_BUILD" = true ]; then
     LIB_DIR="${INSTALL_DIR}/face_recognition_cap/lib"
     mkdir -p "${LIB_DIR}"
 
-    # 只复制 RKNN/RGA (这些是 RK3588 专有的)
+    # 只复制 RKNN/RGA/RKLLM (这些是 RK3588 专有的)
     cp -f ${RKNN_API_PATH}/aarch64/librknnrt.so "${LIB_DIR}/" 2>/dev/null || true
     cp -f ${RGA_PATH}/lib/Linux/aarch64/librga.so "${LIB_DIR}/" 2>/dev/null || true
-    echo "  ✓ RKNN/RGA 库已复制"
+    
+    # RKLLM 运行时库 (本地 LLM 必需)
+    RKLLM_LIB="${ROOT_PWD}/../rkllm_runtime/lib/librkllmrt.so"
+    if [ -f "${RKLLM_LIB}" ]; then
+        cp -f "${RKLLM_LIB}" "${LIB_DIR}/"
+        echo "  ✓ RKNN/RGA/RKLLM 库已复制"
+    else
+        echo "  ⚠ RKLLM 库未找到: ${RKLLM_LIB}"
+        echo "  ✓ RKNN/RGA 库已复制"
+    fi
 
     # 不复制 OpenCV/SQLite - 板子上已经有！
 
@@ -177,13 +186,18 @@ if [ "$DO_DEPLOY" = true ]; then
     echo "🚀 开始部署到设备..."
     echo "========================================"
     # 仅确保目标目录存在，不再删除整个目录（以保留数据库和本地库文件）
-    ${SSH_CMD} ${DEVICE_USER}@${DEVICE_IP} "mkdir -p ${DEVICE_TARGET_DIR}"
+    ${SSH_CMD} ${DEVICE_USER}@${DEVICE_IP} "mkdir -p ${DEVICE_TARGET_DIR}/face_recognition_cap/lib"
 
-    # 仅传输核心执行文件到目标目录下的 face_recognition_cap 文件夹中
+    # 传输核心可执行文件
     echo "  -> 传输核心可执行文件..."
     ${SCP_CMD} ${INSTALL_DIR}/face_recognition_cap/face_recognition_cap \
         ${INSTALL_DIR}/face_recognition_cap/face_recognition_cap_gui \
         ${DEVICE_USER}@${DEVICE_IP}:${DEVICE_TARGET_DIR}/face_recognition_cap/
+
+    # 传输运行时库 (RKNN/RGA/RKLLM)
+    echo "  -> 传输运行时库 (RKNN/RGA/RKLLM)..."
+    ${SCP_CMD} ${INSTALL_DIR}/face_recognition_cap/lib/*.so \
+        ${DEVICE_USER}@${DEVICE_IP}:${DEVICE_TARGET_DIR}/face_recognition_cap/lib/
 
     if [ $? -eq 0 ]; then
         echo ""

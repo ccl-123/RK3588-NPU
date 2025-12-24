@@ -16,6 +16,7 @@
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/rotating_file_sink.h>
+#include <cstdlib>  // for setenv, getenv
 
 #include "gui/main_window.h"
 #include "utils/config_manager.h"
@@ -52,6 +53,15 @@ int main(int argc, char* argv[]) {
     // 支持 fcitx5 中文输入
     qputenv("QT_IM_MODULE", "fcitx5");
     qputenv("XMODIFIERS", "@im=fcitx5");
+    
+    // 设置运行时库路径（确保能找到 RKNN/RGA/RKLLM 库）
+    const char* current_ld_path = std::getenv("LD_LIBRARY_PATH");
+    std::string new_ld_path = "./lib";
+    if (current_ld_path && strlen(current_ld_path) > 0) {
+        new_ld_path += ":";
+        new_ld_path += current_ld_path;
+    }
+    setenv("LD_LIBRARY_PATH", new_ld_path.c_str(), 1);
 
     // 初始化日志系统
     setup_logger();
