@@ -142,24 +142,11 @@ if [ "$DO_BUILD" = true ]; then
 
     # 不复制 OpenCV/SQLite - 板子上已经有！
 
-    # ==================== 创建运行脚本 ====================
-    cat > "${INSTALL_DIR}/face_recognition_cap/remote_run.sh" << 'EOF'
-#!/bin/bash
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-cd "${SCRIPT_DIR}"
+    # 不再生成运行脚本，按照用户要求移除
+    # cat > "${INSTALL_DIR}/face_recognition_cap/remote_run.sh" << 'EOF'
+    # ...
+    # EOF
 
-# 只添加本地 lib 目录（RKNN/RGA），系统库使用默认路径
-export LD_LIBRARY_PATH="${SCRIPT_DIR}/lib:${LD_LIBRARY_PATH}"
-export DISPLAY=:0
-
-case "$1" in
-    gui) ./face_recognition_cap_gui ;;
-    cmd) ./face_recognition_cap ;;
-    db)  ./db_tool "${@:2}" ;;
-    *)   echo "Usage: ./remote_run.sh [gui|cmd|db]" ;;
-esac
-EOF
-    chmod +x "${INSTALL_DIR}/face_recognition_cap/remote_run.sh"
 
     echo ""
     echo "========================================"
@@ -172,19 +159,31 @@ fi
 if [ "$DO_DEPLOY" = true ]; then
     DEVICE_IP="192.168.1.103"
     DEVICE_USER="firefly"
-    DEVICE_TARGET_DIR="~/open_project"
+    DEVICE_PASS="firefly"
+    DEVICE_TARGET_DIR="/home/firefly/open_project/edge2-npu/C++/face_recognition_cap/install"
+
+    # 检查是否安装了 sshpass
+    if ! command -v sshpass &> /dev/null; then
+        echo "⚠️  未检测到 sshpass，请运行 'sudo apt install sshpass' 以实现自动输入密码。"
+        SSH_CMD="ssh -o StrictHostKeyChecking=no"
+        SCP_CMD="scp -o StrictHostKeyChecking=no"
+    else
+        SSH_CMD="sshpass -p ${DEVICE_PASS} ssh -o StrictHostKeyChecking=no"
+        SCP_CMD="sshpass -p ${DEVICE_PASS} scp -o StrictHostKeyChecking=no"
+    fi
 
     echo ""
     echo "========================================"
     echo "🚀 开始部署到设备..."
     echo "========================================"
-    echo "目标: ${DEVICE_USER}@${DEVICE_IP}:${DEVICE_TARGET_DIR}"
+    # 仅确保目标目录存在，不再删除整个目录（以保留数据库和本地库文件）
+    ${SSH_CMD} ${DEVICE_USER}@${DEVICE_IP} "mkdir -p ${DEVICE_TARGET_DIR}"
 
-    # 确保目标目录存在并清理旧版本
-    ssh ${DEVICE_USER}@${DEVICE_IP} "mkdir -p ${DEVICE_TARGET_DIR} && rm -rf ${DEVICE_TARGET_DIR}/face_recognition_cap"
-
-    # 传输文件
-    scp -r ${INSTALL_DIR}/face_recognition_cap ${DEVICE_USER}@${DEVICE_IP}:${DEVICE_TARGET_DIR}/
+    # 仅传输核心执行文件到目标目录下的 face_recognition_cap 文件夹中
+    echo "  -> 传输核心可执行文件..."
+    ${SCP_CMD} ${INSTALL_DIR}/face_recognition_cap/face_recognition_cap \
+        ${INSTALL_DIR}/face_recognition_cap/face_recognition_cap_gui \
+        ${DEVICE_USER}@${DEVICE_IP}:${DEVICE_TARGET_DIR}/face_recognition_cap/
 
     if [ $? -eq 0 ]; then
         echo ""
@@ -194,9 +193,10 @@ if [ "$DO_DEPLOY" = true ]; then
         echo ""
         echo "在设备上运行:"
         echo "  ssh ${DEVICE_USER}@${DEVICE_IP}"
-        echo "  cd ${DEVICE_TARGET_DIR}/face_recognition_cap"
-        echo "  ./remote_run.sh gui   # GUI 版本"
-        echo "  ./remote_run.sh cmd   # 命令行版本"
+        echo "  cd ${DEVICE_TARGET_DIR}"
+        echo "  export LD_LIBRARY_PATH=./lib:\$LD_LIBRARY_PATH"
+        echo "  ./face_recognition_cap_gui   # GUI 版本"
+        echo "  ./face_recognition_cap       # 命令行版本"
     else
         echo ""
         echo "❌ 部署失败！请检查网络连接和 SSH 配置。"
