@@ -12,12 +12,19 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wl,--allow-shlib-undefined")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wl,--allow-shlib-undefined")
 
-# install target and libraries
+# ==================== RPATH 设置 (工程化做法) ====================
+# 让程序启动时自动在同级 lib 目录查找库文件 ($ORIGIN 在 Linux 上代表程序所在目录)
+if(UNIX)
+    set(CMAKE_SKIP_BUILD_RPATH FALSE)
+    set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
+    set(CMAKE_INSTALL_RPATH "$ORIGIN/lib")
+    set(CMAKE_INSTALL_RPATH_USE_LINK_PATH FALSE)
+endif()
+
+# 统一安装前缀
 set(CMAKE_INSTALL_PREFIX ${CMAKE_SOURCE_DIR}/install/${TARGET_NAME})
 
-set(CMAKE_SKIP_INSTALL_RPATH FALSE)
-set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
-set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
+
 
 # rknn api
 set(RKNN_API_PATH ${CMAKE_SOURCE_DIR}/../runtime/librknn_api)
@@ -265,8 +272,8 @@ target_link_libraries(db_tool
 )
 
 # install target and libraries
-set(CMAKE_INSTALL_PREFIX ${CMAKE_SOURCE_DIR}/install/${TARGET_NAME})
 install(TARGETS ${TARGET_NAME} DESTINATION ./)
+
 
 # 仅当 db_tool 不存在时才安装，避免重复编译和替换
 install(CODE "
@@ -283,6 +290,8 @@ install(CODE "
 
 install(PROGRAMS ${RKNN_RT_LIB} DESTINATION lib)
 install(PROGRAMS ${RGA_LIB} DESTINATION lib)
+install(PROGRAMS ${RKLLM_RT_LIB} DESTINATION lib)
+
 
 # 安装 data 目录时排除数据库文件，避免覆盖用户运行时的数据
 install(DIRECTORY data DESTINATION ./
