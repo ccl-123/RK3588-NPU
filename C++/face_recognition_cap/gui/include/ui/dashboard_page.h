@@ -106,6 +106,7 @@ private slots:
     void on_backend_toggled(bool checked);
     void on_local_llm_ready();
     void on_local_llm_progress(int percent);
+    void on_local_llm_released();
 
 private:
     // LLM 后端切换

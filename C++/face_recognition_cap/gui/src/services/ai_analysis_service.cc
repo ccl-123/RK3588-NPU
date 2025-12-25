@@ -42,6 +42,7 @@ AiAnalysisService::AiAnalysisService(QObject* parent)
     connect(local_llm, &LocalLLMThread::chunkReady, this, &AiAnalysisService::onLocalLLMChunk);
     connect(local_llm, &LocalLLMThread::inferenceFinished, this, &AiAnalysisService::onLocalLLMFinished);
     connect(local_llm, &LocalLLMThread::errorOccurred, this, &AiAnalysisService::onLocalLLMError);
+    connect(local_llm, &LocalLLMThread::modelReleased, this, &AiAnalysisService::onLocalLLMReleased);
 
     // 检查环境变量是否已设置
     const char* app_key = Config::TencentAI::getAppKey();
@@ -678,4 +679,12 @@ void AiAnalysisService::onLocalLLMFinished() {
 void AiAnalysisService::onLocalLLMError(const QString& error) {
     local_analyzing_ = false;
     emit errorOccurred(error);
+}
+
+void AiAnalysisService::onLocalLLMReleased() {
+    spdlog::info("Local LLM model released, switching to cloud backend");
+    // 模型被释放，切换到云端后端
+    current_backend_ = LLMBackendType::Cloud;
+    emit localLLMReleased();
+    emit backendChanged(LLMBackendType::Cloud);
 }

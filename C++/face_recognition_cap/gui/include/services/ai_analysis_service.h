@@ -64,6 +64,8 @@ signals:
     void analysisCancelled();
     // 本地 LLM 就绪信号
     void localLLMReady();
+    // 本地 LLM 已释放信号（用于通知 UI 切换按钮状态）
+    void localLLMReleased();
     // 后端切换信号
     void backendChanged(LLMBackendType backend);
 
@@ -74,6 +76,7 @@ private slots:
     void onLocalLLMChunk(const QString& chunk);
     void onLocalLLMFinished();
     void onLocalLLMError(const QString& error);
+    void onLocalLLMReleased();
 
 private:
     explicit AiAnalysisService(QObject* parent = nullptr);

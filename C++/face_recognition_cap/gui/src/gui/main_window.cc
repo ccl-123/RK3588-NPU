@@ -1497,7 +1497,7 @@ void MainWindow::on_action_register_face() {
         spdlog::debug("Cleared audio queue before resuming recognition");
 
         // 短暂延迟，确保对话框资源完全释放
-        QThread::msleep(200);
+        QThread::msleep(50);
 
         start_recognition();
     }

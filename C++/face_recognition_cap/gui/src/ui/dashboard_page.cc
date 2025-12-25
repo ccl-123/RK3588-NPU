@@ -274,6 +274,7 @@ DashboardPage::DashboardPage(QWidget* parent)
     
     // 连接本地 LLM 信号
     connect(ai_service, &AiAnalysisService::localLLMReady, this, &DashboardPage::on_local_llm_ready);
+    connect(ai_service, &AiAnalysisService::localLLMReleased, this, &DashboardPage::on_local_llm_released);
 }
 
 void DashboardPage::setAttendanceService(service::AttendanceService* service) {
@@ -1578,4 +1579,25 @@ void DashboardPage::on_local_llm_progress(int percent) {
     if (is_local_llm_ && backend_status_label_) {
         backend_status_label_->setText(tr("加载中 %1%").arg(percent));
     }
+}
+
+void DashboardPage::on_local_llm_released() {
+    // 模型被释放（通常是因为回到识别页面，NPU 资源需要给人脸识别使用）
+    // 将按钮状态切回云端模式
+    is_local_llm_ = false;
+    
+    if (backend_toggle_btn_) {
+        // 阻止信号触发 on_backend_toggled
+        backend_toggle_btn_->blockSignals(true);
+        backend_toggle_btn_->setChecked(false);
+        backend_toggle_btn_->setText(tr("云端大模型"));
+        backend_toggle_btn_->setToolTip(tr("点击切换到本地大模型"));
+        backend_toggle_btn_->blockSignals(false);
+    }
+    
+    if (backend_status_label_) {
+        backend_status_label_->setText(tr(""));
+    }
+    
+    spdlog::info("Dashboard: Local LLM released, button switched to cloud mode");
 }
