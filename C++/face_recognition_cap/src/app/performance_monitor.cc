@@ -176,6 +176,8 @@ void PerformanceMonitor::set_npu_contexts(rknn_context detector_ctx, rknn_contex
 }
 
 void PerformanceMonitor::print_report() {
+    // 暂时关闭性能日志，避免影响 LLM 推理
+    return;
     
     if (detection_times_.empty()) return;
 
