@@ -9,11 +9,16 @@
 #include <QPainter>
 #include <QMutexLocker>
 #include <QResizeEvent>
+#include <chrono>
 
 VideoDisplayWidget::VideoDisplayWidget(QWidget* parent)
     : QWidget(parent)
     , show_fps_(true)
-    , fps_(0.0)
+    , npu_fps_(0.0)
+    , camera_fps_(0.0)
+    , display_fps_(0.0)
+    , display_frame_count_(0)
+    , last_display_fps_time_(std::chrono::steady_clock::now())
 {
     setMinimumSize(640, 480);
     setAttribute(Qt::WA_OpaquePaintEvent);
@@ -33,6 +38,17 @@ void VideoDisplayWidget::update_frame(const cv::Mat& frame) {
     // 注意：current_image_ 会引用 current_frame_ 的内存，所以必须先保存 current_frame_ 再生成 QImage。
     current_frame_ = frame;
     current_image_ = mat_to_qimage(current_frame_);
+    
+    // 统计真实的显示帧率（在新帧到达时统计，而不是 paintEvent）
+    // 因为 paintEvent 可能被 Qt 事件循环频繁触发，而 update_frame 只在新帧到达时调用
+    display_frame_count_++;
+    auto now = std::chrono::steady_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_display_fps_time_);
+    if (duration.count() >= 1000) {
+        display_fps_ = display_frame_count_ * 1000.0 / duration.count();
+        display_frame_count_ = 0;
+        last_display_fps_time_ = now;
+    }
     
     update();
 }
@@ -54,8 +70,12 @@ void VideoDisplayWidget::set_show_fps(bool show) {
     show_fps_ = show;
 }
 
-void VideoDisplayWidget::set_fps(double fps) {
-    fps_ = fps;
+void VideoDisplayWidget::set_npu_fps(double fps) {
+    npu_fps_ = fps;
+}
+
+void VideoDisplayWidget::set_camera_fps(double fps) {
+    camera_fps_ = fps;
 }
 
 void VideoDisplayWidget::paintEvent(QPaintEvent* event) {
@@ -192,27 +212,39 @@ void VideoDisplayWidget::draw_fps(QPainter& painter) {
     // 绘制 FPS 和 REC 指示器
     painter.setRenderHint(QPainter::Antialiasing);
     
-    // 背景
-    QRect bg_rect(10, 10, 140, 36);
+    // 背景 - 加宽以容纳三行 FPS
+    QRect bg_rect(10, 10, 180, 76);
     painter.setBrush(QColor(0, 0, 0, 150));
     painter.setPen(Qt::NoPen);
-    painter.drawRoundedRect(bg_rect, 18, 18);
+    painter.drawRoundedRect(bg_rect, 12, 12);
     
     // REC 红点
     painter.setBrush(QColor(255, 59, 48)); // iOS Red
-    painter.drawEllipse(25, 23, 10, 10);
+    painter.drawEllipse(20, 20, 10, 10);
     
     // REC 文本
     painter.setPen(Qt::white);
     painter.setFont(QFont("Segoe UI", 10, QFont::Bold));
-    painter.drawText(45, 32, "REC");
+    painter.drawText(35, 29, "REC");
     
     // 分隔线
     painter.setPen(QColor(255, 255, 255, 100));
-    painter.drawLine(80, 18, 80, 38);
+    painter.drawLine(70, 16, 70, 40);
     
-    // FPS 文本
-    QString fps_text = QString("%1 FPS").arg(fps_, 0, 'f', 1);
-    painter.setPen(Qt::white);
-    painter.drawText(90, 32, fps_text);
+    painter.setFont(QFont("Segoe UI", 9, QFont::Bold));
+    
+    // NPU FPS（第一行）- 检测能力帧率
+    QString npu_fps_text = QString("NPU: %1").arg(npu_fps_, 0, 'f', 1);
+    painter.setPen(QColor(255, 200, 100));  // 橙黄色
+    painter.drawText(78, 27, npu_fps_text);
+    
+    // 摄像头 FPS（第二行）- 采集帧率
+    QString camera_fps_text = QString("CAM: %1").arg(camera_fps_, 0, 'f', 1);
+    painter.setPen(QColor(100, 255, 100));  // 浅绿色
+    painter.drawText(78, 47, camera_fps_text);
+    
+    // 显示 FPS（第三行）- 实际渲染帧率
+    QString display_fps_text = QString("DSP: %1").arg(display_fps_, 0, 'f', 1);
+    painter.setPen(QColor(100, 200, 255));  // 浅蓝色
+    painter.drawText(78, 67, display_fps_text);
 }

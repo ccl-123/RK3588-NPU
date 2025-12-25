@@ -161,6 +161,18 @@ public:
     bool is_camera_initialized() const { return camera_initialized_; }
 
     /**
+     * @brief 获取 NPU 帧率（YOLO 检测能力）
+     * @return NPU 检测帧率（约 50+ FPS）
+     */
+    double get_npu_fps() const { return perf_monitor_.get_smoothed_fps(); }
+
+    /**
+     * @brief 获取摄像头真实采集帧率
+     * @return 摄像头采集帧率（约 30 FPS）
+     */
+    double get_camera_fps() const;
+
+    /**
      * @brief 获取摄像头错误信息
      * @return 错误信息字符串，如果没有错误则返回空字符串
      */

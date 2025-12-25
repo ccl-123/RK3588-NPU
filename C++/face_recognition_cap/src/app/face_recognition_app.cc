@@ -181,6 +181,10 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
     return 0;
 }
 
+double FaceRecognitionApp::get_camera_fps() const {
+    return ::get_camera_fps();  // 调用 camera_util.h 中的全局函数
+}
+
 /**
  * @brief 内部初始化摄像头函数
  * @return 0 成功, -1 失败

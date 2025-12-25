@@ -61,6 +61,22 @@ static std::mutex frame_mutex;
  */
 static std::shared_ptr<cv::Mat> current_frame;
 
+// ==================== 摄像头帧率统计 ====================
+/** @brief 采集帧计数器 */
+static std::atomic<int> capture_frame_count(0);
+
+/** @brief 上次统计时间点 */
+static std::chrono::steady_clock::time_point last_fps_calc_time = std::chrono::steady_clock::now();
+
+/** @brief 摄像头真实采集帧率 */
+static std::atomic<double> camera_fps(0.0);
+
+/** @brief 帧序列号（每次采集到新帧时递增，用于检测是否有新帧） */
+static std::atomic<uint64_t> frame_sequence(0);
+
+/** @brief 上次读取时的帧序列号 */
+static std::atomic<uint64_t> last_read_sequence(0);
+
 // ==================== 内部辅助函数 (Helper Functions) ====================
 
 /**
@@ -141,6 +157,42 @@ int load_usb_camera(std::string device, int camera_width, int camera_height)
 
     std::cout << "USB camera initialized: " << fmt.fmt.pix.width << "x" << fmt.fmt.pix.height << std::endl;
 
+    // 2.5 设置帧率为 30 FPS
+    v4l2_streamparm parm = {};
+    parm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    parm.parm.capture.timeperframe.numerator = 1;
+    parm.parm.capture.timeperframe.denominator = 30;  // 请求 30 FPS
+    if (ioctl(fd, VIDIOC_S_PARM, &parm) == -1) {
+        perror("VIDIOC_S_PARM (set frame rate)");
+        // 不视为致命错误，继续执行
+    } else {
+        std::cout << "Camera frame rate set to: " 
+                  << parm.parm.capture.timeperframe.denominator << "/" 
+                  << parm.parm.capture.timeperframe.numerator << " FPS" << std::endl;
+    }
+
+    // 2.6 尝试禁用自动曝光优先级（强制帧率优先）
+    // 许多 USB 摄像头在光线不足时会自动降低帧率以增加曝光时间。
+    // 将此值设为 0 可以告诉摄像头优先保持帧率，即使图像可能会变暗。
+    v4l2_control ctrl;
+    ctrl.id = V4L2_CID_EXPOSURE_AUTO_PRIORITY;
+    ctrl.value = 0; // 0 = Disable auto priority (Maintain Frame Rate)
+    if (ioctl(fd, VIDIOC_S_CTRL, &ctrl) == -1) {
+        // std::cerr << "Note: Camera does not support V4L2_CID_EXPOSURE_AUTO_PRIORITY" << std::endl;
+    } else {
+         std::cout << "Disabled V4L2_CID_EXPOSURE_AUTO_PRIORITY (Force Frame Rate)" << std::endl;
+    }
+
+    // 2.7 尝试禁用工频去闪烁（可能限制帧率为 25/50 或 30/60）
+    // V4L2_CID_POWER_LINE_FREQUENCY: 0=Disabled, 1=50Hz, 2=60Hz
+    ctrl.id = V4L2_CID_POWER_LINE_FREQUENCY;
+    ctrl.value = 0; // Disabled
+    if (ioctl(fd, VIDIOC_S_CTRL, &ctrl) == -1) {
+        // perror("V4L2_CID_POWER_LINE_FREQUENCY");
+    } else {
+         std::cout << "Disabled V4L2_CID_POWER_LINE_FREQUENCY" << std::endl;
+    }
+
     // 3. 申请内核级内存缓冲区队列 (Memory Map 模式)
     v4l2_requestbuffers req = {};
     req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -215,6 +267,10 @@ static void usb_capture_thread_func()
     thread_buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     thread_buf.memory = V4L2_MEMORY_MMAP;
 
+    // 初始化帧率统计
+    last_fps_calc_time = std::chrono::steady_clock::now();
+    capture_frame_count = 0;
+
     while (capture_running) {
         // [BLOCKING] 从硬件就绪队列中弹出一个已填充数据的缓冲区
         if (ioctl(fd, VIDIOC_DQBUF, &thread_buf) == -1) {
@@ -237,6 +293,17 @@ static void usb_capture_thread_func()
             {
                 std::lock_guard<std::mutex> lock(frame_mutex);
                 current_frame = new_frame;
+                frame_sequence++;  // 递增帧序列号，表示有新帧
+            }
+            
+            // 统计摄像头真实采集帧率
+            capture_frame_count++;
+            auto now = std::chrono::steady_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_fps_calc_time);
+            if (duration.count() >= 1000) {
+                camera_fps = capture_frame_count * 1000.0 / duration.count();
+                capture_frame_count = 0;
+                last_fps_calc_time = now;
             }
         }
 
@@ -255,6 +322,9 @@ void start_usb_capture_thread()
     bool expected = false;
     // 使用 CAS 原子操作保证只启动一个采集线程
     if (capture_running.compare_exchange_strong(expected, true)) {
+        // 重置帧序列号
+        frame_sequence.store(0);
+        last_read_sequence.store(0);
         capture_thread = std::thread(usb_capture_thread_func);
     }
 }
@@ -281,18 +351,37 @@ void stop_usb_capture_thread()
 /**
  * @brief 从全局缓冲区读取最新的图像帧
  * @param[out] orig_img 输出的图像容器
- * @return true 成功, false 缓冲区目前为空
+ * @return true 有新帧可用, false 无新帧或缓冲区为空
  * @note [ZERO-COPY] 利用 cv::Mat 的浅拷贝（引用计数机制）实现，不产生像素级拷贝。
+ *       只有当帧序列号变化时才返回 true，避免流水线重复处理同一帧。
  */
 bool read_usb_frame(cv::Mat *orig_img)
 {
     std::lock_guard<std::mutex> lock(frame_mutex);
+    
+    // 检查帧序列号是否变化（是否有新帧）
+    uint64_t current_seq = frame_sequence.load();
+    if (current_seq == last_read_sequence.load()) {
+        // 没有新帧，返回 false
+        return false;
+    }
+    
     if (current_frame && !current_frame->empty()) {
         // 浅拷贝：orig_img 与 current_frame 共享同一块像素内存，底层引用计数 +1
         *orig_img = *current_frame;
+        last_read_sequence.store(current_seq);  // 更新已读序列号
         return true;
     }
     return false;
+}
+
+/**
+ * @brief 获取摄像头真实采集帧率
+ * @return 摄像头采集帧率（约 30 FPS）
+ */
+double get_camera_fps()
+{
+    return camera_fps.load();
 }
 
 /**

@@ -130,8 +130,8 @@ MainWindow::MainWindow(QWidget* parent)
     , registration_dialog_(nullptr)
     , is_running_(false)
     , recognition_paused_for_llm_(false)
-    , frame_count_(0)
-    , fps_(0.0)
+    , npu_fps_(0.0)
+    , camera_fps_(0.0)
     , camera_id_(0)
     , is_dark_theme_(false)  // 默认使用浅色主题
     , current_date_(QDate::currentDate())  // 初始化当前日期（用于跨日检测）
@@ -1150,24 +1150,32 @@ void MainWindow::on_frame_ready(const cv::Mat& frame, const std::vector<Recognit
         recognition_page_->updateFaceCount(static_cast<int>(results.size()));
     }
 
-    frame_count_++;
-
-    // 计算 FPS
+    // 每秒更新一次 FPS
     auto now = std::chrono::steady_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_fps_time_);
     if (duration.count() >= 1000) {
-        fps_ = frame_count_ * 1000.0 / duration.count();
-        frame_count_ = 0;
+        if (recognition_app_) {
+            // 1. NPU 帧率：从 PerformanceMonitor 获取（YOLO 检测能力，约 50+ FPS）
+            npu_fps_ = recognition_app_->get_npu_fps();
+            
+            // 2. 摄像头采集帧率：从摄像头采集线程获取真实帧率（约 30 FPS）
+            camera_fps_ = recognition_app_->get_camera_fps();
+        }
+        
+        // 3. 显示帧率：由 VideoDisplayWidget 在 paintEvent 中自行计算
+        
         last_fps_time_ = now;
+        
         if (video_widget_) {
-        video_widget_->set_fps(fps_);
+            video_widget_->set_npu_fps(npu_fps_);
+            video_widget_->set_camera_fps(camera_fps_);
         }
     }
 }
 
 void MainWindow::update_status() {
     if (fps_label_) {
-    fps_label_->setText(QString("FPS: %1").arg(fps_, 0, 'f', 1));
+    fps_label_->setText(QString("FPS: %1").arg(camera_fps_, 0, 'f', 1));
     }
 
     // 更新状态栏的时钟和日期

@@ -168,8 +168,8 @@ private:
     // 系统状态
     bool is_running_;
     bool recognition_paused_for_llm_;   // 识别是否因 LLM 而暂停（用于恢复）
-    int frame_count_;
-    double fps_;
+    double npu_fps_;                    // NPU 帧率（YOLO 检测能力，约 50+ FPS）
+    double camera_fps_;                 // 摄像头采集帧率（约 30 FPS）
     std::chrono::steady_clock::time_point last_fps_time_;
     std::atomic<bool> closing_{false};
     std::atomic<bool> init_in_progress_{false};

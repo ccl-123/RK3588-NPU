@@ -43,6 +43,12 @@ void stop_usb_capture_thread();
 bool read_usb_frame(cv::Mat *orig_img);
 
 /**
+ * @brief 获取摄像头真实采集帧率
+ * @return 摄像头采集帧率（约 30 FPS）
+ */
+double get_camera_fps();
+
+/**
  * @brief 停止采集线程并关闭摄像头设备
  */
 void close_usb_camera();

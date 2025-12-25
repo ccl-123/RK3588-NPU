@@ -18,6 +18,7 @@
 #include <QMutex>
 #include <opencv2/opencv.hpp>
 #include <vector>
+#include <chrono>
 
 /**
  * @brief 人脸识别结果
@@ -58,8 +59,11 @@ public:
     // 设置是否显示 FPS
     void set_show_fps(bool show);
     
-    // 设置 FPS 值
-    void set_fps(double fps);
+    // 设置 NPU 帧率（YOLO 检测能力，约 50+ FPS）
+    void set_npu_fps(double fps);
+    
+    // 设置摄像头采集帧率（约 30 FPS）
+    void set_camera_fps(double fps);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
@@ -83,7 +87,13 @@ private:
     
     // 显示选项
     bool show_fps_;
-    double fps_;
+    double npu_fps_;      // NPU 帧率（YOLO 检测能力，约 50+ FPS）
+    double camera_fps_;   // 摄像头采集帧率（约 30 FPS）
+    double display_fps_;  // 显示帧率（Qt 渲染帧率，约 28-29 FPS）
+    
+    // 显示帧率计算（在 paintEvent 中统计）
+    int display_frame_count_;
+    std::chrono::steady_clock::time_point last_display_fps_time_;
 };
 
 #endif // VIDEO_DISPLAY_WIDGET_H
