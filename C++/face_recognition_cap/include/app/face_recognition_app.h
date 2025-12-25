@@ -186,6 +186,20 @@ public:
     bool reinitialize_camera(const std::string& device_number);
 
     /**
+     * @brief 暂停摄像头采集与预处理（用于 LLM 模式降载）
+     * @return true 成功暂停或已暂停, false 失败
+     * @warning 调用前必须先停止识别 (running_ == false)
+     */
+    bool pause_camera();
+
+    /**
+     * @brief 恢复摄像头采集与预处理（用于退出 LLM 模式）
+     * @return true 成功恢复或已恢复, false 失败
+     * @warning 调用前必须先停止识别 (running_ == false)
+     */
+    bool resume_camera();
+
+    /**
      * @brief GUI 模式：获取当前帧（不阻塞）
      * @param frame 输出帧
      * @return true 成功获取, false 失败
@@ -342,4 +356,3 @@ private:
 };
 
 #endif // _FACE_RECOGNITION_APP_H_
-

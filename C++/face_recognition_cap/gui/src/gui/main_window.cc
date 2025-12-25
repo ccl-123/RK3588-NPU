@@ -848,6 +848,15 @@ void MainWindow::setup_navigation() {
         if (key == "recognition") {
             breadcrumb = tr("实时画面");
             
+            // 进入识别页面时确保摄像头已恢复（不自动启动识别）
+            bool camera_ready = true;
+            if (recognition_app_) {
+                camera_ready = recognition_app_->resume_camera();
+                if (!camera_ready) {
+                    spdlog::error("Failed to resume camera for recognition");
+                }
+            }
+
             // === 回到实时识别页面：释放 RKLLM → 加载 RKNN ===
             if (recognition_paused_for_llm_) {
                 recognition_paused_for_llm_ = false;
@@ -860,7 +869,7 @@ void MainWindow::setup_navigation() {
                 }
                 
                 // 步骤2: 重新加载 RKNN 模型和工作线程
-                if (recognition_app_ && !recognition_app_->are_models_loaded()) {
+                if (camera_ready && recognition_app_ && !recognition_app_->are_models_loaded()) {
                     if (recognition_app_->reload_models()) {
                         spdlog::info("RKNN models reloaded after LLM usage");
                     } else {
@@ -869,8 +878,10 @@ void MainWindow::setup_navigation() {
                 }
                 
                 // 步骤3: 启动人脸识别
-                start_recognition();
-                spdlog::info("Recognition resumed (back to recognition page)");
+                if (camera_ready) {
+                    start_recognition();
+                    spdlog::info("Recognition resumed (back to recognition page)");
+                }
             }
         } else if (key == "dashboard") {
             breadcrumb = tr("智能看板");
@@ -880,6 +891,12 @@ void MainWindow::setup_navigation() {
                 recognition_paused_for_llm_ = true;
                 stop_recognition();
                 spdlog::info("Recognition paused (entering dashboard for LLM)");
+            }
+
+            if (recognition_app_) {
+                if (!recognition_app_->pause_camera()) {
+                    spdlog::warn("Failed to pause camera for LLM");
+                }
             }
             
             // 释放 RKNN 模型（包括停止工作线程），彻底释放 NPU 资源

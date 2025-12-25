@@ -602,6 +602,85 @@ bool FaceRecognitionApp::reinitialize_camera(const std::string& device_number) {
     return true;
 }
 
+bool FaceRecognitionApp::pause_camera() {
+    if (!initialized_) {
+        spdlog::warn("Cannot pause camera: app not initialized");
+        return false;
+    }
+
+    if (running_) {
+        spdlog::error("Cannot pause camera while app is running. Please stop the app first.");
+        return false;
+    }
+
+    if (!camera_initialized_ && !preprocess_thread_) {
+        spdlog::info("Camera already paused");
+        return true;
+    }
+
+    if (preprocess_thread_) {
+        preprocess_thread_->stop();
+        preprocess_thread_.reset();
+        spdlog::info("Preprocessing thread stopped");
+    }
+
+    if (camera_initialized_) {
+        if (config_.camera_type == "usb") {
+            close_usb_camera();
+        }
+        camera_initialized_ = false;
+        spdlog::info("Camera paused");
+    }
+
+    return true;
+}
+
+bool FaceRecognitionApp::resume_camera() {
+    if (!initialized_) {
+        spdlog::warn("Cannot resume camera: app not initialized");
+        return false;
+    }
+
+    if (running_) {
+        spdlog::error("Cannot resume camera while app is running. Please stop the app first.");
+        return false;
+    }
+
+    if (camera_initialized_) {
+        if (!preprocess_thread_) {
+            preprocess_thread_ = std::make_unique<PreprocessingThread>(
+                resize_w_, resize_h_,
+                config_.camera_width, config_.camera_height,
+                &perf_monitor_,
+                config_.camera_type);
+            preprocess_thread_->start();
+            spdlog::info("Preprocessing thread restarted");
+        }
+        return true;
+    }
+
+    spdlog::info("Resuming camera...");
+    if (init_camera() != 0) {
+        spdlog::warn("Camera resume failed: {}", camera_error_);
+        camera_initialized_ = false;
+        return false;
+    }
+
+    camera_initialized_ = true;
+    camera_error_.clear();
+    spdlog::info("Camera resumed successfully");
+
+    preprocess_thread_ = std::make_unique<PreprocessingThread>(
+        resize_w_, resize_h_,
+        config_.camera_width, config_.camera_height,
+        &perf_monitor_,
+        config_.camera_type);
+    preprocess_thread_->start();
+    spdlog::info("Preprocessing thread restarted");
+
+    return true;
+}
+
 void FaceRecognitionApp::set_recognition_callback(RecognitionCallback callback) {
     recognition_callback_ = callback;
     
