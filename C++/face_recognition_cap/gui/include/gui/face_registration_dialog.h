@@ -22,6 +22,8 @@
 #include <opencv2/opencv.hpp>
 #include <vector>
 #include <memory>
+#include <mutex>
+#include <atomic>
 
 #include "app/face_recognition_app.h"
 #include "service/user_service.h"
@@ -69,9 +71,6 @@ private:
     // 人脸质量检测
     bool check_face_quality(const cv::Mat& face_image, std::string& hint);
     
-    // 提取人脸特征
-    bool extract_feature(const cv::Mat& face_image, std::vector<float>& feature);
-    
     // 用户信息输入
     QLineEdit* name_edit_;
     QLineEdit* employee_id_edit_;
@@ -104,6 +103,13 @@ private:
 
     // 当前预览帧
     cv::Mat current_frame_;
+
+    // 预览缓存（来自识别流水线）
+    std::mutex preview_mutex_;
+    cv::Mat latest_frame_;
+    std::vector<RegistrationSample> latest_samples_;
+    bool preview_dirty_;
+    std::atomic<bool> preview_active_;
     
     // 配置
     static constexpr int MIN_FACES = 3;
@@ -112,4 +118,3 @@ private:
 };
 
 #endif // FACE_REGISTRATION_DIALOG_H
-

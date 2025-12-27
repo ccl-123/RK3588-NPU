@@ -22,6 +22,8 @@ RecognitionThread::RecognitionThread(ModelManager* model_manager,
     , perf_monitor_(perf_monitor)
     , recognition_callback_(nullptr)
     , frame_callback_(nullptr)
+    , registration_callback_(nullptr)
+    , mode_(RecognitionMode::Recognition)
     , avg_align_time_(0)
     , avg_facenet_time_(0)
     , avg_match_time_(0)
@@ -70,6 +72,14 @@ void RecognitionThread::set_frame_callback(FrameCallbackFunc callback) {
     frame_callback_ = callback;
 }
 
+void RecognitionThread::set_registration_callback(RegistrationCallbackFunc callback) {
+    registration_callback_ = callback;
+}
+
+void RecognitionThread::set_mode(RecognitionMode mode) {
+    mode_.store(mode);
+}
+
 void RecognitionThread::set_threshold(float threshold) {
     facenet_threshold_ = threshold;
 }
@@ -115,7 +125,9 @@ void RecognitionThread::process_task(RecognitionTask& task) {
     int facenet_width, facenet_height, facenet_channel;
     model_manager_->get_facenet_size(facenet_width, facenet_height, facenet_channel);
     
+    RecognitionMode mode = mode_.load();
     std::vector<RecognitionResultData> recognition_results;
+    std::vector<RegistrationSample> registration_samples;
     cv::Mat render_img = task.orig_img.clone();
     float threshold = facenet_threshold_;
     int recognized_count = 0;
@@ -155,23 +167,48 @@ void RecognitionThread::process_task(RecognitionTask& task) {
         );
         gettimeofday(&t_facenet_end, NULL);
         
-        // 3. 特征匹配
-        gettimeofday(&t_match_start, NULL);
-        std::string name;
+        std::vector<float> feature;
+        if (registration_callback_ && facenet_result) {
+            feature.resize(FACENET_FEATURE_DIM);
+            memcpy(feature.data(), facenet_result, FACENET_FEATURE_DIM * sizeof(float));
+        }
+
+        // 3. 特征匹配（仅识别模式）
+        std::string name = "stranger";
         float max_score = 0.0f;
         int user_id = 0;
-        bool match_found = feature_library_->match_feature_with_id(facenet_result, threshold,
-                                                                   user_id, name, max_score);
-        gettimeofday(&t_match_end, NULL);
-        
-        // 关键改进：判断是否识别成功（提前计算，用于回调和显示）
-        bool is_recognized = match_found && (name != "stranger") && (max_score >= threshold);
+        bool is_recognized = false;
+        if (mode == RecognitionMode::Recognition) {
+            gettimeofday(&t_match_start, NULL);
+            bool match_found = feature_library_->match_feature_with_id(facenet_result, threshold,
+                                                                       user_id, name, max_score);
+            gettimeofday(&t_match_end, NULL);
+
+            // 判断是否识别成功
+            is_recognized = match_found && (name != "stranger") && (max_score >= threshold);
+        }
         
         // 获取人脸框
         int x1 = task.detect_result.results[i].box.left;
         int y1 = task.detect_result.results[i].box.top;
         int x2 = task.detect_result.results[i].box.right;
         int y2 = task.detect_result.results[i].box.bottom;
+
+        // 组装注册预览数据（每张人脸）
+        if (registration_callback_) {
+            RegistrationSample sample;
+            sample.face_box = cv::Rect(x1, y1, x2 - x1, y2 - y1);
+            sample.landmarks = {
+                cv::Point2f(task.detect_result.results[i].point.point_1_x, task.detect_result.results[i].point.point_1_y),
+                cv::Point2f(task.detect_result.results[i].point.point_2_x, task.detect_result.results[i].point.point_2_y),
+                cv::Point2f(task.detect_result.results[i].point.point_3_x, task.detect_result.results[i].point.point_3_y),
+                cv::Point2f(task.detect_result.results[i].point.point_4_x, task.detect_result.results[i].point.point_4_y),
+                cv::Point2f(task.detect_result.results[i].point.point_5_x, task.detect_result.results[i].point.point_5_y)
+            };
+            sample.feature = std::move(feature);
+            sample.score = task.detect_result.results[i].prop;
+            registration_samples.push_back(std::move(sample));
+        }
         
         // 创建识别结果
         RecognitionResultData result;
@@ -184,7 +221,7 @@ void RecognitionThread::process_task(RecognitionTask& task) {
         recognition_results.push_back(result);
         
         // 修复：只有识别成功时才触发回调（避免陌生人误触发）
-        if (recognition_callback_ && is_recognized) {
+        if (mode == RecognitionMode::Recognition && recognition_callback_ && is_recognized) {
             recognition_callback_(result);
         }
         
@@ -194,10 +231,12 @@ void RecognitionThread::process_task(RecognitionTask& task) {
             model_manager_->get_facenet_io_num(),
             model_manager_->get_facenet_outputs()
         );
-        if (is_recognized) {
+        if (mode == RecognitionMode::Recognition && is_recognized) {
             recognized_count++;
         }
-        cv::Scalar color = is_recognized ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255);
+        cv::Scalar color = (mode == RecognitionMode::Recognition)
+            ? (is_recognized ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255))
+            : cv::Scalar(0, 255, 0);
         
         cv::rectangle(render_img, cv::Point(x1, y1), cv::Point(x2, y2), color, 2);
 
@@ -208,7 +247,9 @@ void RecognitionThread::process_task(RecognitionTask& task) {
         // 累计时间
         total_align_time += (get_us(t_align_end) - get_us(t_align_start)) / 1000;
         total_facenet_time += (get_us(t_facenet_end) - get_us(t_facenet_start)) / 1000;
-        total_match_time += (get_us(t_match_end) - get_us(t_match_start)) / 1000;
+        if (mode == RecognitionMode::Recognition) {
+            total_match_time += (get_us(t_match_end) - get_us(t_match_start)) / 1000;
+        }
     }
     
     // 更新性能统计（滑动平均）
@@ -236,6 +277,10 @@ void RecognitionThread::process_task(RecognitionTask& task) {
         cv::waitKey(1);
     }
     gettimeofday(&t_render_end, NULL);
+
+    if (registration_callback_) {
+        registration_callback_(task.orig_img, registration_samples);
+    }
 
     if (perf_monitor_) {
         auto get_us = [](struct timeval t) -> double {

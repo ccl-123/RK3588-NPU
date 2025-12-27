@@ -727,6 +727,18 @@ void FaceRecognitionApp::set_frame_callback(FrameCallback callback) {
     }
 }
 
+void FaceRecognitionApp::set_registration_callback(RegistrationCallback callback) {
+    if (recognition_thread_) {
+        recognition_thread_->set_registration_callback(std::move(callback));
+    }
+}
+
+void FaceRecognitionApp::set_recognition_mode(RecognitionMode mode) {
+    if (recognition_thread_) {
+        recognition_thread_->set_mode(mode);
+    }
+}
+
 bool FaceRecognitionApp::get_current_frame(cv::Mat& frame) {
     if (!initialized_) {
         return false;

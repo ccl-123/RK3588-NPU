@@ -87,6 +87,13 @@ using RecognitionCallback = std::function<void(const RecognitionResult&)>;
 using FrameCallback = std::function<void(const cv::Mat& frame, const std::vector<RecognitionResult>& results)>;
 
 /**
+ * @brief 注册预览回调类型（复用识别流水线输出）
+ * @param frame 原始帧（翻转后）
+ * @param samples 人脸框/关键点/特征
+ */
+using RegistrationCallback = std::function<void(const cv::Mat& frame, const std::vector<RegistrationSample>& samples)>;
+
+/**
  * @brief 人脸识别应用主类
  *
  * 流水线架构：
@@ -128,6 +135,16 @@ public:
      * @param callback 帧回调函数
      */
     void set_frame_callback(FrameCallback callback);
+
+    /**
+     * @brief 设置注册预览回调（仅在注册模式使用）
+     */
+    void set_registration_callback(RegistrationCallback callback);
+
+    /**
+     * @brief 设置识别线程运行模式
+     */
+    void set_recognition_mode(RecognitionMode mode);
 
     /**
      * @brief 设置考勤服务(新增)

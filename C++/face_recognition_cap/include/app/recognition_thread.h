@@ -21,6 +21,7 @@
 #include <functional>
 #include <chrono>
 #include <sys/time.h>
+#include <array>
 
 #include "config/config.h"
 #include "core/postprocess.h"
@@ -54,10 +55,29 @@ struct RecognitionTask {
 };
 
 /*-------------------------------------------
+    注册预览数据结构
+-------------------------------------------*/
+struct RegistrationSample {
+    cv::Rect face_box;
+    std::array<cv::Point2f, 5> landmarks;
+    std::vector<float> feature;
+    float score;
+};
+
+/*-------------------------------------------
+    运行模式
+-------------------------------------------*/
+enum class RecognitionMode {
+    Recognition,
+    Registration
+};
+
+/*-------------------------------------------
     回调函数类型
 -------------------------------------------*/
 using RecognitionCallbackFunc = std::function<void(const RecognitionResultData&)>;
 using FrameCallbackFunc = std::function<void(const cv::Mat&, const std::vector<RecognitionResultData>&)>;
+using RegistrationCallbackFunc = std::function<void(const cv::Mat&, const std::vector<RegistrationSample>&)>;
 
 /*-------------------------------------------
     识别线程类
@@ -80,6 +100,8 @@ public:
     // 设置回调
     void set_recognition_callback(RecognitionCallbackFunc callback);
     void set_frame_callback(FrameCallbackFunc callback);
+    void set_registration_callback(RegistrationCallbackFunc callback);
+    void set_mode(RecognitionMode mode);
     void set_threshold(float threshold);
 
     // 获取性能数据
@@ -111,6 +133,8 @@ private:
 
     RecognitionCallbackFunc recognition_callback_;
     FrameCallbackFunc frame_callback_;
+    RegistrationCallbackFunc registration_callback_;
+    std::atomic<RecognitionMode> mode_;
 
     std::atomic<float> avg_align_time_;
     std::atomic<float> avg_facenet_time_;

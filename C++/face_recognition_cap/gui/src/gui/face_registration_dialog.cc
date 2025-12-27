@@ -35,6 +35,8 @@ FaceRegistrationDialog::FaceRegistrationDialog(FaceRecognitionApp* app,
     , user_service_(user_service)
 {
     setup_ui();
+    preview_dirty_ = false;
+    preview_active_.store(false);
 
     // 初始化定时器（但不立即启动，等待 showEvent）
     preview_timer_ = new QTimer(this);
@@ -54,8 +56,29 @@ void FaceRegistrationDialog::showEvent(QShowEvent* event) {
     // 窗口显示时启动定时器
     if (preview_timer_) {
         spdlog::info("FaceRegistrationDialog: Starting preview timer");
-        // 不锁定固定帧率：尽快刷新预览（实际刷新速度受摄像头采集/处理耗时限制）
-        preview_timer_->start(0);
+        // 使用固定刷新频率，避免 UI 线程被占满
+        preview_timer_->start(33);
+    }
+
+    preview_active_.store(true);
+    if (recognition_app_) {
+        {
+            std::lock_guard<std::mutex> lock(preview_mutex_);
+            latest_frame_.release();
+            latest_samples_.clear();
+            preview_dirty_ = false;
+        }
+        recognition_app_->set_registration_callback(
+            [this](const cv::Mat& frame, const std::vector<RegistrationSample>& samples) {
+                if (!preview_active_.load()) {
+                    return;
+                }
+                std::lock_guard<std::mutex> lock(preview_mutex_);
+                latest_frame_ = frame;
+                latest_samples_ = samples;
+                preview_dirty_ = true;
+            }
+        );
     }
 }
 
@@ -64,6 +87,11 @@ void FaceRegistrationDialog::hideEvent(QHideEvent* event) {
     if (preview_timer_) {
         spdlog::info("FaceRegistrationDialog: Stopping preview timer");
         preview_timer_->stop();
+    }
+
+    preview_active_.store(false);
+    if (recognition_app_) {
+        recognition_app_->set_registration_callback(nullptr);
     }
 
     QDialog::hideEvent(event);
@@ -171,43 +199,33 @@ void FaceRegistrationDialog::setup_ui() {
 }
 
 void FaceRegistrationDialog::update_preview() {
-    if (!recognition_app_) {
-        return;
-    }
-
-    // 获取当前帧
     cv::Mat frame;
-    if (!recognition_app_->get_current_frame(frame)) {
-        return;
+    std::vector<RegistrationSample> samples;
+    {
+        std::lock_guard<std::mutex> lock(preview_mutex_);
+        if (!preview_dirty_ || latest_frame_.empty()) {
+            return;
+        }
+        frame = latest_frame_;
+        samples = latest_samples_;
+        preview_dirty_ = false;
     }
 
-    current_frame_ = frame.clone();
-
-    // 检测人脸并绘制检测框
-    std::vector<cv::Rect> face_boxes;
-    std::vector<std::vector<cv::Point2f>> landmarks;
-
-    int face_count = recognition_app_->detect_faces(frame, face_boxes, landmarks);
+    current_frame_ = frame;
 
     // 在帧上绘制检测框和关键点
     cv::Mat display_frame = frame.clone();
+    for (size_t i = 0; i < samples.size(); i++) {
+        const auto& sample = samples[i];
+        cv::rectangle(display_frame, sample.face_box, cv::Scalar(0, 255, 0), 2);
 
-    for (int i = 0; i < face_count; i++) {
-        // 绘制人脸框
-        cv::Rect& box = face_boxes[i];
-        cv::rectangle(display_frame, box, cv::Scalar(0, 255, 0), 2);
-
-        // 绘制关键点
-        if (i < static_cast<int>(landmarks.size())) {
-            for (const auto& point : landmarks[i]) {
-                cv::circle(display_frame, point, 3, cv::Scalar(255, 0, 0), -1);
-            }
+        for (const auto& point : sample.landmarks) {
+            cv::circle(display_frame, point, 3, cv::Scalar(255, 0, 0), -1);
         }
 
-        // 显示人脸数量提示（在检测框下方）
         std::string text = "Face " + std::to_string(i + 1);
         cv::putText(display_frame, text,
-                   cv::Point(box.x, box.y + box.height + 25),
+                   cv::Point(sample.face_box.x, sample.face_box.y + sample.face_box.height + 25),
                    cv::FONT_HERSHEY_SIMPLEX, 0.6,
                    cv::Scalar(0, 255, 0), 2);
     }
@@ -227,11 +245,6 @@ void FaceRegistrationDialog::update_preview() {
 }
 
 void FaceRegistrationDialog::on_capture_clicked() {
-    if (current_frame_.empty()) {
-        QMessageBox::warning(this, "警告", "无法获取摄像头画面");
-        return;
-    }
-
     if (captured_faces_.size() >= MAX_FACES) {
         QMessageBox::information(this, "提示",
             QString("已达到最大采集数量 %1").arg(MAX_FACES));
@@ -243,25 +256,34 @@ void FaceRegistrationDialog::on_capture_clicked() {
         return;
     }
 
-    // 检测人脸
-    std::vector<cv::Rect> face_boxes;
-    std::vector<std::vector<cv::Point2f>> landmarks;
+    std::vector<RegistrationSample> samples;
+    cv::Mat frame;
+    {
+        std::lock_guard<std::mutex> lock(preview_mutex_);
+        frame = latest_frame_;
+        samples = latest_samples_;
+    }
 
-    int face_count = recognition_app_->detect_faces(current_frame_, face_boxes, landmarks);
+    if (frame.empty()) {
+        QMessageBox::warning(this, "警告", "无法获取摄像头画面");
+        return;
+    }
 
-    if (face_count == 0) {
+    current_frame_ = frame;
+
+    if (samples.empty()) {
         QMessageBox::warning(this, "警告", "未检测到人脸，请调整位置和光线");
         return;
     }
 
-    if (face_count > 1) {
+    if (samples.size() > 1) {
         QMessageBox::warning(this, "警告",
-            QString("检测到 %1 张人脸，请确保画面中只有一个人").arg(face_count));
+            QString("检测到 %1 张人脸，请确保画面中只有一个人").arg(samples.size()));
         return;
     }
 
     // 裁剪人脸区域
-    cv::Rect face_box = face_boxes[0];
+    cv::Rect face_box = samples[0].face_box;
 
     // 扩展人脸框（增加 20% 边距）
     int margin_x = static_cast<int>(face_box.width * 0.2);
@@ -282,17 +304,14 @@ void FaceRegistrationDialog::on_capture_clicked() {
         return;
     }
 
-    // 提取特征（使用真实的 FaceNet 推理）
-    std::vector<float> feature;
-    cv::Rect detected_box;
-    if (!recognition_app_->extract_feature_from_frame(current_frame_, feature, &detected_box)) {
+    if (samples[0].feature.empty()) {
         QMessageBox::warning(this, "警告", "特征提取失败，请重试");
         return;
     }
 
     // 保存人脸和特征
     captured_faces_.push_back(face_img);
-    captured_features_.push_back(feature);
+    captured_features_.push_back(samples[0].feature);
     
     // 播放提示音（采集成功后播放）
     if (captured_faces_.size() == 1) {
@@ -311,7 +330,7 @@ void FaceRegistrationDialog::on_capture_clicked() {
     register_btn_->setEnabled(captured_faces_.size() >= MIN_FACES);
 
     spdlog::info("Captured face {}/{}, feature size: {}",
-                captured_faces_.size(), MAX_FACES, feature.size());
+                captured_faces_.size(), MAX_FACES, samples[0].feature.size());
 }
 
 void FaceRegistrationDialog::on_delete_clicked() {
@@ -463,23 +482,5 @@ bool FaceRegistrationDialog::check_face_quality(const cv::Mat& face_image, std::
     }
 
     hint = "质量良好";
-    return true;
-}
-
-bool FaceRegistrationDialog::extract_feature(const cv::Mat& face_image, std::vector<float>& feature) {
-    if (!recognition_app_) {
-        spdlog::error("Recognition app is null");
-        return false;
-    }
-
-    // 使用真实的特征提取（包含检测、对齐、推理）
-    bool success = recognition_app_->extract_feature_from_frame(face_image, feature);
-
-    if (!success) {
-        spdlog::error("Failed to extract feature from face image");
-        return false;
-    }
-
-    spdlog::info("Successfully extracted feature, size: {}", feature.size());
     return true;
 }
