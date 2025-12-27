@@ -935,8 +935,6 @@ void DashboardPage::setup_ui() {
         }
         ai_chat_spacer_ = new QSpacerItem(0, 0, QSizePolicy::Minimum, QSizePolicy::Expanding);
         ai_chat_layout_->addItem(ai_chat_spacer_);
-        ai_last_prompt_.clear();
-        AiAnalysisService::instance()->clearConversation();
         appendChatMessage("assistant", tr("对话已清空，输入问题即可开始新的分析。"));
     });
     quick_layout->addWidget(clear_btn);

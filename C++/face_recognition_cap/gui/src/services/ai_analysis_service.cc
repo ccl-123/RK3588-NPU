@@ -132,10 +132,7 @@ void AiAnalysisService::setBackend(LLMBackendType backend) {
 }
 
 bool AiAnalysisService::initializeLocalLLM(const QString& model_path) {
-    return LocalLLMThread::instance()->initModel(
-        model_path,
-        Config::LocalLLM::MAX_NEW_TOKENS,
-        Config::LocalLLM::MAX_CONTEXT_LEN);
+    return LocalLLMThread::instance()->initModel(model_path);
 }
 
 bool AiAnalysisService::isLocalLLMReady() const {
@@ -147,19 +144,6 @@ bool AiAnalysisService::isAnalyzing() const {
         return local_analyzing_;
     }
     return current_reply_ != nullptr;
-}
-
-void AiAnalysisService::clearConversation() {
-    last_user_prompt_.clear();
-    last_assistant_reply_.clear();
-    incremental_buffer_.clear();
-    completed_ = false;
-    if (current_backend_ == LLMBackendType::Local) {
-        auto local_llm = LocalLLMThread::instance();
-        if (local_llm->isModelReady()) {
-            local_llm->resetContext();
-        }
-    }
 }
 
 void AiAnalysisService::cancelAnalysis() {
@@ -195,13 +179,7 @@ void AiAnalysisService::requestAnalysis(const service::AttendanceStatistics& sta
     current_trend_summary_ = trend_summary;
     current_detail_records_ = detail_records;
     current_retry_count_ = 0;
-    if (user_prompt.isEmpty()) {
-        current_user_prompt_ = (range_days == 0)
-            ? QStringLiteral("你好，请问有什么可以帮助您的？")
-            : QStringLiteral("请生成今日考勤综合分析。");
-    } else {
-        current_user_prompt_ = user_prompt;
-    }
+    current_user_prompt_ = user_prompt;
     current_range_days_ = range_days;
     completed_ = false;  // 重置完成标志
     incremental_buffer_.clear();  // 清空增量缓冲
@@ -211,9 +189,9 @@ void AiAnalysisService::requestAnalysis(const service::AttendanceStatistics& sta
 
     // 根据后端类型选择执行方式
     if (current_backend_ == LLMBackendType::Local) {
-        doLocalRequest(stats, trend_summary, detail_records, current_user_prompt_, range_days);
+        doLocalRequest(stats, trend_summary, detail_records, user_prompt, range_days);
     } else {
-        doCloudRequest(stats, trend_summary, detail_records, current_user_prompt_, range_days, 0);
+        doCloudRequest(stats, trend_summary, detail_records, user_prompt, range_days, 0);
     }
 }
 
@@ -223,25 +201,15 @@ QString AiAnalysisService::buildPrompt(const service::AttendanceStatistics& stat
                                        const QString& user_prompt,
                                        int range_days) {
     QString current_time_str = QDateTime::currentDateTime().toString("MM月dd日 HH:mm");
-    QString history_block;
-    if (!last_user_prompt_.isEmpty() && !last_assistant_reply_.isEmpty()) {
-        history_block = QString(
-            "【上一轮对话】\n"
-            "用户: %1\n"
-            "助手: %2\n\n"
-        ).arg(last_user_prompt_, last_assistant_reply_);
-    }
     QString content;
 
     // 纯问答模式（range_days == 0）：只发送用户问题，不附带考勤数据
     if (range_days == 0) {
         content = QString(
             "【当前时间】: %1\n\n"
-            "%2"
-            "【用户问题】\n%3"
+            "【用户问题】\n%2"
         ).arg(current_time_str)
-         .arg(history_block)
-         .arg(user_prompt);
+         .arg(user_prompt.isEmpty() ? QStringLiteral("你好，请问有什么可以帮助您的？") : user_prompt);
     } else {
         // 正常模式：发送考勤数据 + 用户问题
         QString data_title = (range_days > 1) ? QString("【近 %1 日全量考勤数据】").arg(range_days) : QString("【今日考勤数据概览】");
@@ -250,19 +218,17 @@ QString AiAnalysisService::buildPrompt(const service::AttendanceStatistics& stat
 
         content = QString(
             "【当前时间】: %1\n\n"
-            "%2"
-            "%3\n"
-            "%4: %5\n"
-            "今日打卡总人数: %6\n"
-            "今日签到人数: %7\n"
-            "今日签退人数: %8\n"
-            "今日迟到人数: %9\n"
-            "今日早退人数: %10\n\n"
-            "%11\n%12\n\n"
-            "【趋势统计数据】\n%13\n\n"
-            "【用户问题】\n%14"
+            "%2\n"
+            "%3: %4\n"
+            "今日打卡总人数: %5\n"
+            "今日签到人数: %6\n"
+            "今日签退人数: %7\n"
+            "今日迟到人数: %8\n"
+            "今日早退人数: %9\n\n"
+            "%10\n%11\n\n"
+            "【趋势统计数据】\n%12\n\n"
+            "【用户问题】\n%13"
         ).arg(current_time_str)
-         .arg(history_block)
          .arg(data_title)
          .arg(stats_date_label)
          .arg(QString::fromStdString(stats.date))
@@ -274,7 +240,7 @@ QString AiAnalysisService::buildPrompt(const service::AttendanceStatistics& stat
          .arg(detail_title)
          .arg(detail_records)
          .arg(trend_summary)
-         .arg(user_prompt);
+         .arg(user_prompt.isEmpty() ? QStringLiteral("请生成今日考勤综合分析。") : user_prompt);
     }
     return content;
 }
@@ -656,11 +622,6 @@ void AiAnalysisService::doCloudRequest(const service::AttendanceStatistics& stat
 
         //  正常完成：只清理资源，不调用 abort()
         // 手动清理，避免调用 cleanup() 中的 abort()
-        if (!incremental_buffer_.isEmpty()) {
-            last_user_prompt_ = current_user_prompt_;
-            last_assistant_reply_ = incremental_buffer_;
-        }
-
         if (timeout_timer_) {
             timeout_timer_->stop();
         }
@@ -707,17 +668,11 @@ void AiAnalysisService::onLocalLLMFailed(const QString& error) {
 }
 
 void AiAnalysisService::onLocalLLMChunk(const QString& chunk) {
-    incremental_buffer_.append(chunk);
     emit analysisResultReady(chunk);
 }
 
 void AiAnalysisService::onLocalLLMFinished() {
     local_analyzing_ = false;
-    if (!incremental_buffer_.isEmpty()) {
-        last_user_prompt_ = current_user_prompt_;
-        last_assistant_reply_ = incremental_buffer_;
-        incremental_buffer_.clear();
-    }
     emit analysisFinished();
 }
 

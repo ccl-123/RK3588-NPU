@@ -51,9 +51,6 @@ public:
     // 检查是否正在分析
     bool isAnalyzing() const;
 
-    // 清理对话上下文（仅保留当前会话为空）
-    void clearConversation();
-
 signals:
     // 分析结果信号（增量内容）
     void analysisResultReady(const QString& result);
@@ -140,10 +137,6 @@ private:
     // 增量输出缓冲
     QString incremental_buffer_;
     bool is_incremental_;
-
-    // 仅保留上一轮对话（用户问题 + 系统回复）
-    QString last_user_prompt_;
-    QString last_assistant_reply_;
 
     // 后端管理
     LLMBackendType current_backend_;
