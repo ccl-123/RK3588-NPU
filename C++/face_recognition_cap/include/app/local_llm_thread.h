@@ -16,6 +16,7 @@
 #include <string>
 // RKLLM API
 #include "rkllm.h"
+#include "config/config.h"
 
 /**
  * @brief 本地 LLM 推理线程
@@ -43,9 +44,9 @@ public:
      * @param max_context_len 最大上下文长度
      * @return 是否成功开始初始化（异步，通过信号通知结果）
      */
-    bool initModel(const QString& model_path, 
-                   int max_new_tokens = 512, 
-                   int max_context_len = 2048);
+    bool initModel(const QString& model_path,
+                   int max_new_tokens = Config::LocalLLM::MAX_NEW_TOKENS,
+                   int max_context_len = Config::LocalLLM::MAX_CONTEXT_LEN);
 
     // 检查模型是否已初始化
     bool isModelReady() const { return model_ready_.load(); }

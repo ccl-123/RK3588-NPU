@@ -501,9 +501,10 @@ void DashboardPage::on_ai_analysis_clicked() {
     auto today_stats = attendance_service_->get_statistics(end_date.toString("yyyy-MM-dd").toStdString());
     auto range_stats = attendance_service_->get_statistics_range(start_str, end_str);
 
+    // 趋势摘要: 精简格式 "日期,签到,迟到,早退"
     QString trend_summary;
     for (const auto& s : range_stats) {
-        trend_summary += QString("%1: 出勤%2人, 迟到%3人, 早退%4人\n")
+        trend_summary += QString("%1,%2,%3,%4\n")
             .arg(QString::fromStdString(s.date).right(5))
             .arg(s.check_in_count)
             .arg(s.late_count)
@@ -544,21 +545,22 @@ void DashboardPage::on_ai_analysis_clicked() {
                 if (dept.isEmpty()) dept = "未分组";
             }
 
-            QString status_str;
-            if (r.status == db::AttendanceStatus::STATUS_NORMAL) status_str = "正常";
-            else if (r.status == db::AttendanceStatus::STATUS_LATE) status_str = "迟到";
-            else if (r.status == db::AttendanceStatus::STATUS_EARLY_LEAVE) status_str = "早退";
-            else status_str = "未知";
+            // 精简格式: "日期时间,姓名,部门,类型,状态" (用单字符缩写)
+            QString status_char;
+            if (r.status == db::AttendanceStatus::STATUS_NORMAL) status_char = "√";
+            else if (r.status == db::AttendanceStatus::STATUS_LATE) status_char = "迟";
+            else if (r.status == db::AttendanceStatus::STATUS_EARLY_LEAVE) status_char = "早";
+            else status_char = "?";
 
-            QString type_str = (r.check_type == db::CheckType::CHECK_IN) ? "签到" : "签退";
+            QString type_char = (r.check_type == db::CheckType::CHECK_IN) ? "入" : "出";
             QString time_str = QDateTime::fromTime_t(r.check_time).toString("MM-dd HH:mm");
 
-            detail_records_str += QString("[%1] %2(%3): %4 %5\n")
+            detail_records_str += QString("%1,%2,%3,%4,%5\n")
                 .arg(time_str)
                 .arg(QString::fromStdString(r.user_name))
                 .arg(dept)
-                .arg(type_str)
-                .arg(status_str);
+                .arg(type_char)
+                .arg(status_char);
         }
     }
 

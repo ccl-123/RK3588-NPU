@@ -6,6 +6,7 @@
 
 #include "app/local_llm_thread.h"
 #include "services/ai_prompt_builder.h"
+#include "config/config.h"
 #include <spdlog/spdlog.h>
 
 LocalAiAnalysisService* LocalAiAnalysisService::instance() {
@@ -28,7 +29,10 @@ LocalAiAnalysisService::LocalAiAnalysisService(QObject* parent)
 LocalAiAnalysisService::~LocalAiAnalysisService() = default;
 
 bool LocalAiAnalysisService::initializeLocalLLM(const QString& model_path) {
-    return LocalLLMThread::instance()->initModel(model_path);
+    return LocalLLMThread::instance()->initModel(
+        model_path,
+        Config::LocalLLM::MAX_NEW_TOKENS,
+        Config::LocalLLM::MAX_CONTEXT_LEN);
 }
 
 bool LocalAiAnalysisService::isLocalLLMReady() const {
