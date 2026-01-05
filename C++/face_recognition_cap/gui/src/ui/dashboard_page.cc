@@ -1,6 +1,7 @@
 #include "ui/dashboard_page.h"
 #include "services/ai_analysis_service.h"
 #include "services/local_ai_analysis_service.h"
+#include "services/ai_prompt_builder.h"
 #include "config/config.h"
 
 #include "database/database_types.h"
@@ -263,6 +264,7 @@ DashboardPage::DashboardPage(QWidget* parent)
     , backend_toggle_btn_(nullptr)
     , backend_status_label_(nullptr)
     , is_local_llm_(false) {
+    ai_skip_prefix_.clear();
     setup_ui();
 
     // 连接 AI 服务信号
@@ -404,7 +406,7 @@ void DashboardPage::on_ai_input_send() {
         return;
     }
     ai_last_prompt_ = user_text;
-    appendChatMessage("user", user_text);
+    // 注意：不在这里显示用户气泡，统一在数据收集后显示（本地LLM需要附带数据）
     ai_input_->clear();
     on_ai_analysis_clicked();
 }
@@ -442,16 +444,12 @@ void DashboardPage::on_ai_analysis_clicked() {
     bool is_qa_mode = (range_days == 0);
 
     QString user_prompt;
-    bool appended_user = false;
     if (!ai_last_prompt_.isEmpty()) {
         user_prompt = ai_last_prompt_;
         ai_last_prompt_.clear();
-        appended_user = true;
     } else if (ai_input_ && !ai_input_->text().trimmed().isEmpty()) {
         user_prompt = ai_input_->text().trimmed();
         ai_input_->clear();
-        appendChatMessage("user", user_prompt);
-        appended_user = true;
     } else {
         // 根据数据范围生成默认提示
         if (is_qa_mode) {
@@ -468,9 +466,10 @@ void DashboardPage::on_ai_analysis_clicked() {
 
     // 纯问答模式：跳过数据收集，直接发送用户问题
     if (is_qa_mode) {
-        if (!appended_user && !user_prompt.isEmpty()) {
+        if (!user_prompt.isEmpty()) {
             appendChatMessage("user", user_prompt);
         }
+        ai_skip_prefix_.clear();
         appendChatMessage("assistant", tr("正在思考中，请稍候..."));
         spdlog::info("Sending pure Q&A request (no attendance data)");
 
@@ -500,16 +499,6 @@ void DashboardPage::on_ai_analysis_clicked() {
 
     auto today_stats = attendance_service_->get_statistics(end_date.toString("yyyy-MM-dd").toStdString());
     auto range_stats = attendance_service_->get_statistics_range(start_str, end_str);
-
-    // 趋势摘要: 精简格式 "日期,签到,迟到,早退"
-    QString trend_summary;
-    for (const auto& s : range_stats) {
-        trend_summary += QString("%1,%2,%3,%4\n")
-            .arg(QString::fromStdString(s.date).right(5))
-            .arg(s.check_in_count)
-            .arg(s.late_count)
-            .arg(s.early_leave_count);
-    }
 
     // 获取详细记录
     QString detail_records_str;
@@ -564,17 +553,20 @@ void DashboardPage::on_ai_analysis_clicked() {
         }
     }
 
-    // 发送请求
-    if (!appended_user && !user_prompt.isEmpty()) {
-        appendChatMessage("user", user_prompt);
+    // 显示用户气泡（无论云端/本地，都附带完整数据）
+    if (!user_prompt.isEmpty()) {
+        QString display_prompt = AiPromptBuilder::buildPrompt(
+            today_stats, QString(), detail_records_str, user_prompt, range_days);
+        appendChatMessage("user", display_prompt);
+        ai_skip_prefix_ = is_local_llm_ ? QString() : display_prompt;
     }
 
     appendChatMessage("assistant", tr("正在分析中，请稍候..."));
     spdlog::info("Sending AI analysis with {} records for last {} days", range_records.size(), range_days);
     if (is_local_llm_) {
-        LocalAiAnalysisService::instance()->requestAnalysis(today_stats, trend_summary, detail_records_str, user_prompt, range_days);
+        LocalAiAnalysisService::instance()->requestAnalysis(today_stats, QString(), detail_records_str, user_prompt, range_days);
     } else {
-        AiAnalysisService::instance()->requestAnalysis(today_stats, trend_summary, detail_records_str, user_prompt, range_days);
+        AiAnalysisService::instance()->requestAnalysis(today_stats, QString(), detail_records_str, user_prompt, range_days);
     }
 }
 
@@ -595,6 +587,25 @@ void DashboardPage::on_ai_analysis_started() {
 }
 
 void DashboardPage::on_ai_result_ready(const QString& result) {
+    if (result.isEmpty()) {
+        return;
+    }
+    if (!ai_skip_prefix_.isEmpty()) {
+        if (ai_skip_prefix_.startsWith(result)) {
+            ai_skip_prefix_.remove(0, result.size());
+            return;
+        }
+        if (result.startsWith(ai_skip_prefix_)) {
+            QString trimmed = result.mid(ai_skip_prefix_.size());
+            ai_skip_prefix_.clear();
+            if (trimmed.isEmpty()) {
+                return;
+            }
+            updateAssistantMessage(trimmed, true);
+            return;
+        }
+        ai_skip_prefix_.clear();
+    }
     updateAssistantMessage(result, true);
 }
 
@@ -603,6 +614,7 @@ void DashboardPage::on_ai_analysis_finished() {
     spdlog::info("on_ai_analysis_finished() called");
     is_analyzing_ = false;
     ai_result_label_ = nullptr;
+    ai_skip_prefix_.clear();
 
     if (ai_analysis_btn_) {
         ai_analysis_btn_->setText(tr("智能分析"));
@@ -622,6 +634,7 @@ void DashboardPage::on_ai_error(const QString& error) {
     spdlog::warn("on_ai_error() called: {}", error.toStdString());
     is_analyzing_ = false;
     ai_result_label_ = nullptr;
+    ai_skip_prefix_.clear();
 
     if (ai_analysis_btn_) {
         ai_analysis_btn_->setText(tr("智能分析"));
@@ -641,6 +654,7 @@ void DashboardPage::on_ai_error(const QString& error) {
 void DashboardPage::on_ai_analysis_cancelled() {
     is_analyzing_ = false;
     ai_result_label_ = nullptr;
+    ai_skip_prefix_.clear();
 
     if (ai_analysis_btn_) {
         ai_analysis_btn_->setText(tr("智能分析"));

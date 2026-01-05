@@ -82,6 +82,7 @@ private:
     QLineEdit* ai_input_;
     QPushButton* ai_send_btn_;
     QString ai_last_prompt_;
+    QString ai_skip_prefix_;
     int ai_data_range_days_;
 
     // 数据范围选择按钮

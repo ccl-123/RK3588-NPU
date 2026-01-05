@@ -157,8 +157,8 @@ namespace LocalLLM {
     inline const char* MODEL_PATH = "/home/firefly/open_project/Qwen3-1.7B_W8A8_RK3588.rkllm";
     
     // 推理参数
-    constexpr int MAX_NEW_TOKENS = 2048;
-    constexpr int MAX_CONTEXT_LEN = 1024 * 8;
+    constexpr int MAX_NEW_TOKENS = 1028;
+    constexpr int MAX_CONTEXT_LEN = 1024 * 3;
 }
 
 } // namespace Config

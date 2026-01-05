@@ -232,10 +232,16 @@ void LocalLLMThread::doInference() {
     spdlog::info("Calling rkllm_run...");
     int ret = rkllm_run(llm_handle_, &input, &infer_param, this);
     spdlog::info("rkllm_run returned: {}", ret);
-    
+
     if (ret != 0) {
         spdlog::error("rkllm_run failed: {}", ret);
-        emit errorOccurred(QString("推理启动失败: 错误码 %1").arg(ret));
+        // 估算 token 数（中文约1.5字符/token）
+        int estimated_tokens = static_cast<int>(prompt_std.length() / 1.5);
+        QString error_msg = QString("推理启动失败: 错误码 %1 (prompt约%2 tokens, 上下文限制%3)")
+            .arg(ret)
+            .arg(estimated_tokens)
+            .arg(max_context_len_);
+        emit errorOccurred(error_msg);
     }
 
     inferring_ = false;

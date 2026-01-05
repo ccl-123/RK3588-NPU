@@ -16,7 +16,10 @@ if [[ ! -d "${BUILD_DIR}" ]]; then
 fi
 
 cd ${BUILD_DIR}
-cmake ../.. -DTARGET_NAME=face_recognition_cap
+# 只在首次或缓存不存在时运行 cmake（支持增量编译）
+if [[ ! -f "CMakeCache.txt" ]]; then
+  cmake ../.. -DTARGET_NAME=face_recognition_cap
+fi
 make -j2
 make install
 cd -

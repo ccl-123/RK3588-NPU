@@ -26,21 +26,13 @@ QString AiPromptBuilder::buildPrompt(const service::AttendanceStatistics& stats,
         QString detail_title = (range_days > 1) ? QString("明细(近%1天)").arg(range_days) : QString("明细(今日)");
 
         content = QString(
-            "时间: %1 | 范围: %2 | %3: %4\n"
-            "统计(总/签到/签退/迟到/早退): %5/%6/%7/%8/%9\n\n"
-            "趋势(日期,签到,迟到,早退):\n%10\n"
-            "%11(时间,姓名,部门,类型,状态):\n%12\n"
-            "Q: %13"
+            "当前时间: %1 | 范围: %2 | %3: %4\n"
+            "%5(时间,姓名,部门,类型,状态):\n%6\n"
+            "Q: %7"
         ).arg(current_time_str)
          .arg(range_label)
          .arg(stats_date_label)
          .arg(QString::fromStdString(stats.date))
-         .arg(stats.total_count)
-         .arg(stats.check_in_count)
-         .arg(stats.check_out_count)
-         .arg(stats.late_count)
-         .arg(stats.early_leave_count)
-         .arg(trend_summary)
          .arg(detail_title)
          .arg(detail_records)
          .arg(user_prompt.isEmpty() ? QStringLiteral("请生成考勤综合分析。") : user_prompt);
