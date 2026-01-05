@@ -113,7 +113,7 @@ private slots:
     void drain_latest_frame();
 
     // NPU 模型异步加载/卸载完成回调
-    void on_rknn_models_released();
+    void on_rknn_models_released(bool success);
     void on_rknn_models_reloaded(bool success);
 
 private:
@@ -187,7 +187,7 @@ private:
     std::atomic<bool> pending_recognition_start_{false};  // 切换完成后需要启动识别
 
     // NPU 模型异步切换 Future Watcher
-    QFutureWatcher<void>* rknn_release_watcher_;
+    QFutureWatcher<bool>* rknn_release_watcher_;
     QFutureWatcher<bool>* rknn_reload_watcher_;
 
     // GUI 帧更新背压：仅保留最新帧，避免 Qt 事件队列堆积导致内存上涨 / FPS 下降

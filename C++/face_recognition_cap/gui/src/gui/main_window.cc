@@ -152,10 +152,10 @@ MainWindow::MainWindow(QWidget* parent)
     qRegisterMetaType<std::vector<RecognitionResult>>("std::vector<RecognitionResult>");
 
     // 初始化 NPU 模型异步切换 Watcher
-    rknn_release_watcher_ = new QFutureWatcher<void>(this);
+    rknn_release_watcher_ = new QFutureWatcher<bool>(this);
     rknn_reload_watcher_ = new QFutureWatcher<bool>(this);
-    connect(rknn_release_watcher_, &QFutureWatcher<void>::finished,
-            this, &MainWindow::on_rknn_models_released);
+    connect(rknn_release_watcher_, &QFutureWatcher<bool>::finished,
+            this, [this]() { on_rknn_models_released(rknn_release_watcher_->result()); });
     connect(rknn_reload_watcher_, &QFutureWatcher<bool>::finished,
             this, [this]() { on_rknn_models_reloaded(rknn_reload_watcher_->result()); });
 
@@ -1615,18 +1615,24 @@ void MainWindow::release_rknn_models_async() {
 
     if (!recognition_app_ || !recognition_app_->are_models_loaded()) {
         spdlog::info("RKNN models already released, skipping");
-        on_rknn_models_released();  // 直接触发完成回调
+        on_rknn_models_released(true);  // 直接触发完成回调
         return;
+    }
+
+    if (is_running_) {
+        spdlog::info("Stopping recognition before RKNN model release");
+        stop_recognition();
     }
 
     rknn_switching_.store(true);
     spdlog::info("Starting async RKNN model release...");
 
     // 使用 QtConcurrent 在后台线程执行模型释放
-    QFuture<void> future = QtConcurrent::run([this]() {
+    QFuture<bool> future = QtConcurrent::run([this]() -> bool {
         if (recognition_app_) {
-            recognition_app_->release_models();
+            return recognition_app_->release_models();
         }
+        return false;
     });
     rknn_release_watcher_->setFuture(future);
 }
@@ -1648,6 +1654,11 @@ void MainWindow::reload_rknn_models_async() {
         return;
     }
 
+    if (is_running_) {
+        spdlog::info("Stopping recognition before RKNN model reload");
+        stop_recognition();
+    }
+
     rknn_switching_.store(true);
     spdlog::info("Starting async RKNN model reload...");
 
@@ -1661,8 +1672,14 @@ void MainWindow::reload_rknn_models_async() {
     rknn_reload_watcher_->setFuture(future);
 }
 
-void MainWindow::on_rknn_models_released() {
+void MainWindow::on_rknn_models_released(bool success) {
     rknn_switching_.store(false);
+    if (!success) {
+        spdlog::error("Failed to release RKNN models (async callback)");
+        pending_recognition_start_.store(false);
+        return;
+    }
+
     spdlog::info("RKNN models released (async callback)");
 
     // 检查是否有 pending 的识别启动请求（用户快速切换回识别页面）

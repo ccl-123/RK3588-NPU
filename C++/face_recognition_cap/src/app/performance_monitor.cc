@@ -177,9 +177,10 @@ void PerformanceMonitor::set_npu_contexts(rknn_context detector_ctx, rknn_contex
 }
 
 void PerformanceMonitor::print_report() {
-    // 暂时屏蔽性能日志输出
-    reset();
-    return;
+    if (!Config::Performance::ENABLE_PERF_REPORT) {
+        reset();
+        return;
+    }
 
     if (detection_times_.empty()) return;
 

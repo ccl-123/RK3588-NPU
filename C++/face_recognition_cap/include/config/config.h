@@ -49,6 +49,7 @@ namespace Performance {
     constexpr int REPORT_INTERVAL = 50;            // 性能报告间隔 (帧数)
     constexpr int QUEUE_MAX_SIZE = 2;              // 线程队列最大大小
     constexpr bool USE_RGA = true;                // 是否启用RGA硬件加速 (禁用可避免Valgrind警告)
+    constexpr bool ENABLE_PERF_REPORT = false;    // 是否输出性能报告日志
 }
 
 // ==================== UI/定时任务参数 [固定] ====================
