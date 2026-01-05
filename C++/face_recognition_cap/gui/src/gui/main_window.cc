@@ -1034,6 +1034,7 @@ void MainWindow::start_recognition() {
     }
     if (recognition_page_) {
         recognition_page_->setRecognitionRunning(true);
+        recognition_page_->updateDetectionStatus(tr("等待识别"), 0);
     }
 
     // 设置帧回调（使用 Qt 信号槽机制确保线程安全）
@@ -1103,6 +1104,7 @@ void MainWindow::stop_recognition() {
     if (!is_running_) {
         if (recognition_page_) {
             recognition_page_->setRecognitionRunning(false);
+            recognition_page_->updateDetectionStatus(tr("已停止"), -1);
         }
         if (status_label_) {
             status_label_->setText(tr("已停止"));
@@ -1304,6 +1306,9 @@ void MainWindow::update_status() {
 }
 
 void MainWindow::on_recognition_result(int user_id, const QString& name, float similarity, bool is_new_attendance, int check_type, int status) {
+    if (!is_running_) {
+        return;
+    }
     spdlog::trace("on_recognition_result called: user_id={}, name={}, is_new={}, check_type={}, status={}", 
                   user_id, name.toStdString(), is_new_attendance, check_type, status);
     

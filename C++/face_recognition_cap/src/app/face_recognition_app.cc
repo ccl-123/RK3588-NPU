@@ -523,6 +523,12 @@ bool FaceRecognitionApp::reload_models() {
             &perf_monitor_);
         recognition_thread_->start();
         spdlog::info("Recognition thread recreated");
+        if (recognition_callback_) {
+            set_recognition_callback(recognition_callback_);
+        }
+        if (frame_callback_) {
+            set_frame_callback(frame_callback_);
+        }
     }
 
     if (!postprocess_thread_) {
