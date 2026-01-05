@@ -6,9 +6,9 @@
  */
 
 #include "database/attendance_record_dao.h"
-#include <iostream>
 #include <sstream>
 #include <iomanip>
+#include <spdlog/spdlog.h>
 
 namespace db {
 
@@ -41,7 +41,7 @@ int AttendanceRecordDAO::insert(const AttendanceRecord& record) {
     stmt->bind_string(10, record.remark);
     
     if (!stmt->execute()) {
-        std::cerr << "Failed to insert attendance record for user: " << record.user_name << std::endl;
+        spdlog::error("Failed to insert attendance record for user: {}", record.user_name);
         return -1;
     }
     

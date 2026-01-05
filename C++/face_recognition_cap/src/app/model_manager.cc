@@ -9,7 +9,7 @@
 #include "core/yolov8_face.h"
 #include "core/facenet.h"
 #include <cstring>
-#include <iostream>
+#include <spdlog/spdlog.h>
 
 ModelManager::ModelManager()
     : face_detector_width_(0)
@@ -34,7 +34,7 @@ ModelManager::~ModelManager() {
 
 int ModelManager::init_face_detector(const char* model_path) {
     if (face_detector_initialized_) {
-        std::cerr << "Face detector already initialized" << std::endl;
+        spdlog::warn("Face detector already initialized");
         return -1;
     }
 
@@ -51,7 +51,7 @@ int ModelManager::init_face_detector(const char* model_path) {
     );
 
     if (ret != 0) {
-        std::cerr << "Failed to create YOLOv8-face model" << std::endl;
+        spdlog::error("Failed to create YOLOv8-face model");
         return -1;
     }
 
@@ -74,14 +74,13 @@ int ModelManager::init_face_detector(const char* model_path) {
         }
 
     face_detector_initialized_ = true;
-    std::cout << "YOLOv8-face model initialized: " << face_detector_width_ << "x" 
-              << face_detector_height_ << "x" << face_detector_channel_ << std::endl;
+    spdlog::info("YOLOv8-face model initialized: {}x{}x{}", face_detector_width_, face_detector_height_, face_detector_channel_);
     return 0;
 }
 
 int ModelManager::init_facenet(const char* model_path) {
     if (facenet_initialized_) {
-        std::cerr << "FaceNet already initialized" << std::endl;
+        spdlog::warn("FaceNet already initialized");
         return -1;
     }
 
@@ -97,7 +96,7 @@ int ModelManager::init_facenet(const char* model_path) {
     );
 
     if (ret != 0) {
-        std::cerr << "Failed to create FaceNet model" << std::endl;
+        spdlog::error("Failed to create FaceNet model");
         return -1;
     }
 
@@ -121,8 +120,7 @@ int ModelManager::init_facenet(const char* model_path) {
     }
 
     facenet_initialized_ = true;
-    std::cout << "FaceNet model initialized: " << facenet_width_ << "x" 
-              << facenet_height_ << "x" << facenet_channel_ << std::endl;
+    spdlog::info("FaceNet model initialized: {}x{}x{}", facenet_width_, facenet_height_, facenet_channel_);
     return 0;
 }
 
@@ -130,7 +128,7 @@ void ModelManager::release() {
     if (face_detector_initialized_) {
         release_yolov8_face(&face_detector_ctx_, face_detector_model_data_);
         face_detector_initialized_ = false;
-        std::cout << "YOLOv8-face model released" << std::endl;
+        spdlog::info("YOLOv8-face model released");
     }
 
     if (facenet_initialized_) {
@@ -140,6 +138,6 @@ void ModelManager::release() {
             facenet_outputs_ = nullptr;
         }
         facenet_initialized_ = false;
-        std::cout << "FaceNet model released" << std::endl;
+        spdlog::info("FaceNet model released");
     }
 }

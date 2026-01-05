@@ -12,10 +12,10 @@
  * - 支持数据库模式和考勤记录
  */
 
-#include <iostream>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <spdlog/spdlog.h>
 #include "config/config.h"
 #include "app/face_recognition_app.h"
 #include "service/attendance_service.h"
@@ -88,18 +88,18 @@ int main(int argc, char** argv)
         g_attendance_service = new service::AttendanceService(db_manager);
         app.set_recognition_callback(on_recognition_callback);
 
-        std::cout << "Database mode enabled" << std::endl;
-        std::cout << "Attendance records will be saved to database" << std::endl;
+        spdlog::info("Database mode enabled");
+        spdlog::info("Attendance records will be saved to database");
     }
 
     // 5. 初始化应用
-    std::cout << "========================================" << std::endl;
-    std::cout << "  Face Recognition System (YOLOv8-face)" << std::endl;
-    std::cout << "  Mode: " << (use_database ? "Database" : "File") << std::endl;
-    std::cout << "========================================" << std::endl;
+    spdlog::info("========================================");
+    spdlog::info("  Face Recognition System (YOLOv8-face)");
+    spdlog::info("  Mode: {}", use_database ? "Database" : "File");
+    spdlog::info("========================================");
 
     if (app.initialize(config) != 0) {
-        std::cerr << "Failed to initialize application" << std::endl;
+        spdlog::error("Failed to initialize application");
         if (g_attendance_service) delete g_attendance_service;
         return -1;
     }
@@ -113,6 +113,6 @@ int main(int argc, char** argv)
     }
 
     // 8. 正常退出
-    std::cout << "Application exited" << std::endl;
+    spdlog::info("Application exited");
     return ret;
 }

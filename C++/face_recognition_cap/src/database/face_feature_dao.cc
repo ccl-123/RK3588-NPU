@@ -6,8 +6,8 @@
  */
 
 #include "database/face_feature_dao.h"
-#include <iostream>
 #include <cstring>
+#include <spdlog/spdlog.h>
 
 namespace db {
 
@@ -38,7 +38,7 @@ int FaceFeatureDAO::insert(const FaceFeature& feature) {
     stmt->bind_string(4, feature.source_image);
     
     if (!stmt->execute()) {
-        std::cerr << "Failed to insert face feature for user_id: " << feature.user_id << std::endl;
+        spdlog::error("Failed to insert face feature for user_id: {}", feature.user_id);
         return -1;
     }
     
@@ -203,7 +203,7 @@ void FaceFeatureDAO::fill_feature_from_stmt(PreparedStatement* stmt, FaceFeature
         feature.feature_vector.resize(512);
         std::memcpy(feature.feature_vector.data(), blob_data, blob_size);
     } else {
-        std::cerr << "Warning: Invalid feature vector size: " << blob_size << std::endl;
+        spdlog::warn("Invalid feature vector size: {}", blob_size);
         feature.feature_vector.resize(512, 0.0f);
     }
     

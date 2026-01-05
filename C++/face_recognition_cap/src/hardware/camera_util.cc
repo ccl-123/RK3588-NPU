@@ -1,17 +1,16 @@
 /**
  * @file camera_util.cc
  * @brief 摄像头底层控制与高性能采集模块
- * @details 
+ * @details
  * 1. 核心技术：基于 Linux V4L2 框架，利用 mmap 内存映射实现内核到用户空间的零拷贝采集。
  * 2. 高性能设计：采用独立采集线程 + 智能指针帧管理，消除应用层常见的深拷贝性能瓶颈。
  * 3. 健壮性保证：完备的 IOCTL 错误检查、异常资源清理以及原子态线程生命周期管理。
- * 
+ *
  * @author CL
  * @date 2025-11-20
  */
 
 #include <string.h>
-#include <iostream>
 #include <memory>
 #include <fcntl.h>
 #include <unistd.h>
@@ -22,6 +21,7 @@
 #include <thread>
 #include <mutex>
 #include <atomic>
+#include <spdlog/spdlog.h>
 #include "camera_util.h"
 
 // ==================== 全局内部变量 (Internal Global States) ====================
@@ -36,7 +36,7 @@ static v4l2_buffer buf;
 static Buffer* buffers = nullptr;
 
 /** @brief 摄像头格式配置信息 */
-static v4l2_format fmt = {};
+static v4l2_format v4l2_fmt = {};
 
 /** @brief 设备状态标志位 */
 static bool camera_opened = false;
@@ -117,7 +117,7 @@ static void cleanup_fd() {
 int load_usb_camera(std::string device, int camera_width, int camera_height)
 {
     if (camera_opened) {
-        std::cerr << "Camera already opened, close it first" << std::endl;
+        spdlog::warn("Camera already opened, close it first");
         return EXIT_FAILURE;
     }
 
@@ -137,25 +137,25 @@ int load_usb_camera(std::string device, int camera_width, int camera_height)
     }
 
     if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)) {
-        std::cerr << "Device does not support video capture" << std::endl;
+        spdlog::error("Device does not support video capture");
         cleanup_fd();
         return EXIT_FAILURE;
     }
 
     // 2. 配置采集格式：默认使用 MJPEG 以支持高帧率
-    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    fmt.fmt.pix.width = camera_width;
-    fmt.fmt.pix.height = camera_height;
-    fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
-    fmt.fmt.pix.field = V4L2_FIELD_NONE;
+    v4l2_fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    v4l2_fmt.fmt.pix.width = camera_width;
+    v4l2_fmt.fmt.pix.height = camera_height;
+    v4l2_fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_MJPEG;
+    v4l2_fmt.fmt.pix.field = V4L2_FIELD_NONE;
 
-    if (ioctl(fd, VIDIOC_S_FMT, &fmt) == -1) {
+    if (ioctl(fd, VIDIOC_S_FMT, &v4l2_fmt) == -1) {
         perror("VIDIOC_S_FMT");
         cleanup_fd();
         return EXIT_FAILURE;
     }
 
-    std::cout << "USB camera initialized: " << fmt.fmt.pix.width << "x" << fmt.fmt.pix.height << std::endl;
+    spdlog::info("USB camera initialized: {}x{}", v4l2_fmt.fmt.pix.width, v4l2_fmt.fmt.pix.height);
 
     // 2.5 设置帧率为 30 FPS
     v4l2_streamparm parm = {};
@@ -166,9 +166,9 @@ int load_usb_camera(std::string device, int camera_width, int camera_height)
         perror("VIDIOC_S_PARM (set frame rate)");
         // 不视为致命错误，继续执行
     } else {
-        std::cout << "Camera frame rate set to: " 
-                  << parm.parm.capture.timeperframe.denominator << "/" 
-                  << parm.parm.capture.timeperframe.numerator << " FPS" << std::endl;
+        spdlog::info("Camera frame rate set to: {}/{} FPS",
+                     parm.parm.capture.timeperframe.denominator,
+                     parm.parm.capture.timeperframe.numerator);
     }
 
     // 2.6 尝试禁用自动曝光优先级（强制帧率优先）
@@ -178,9 +178,9 @@ int load_usb_camera(std::string device, int camera_width, int camera_height)
     ctrl.id = V4L2_CID_EXPOSURE_AUTO_PRIORITY;
     ctrl.value = 0; // 0 = Disable auto priority (Maintain Frame Rate)
     if (ioctl(fd, VIDIOC_S_CTRL, &ctrl) == -1) {
-        // std::cerr << "Note: Camera does not support V4L2_CID_EXPOSURE_AUTO_PRIORITY" << std::endl;
+        // Camera does not support V4L2_CID_EXPOSURE_AUTO_PRIORITY
     } else {
-         std::cout << "Disabled V4L2_CID_EXPOSURE_AUTO_PRIORITY (Force Frame Rate)" << std::endl;
+        spdlog::info("Disabled V4L2_CID_EXPOSURE_AUTO_PRIORITY (Force Frame Rate)");
     }
 
     // 2.7 尝试禁用工频去闪烁（可能限制帧率为 25/50 或 30/60）
@@ -190,7 +190,7 @@ int load_usb_camera(std::string device, int camera_width, int camera_height)
     if (ioctl(fd, VIDIOC_S_CTRL, &ctrl) == -1) {
         // perror("V4L2_CID_POWER_LINE_FREQUENCY");
     } else {
-         std::cout << "Disabled V4L2_CID_POWER_LINE_FREQUENCY" << std::endl;
+        spdlog::info("Disabled V4L2_CID_POWER_LINE_FREQUENCY");
     }
 
     // 3. 申请内核级内存缓冲区队列 (Memory Map 模式)

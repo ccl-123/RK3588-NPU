@@ -16,6 +16,8 @@
 #include <QStackedWidget>
 #include <QTimer>
 #include <QDate>
+#include <QFuture>
+#include <QFutureWatcher>
 #include <memory>
 #include <thread>
 #include <map>
@@ -110,6 +112,10 @@ private slots:
     void on_recognition_result(int user_id, const QString& name, float similarity, bool is_new_attendance, int check_type = 1, int status = 1);
     void drain_latest_frame();
 
+    // NPU 模型异步加载/卸载完成回调
+    void on_rknn_models_released();
+    void on_rknn_models_reloaded(bool success);
+
 private:
     void setup_ui();
     void setup_navigation();
@@ -117,7 +123,11 @@ private:
     void connect_page_signals();
     void apply_theme();
     bool finish_initialization_after_core();
-    
+
+    // NPU 模型异步加载/卸载
+    void release_rknn_models_async();
+    void reload_rknn_models_async();
+
     // 系统组件
     std::unique_ptr<FaceRecognitionApp> recognition_app_;
     db::DatabaseManager* db_manager_;
@@ -173,6 +183,12 @@ private:
     std::chrono::steady_clock::time_point last_fps_time_;
     std::atomic<bool> closing_{false};
     std::atomic<bool> init_in_progress_{false};
+    std::atomic<bool> rknn_switching_{false};   // NPU 模型切换中（防止重复触发）
+    std::atomic<bool> pending_recognition_start_{false};  // 切换完成后需要启动识别
+
+    // NPU 模型异步切换 Future Watcher
+    QFutureWatcher<void>* rknn_release_watcher_;
+    QFutureWatcher<bool>* rknn_reload_watcher_;
 
     // GUI 帧更新背压：仅保留最新帧，避免 Qt 事件队列堆积导致内存上涨 / FPS 下降
     std::mutex latest_frame_mutex_;

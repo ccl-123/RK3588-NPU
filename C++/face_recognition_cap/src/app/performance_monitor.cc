@@ -18,6 +18,7 @@
 #include <sstream>
 #include <cstring>
 #include <algorithm>
+#include <spdlog/spdlog.h>
 
 PerformanceMonitor::PerformanceMonitor(int report_interval)
     : smoothed_fps_(0.0)
@@ -146,7 +147,7 @@ double PerformanceMonitor::get_npu_memory_mb() {
         memset(&mem_size, 0, sizeof(mem_size));
         int ret = rknn_query(ctx, RKNN_QUERY_MEM_SIZE, &mem_size, sizeof(mem_size));
         if (ret < 0) {
-            std::cerr << "RKNN_QUERY_MEM_SIZE failed: " << ret << std::endl;
+            spdlog::error("RKNN_QUERY_MEM_SIZE failed: {}", ret);
             return false;
         }
         weight_kb = mem_size.total_weight_size / 1024;
@@ -176,7 +177,10 @@ void PerformanceMonitor::set_npu_contexts(rknn_context detector_ctx, rknn_contex
 }
 
 void PerformanceMonitor::print_report() {
-    
+    // 暂时屏蔽性能日志输出
+    reset();
+    return;
+
     if (detection_times_.empty()) return;
 
     double avg_pre   = get_average(preprocess_times_);

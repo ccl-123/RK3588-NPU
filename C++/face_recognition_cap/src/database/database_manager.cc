@@ -6,9 +6,9 @@
  */
 
 #include "database/database_manager.h"
-#include <iostream>
 #include <fstream>
 #include <sstream>
+#include <spdlog/spdlog.h>
 
 namespace db {
 
@@ -21,8 +21,8 @@ PreparedStatement::PreparedStatement(sqlite3* db, const std::string& sql)
     
     int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt_, nullptr);
     if (rc != SQLITE_OK) {
-        std::cerr << "Failed to prepare statement: " << sqlite3_errmsg(db_) << std::endl;
-        std::cerr << "SQL: " << sql << std::endl;
+        spdlog::error("Failed to prepare statement: {}", sqlite3_errmsg(db_));
+        spdlog::error("SQL: {}", sql);
     } else {
         prepared_ = true;
     }
@@ -68,7 +68,7 @@ bool PreparedStatement::execute() {
     if (!prepared_) return false;
     int rc = sqlite3_step(stmt_);
     if (rc != SQLITE_DONE) {
-        std::cerr << "Execute failed: " << sqlite3_errmsg(db_) << " (code: " << rc << ")" << std::endl;
+        spdlog::error("Execute failed: {} (code: {})", sqlite3_errmsg(db_), rc);
     }
     sqlite3_reset(stmt_);
     return rc == SQLITE_DONE;
@@ -136,82 +136,82 @@ bool DatabaseManager::initialize(const std::string& db_path) {
     if (db_ != nullptr) {
         // 如果已经初始化且路径相同，返回成功
         if (db_path_ == db_path) {
-            std::cout << "Database already initialized with same path" << std::endl;
+            spdlog::info("Database already initialized with same path");
             return true;
         }
         // 如果路径不同，先关闭旧连接
-        std::cout << "Database already initialized with different path, closing old connection" << std::endl;
+        spdlog::info("Database already initialized with different path, closing old connection");
         close();
     }
-    
+
     db_path_ = db_path;
-    
+
     // 打开数据库
     int rc = sqlite3_open(db_path.c_str(), &db_);
     if (rc != SQLITE_OK) {
         last_error_ = sqlite3_errmsg(db_);
-        std::cerr << "Failed to open database: " << last_error_ << std::endl;
+        spdlog::error("Failed to open database: {}", last_error_);
         sqlite3_close(db_);
         db_ = nullptr;
         return false;
     }
-    
-    std::cout << "Database opened: " << db_path << std::endl;
-    
+
+    spdlog::info("Database opened: {}", db_path);
+
     // 启用外键约束
     execute("PRAGMA foreign_keys = ON;");
-    
+
     // 初始化表结构
     if (!init_tables()) {
-        std::cerr << "Failed to initialize tables" << std::endl;
+        spdlog::error("Failed to initialize tables");
         close();
         return false;
     }
-    
-    std::cout << "Database initialized successfully" << std::endl;
+
+    spdlog::info("Database initialized successfully");
     return true;
 }
 
 void DatabaseManager::close() {
     std::lock_guard<std::recursive_mutex> lock(db_mutex_);
-    
+
     if (db_) {
         sqlite3_close(db_);
         db_ = nullptr;
-        std::cout << "Database closed" << std::endl;
+        spdlog::info("Database closed");
     }
 }
 
 std::shared_ptr<PreparedStatement> DatabaseManager::prepare(const std::string& sql) {
     std::lock_guard<std::recursive_mutex> lock(db_mutex_);
-    
+
     if (!db_) {
-        std::cerr << "Database not initialized" << std::endl;
+        spdlog::error("Database not initialized");
         return nullptr;
     }
-    
+
     return std::make_shared<PreparedStatement>(db_, sql);
 }
 
 bool DatabaseManager::execute(const std::string& sql) {
     std::lock_guard<std::recursive_mutex> lock(db_mutex_);
-    
+
     if (!db_) {
-        std::cerr << "Database not initialized" << std::endl;
+        spdlog::error("Database not initialized");
         return false;
     }
-    
+
     char* err_msg = nullptr;
     int rc = sqlite3_exec(db_, sql.c_str(), nullptr, nullptr, &err_msg);
-    
+
     if (rc != SQLITE_OK) {
         last_error_ = err_msg ? err_msg : "Unknown error";
-        std::cerr << "SQL execution failed: " << last_error_ << std::endl;
-        std::cerr << "SQL: " << sql << std::endl;
+        spdlog::error("SQL execution failed: {}", last_error_);
+        spdlog::error("SQL: {}", sql);
         if (err_msg) sqlite3_free(err_msg);
         return false;
     }
-    
+
     return true;
 }
 

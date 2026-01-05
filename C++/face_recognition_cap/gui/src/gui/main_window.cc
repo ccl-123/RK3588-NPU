@@ -43,6 +43,7 @@
 #include <QCoreApplication>
 #include <QTableWidgetItem>
 #include <QMenu>
+#include <QtConcurrent>
 #include <ctime>
 #include <spdlog/spdlog.h>
 
@@ -138,6 +139,8 @@ MainWindow::MainWindow(QWidget* parent)
     , user_detection_{false, 0, "", 0.0f, std::chrono::steady_clock::now(), std::chrono::steady_clock::now(), false}
     , user_confirm_duration_ms_(1000)  // 默认1秒，从配置加载
     , stranger_detection_{false, std::chrono::steady_clock::now(), std::chrono::steady_clock::now()}
+    , rknn_release_watcher_(nullptr)
+    , rknn_reload_watcher_(nullptr)
 {
     // 初始化音频冷却时间（设置为10秒前，确保首次播放不会被阻止）
     auto init_time = std::chrono::steady_clock::now() - std::chrono::seconds(10);
@@ -147,6 +150,14 @@ MainWindow::MainWindow(QWidget* parent)
     // 注册 Qt 元类型（必须在使用前注册）
     qRegisterMetaType<cv::Mat>("cv::Mat");
     qRegisterMetaType<std::vector<RecognitionResult>>("std::vector<RecognitionResult>");
+
+    // 初始化 NPU 模型异步切换 Watcher
+    rknn_release_watcher_ = new QFutureWatcher<void>(this);
+    rknn_reload_watcher_ = new QFutureWatcher<bool>(this);
+    connect(rknn_release_watcher_, &QFutureWatcher<void>::finished,
+            this, &MainWindow::on_rknn_models_released);
+    connect(rknn_reload_watcher_, &QFutureWatcher<bool>::finished,
+            this, [this]() { on_rknn_models_reloaded(rknn_reload_watcher_->result()); });
 
     setup_ui();
 
@@ -164,6 +175,16 @@ MainWindow::MainWindow(QWidget* parent)
 MainWindow::~MainWindow() {
     closing_.store(true, std::memory_order_release);
     stop_recognition();
+
+    // 等待异步 NPU 模型切换完成，避免悬空指针
+    if (rknn_release_watcher_ && rknn_release_watcher_->isRunning()) {
+        spdlog::info("Waiting for async RKNN release to complete...");
+        rknn_release_watcher_->waitForFinished();
+    }
+    if (rknn_reload_watcher_ && rknn_reload_watcher_->isRunning()) {
+        spdlog::info("Waiting for async RKNN reload to complete...");
+        rknn_reload_watcher_->waitForFinished();
+    }
 
     if (init_thread_.joinable()) {
         init_thread_.join();
@@ -859,28 +880,28 @@ void MainWindow::setup_navigation() {
 
             // === 回到实时识别页面：释放 RKLLM → 加载 RKNN ===
             if (recognition_paused_for_llm_) {
-                recognition_paused_for_llm_ = false;
-                
+                // 注意：不在此处重置 recognition_paused_for_llm_，由异步回调完成
+
                 // 步骤1: 异步释放 RKLLM 模型（释放 NPU 给人脸识别）
                 auto local_llm = LocalLLMThread::instance();
                 if (local_llm->isModelReady()) {
                     local_llm->releaseModelAsync();
                     spdlog::info("LLM model release requested for face recognition");
                 }
-                
-                // 步骤2: 重新加载 RKNN 模型和工作线程
-                if (camera_ready && recognition_app_ && !recognition_app_->are_models_loaded()) {
-                    if (recognition_app_->reload_models()) {
-                        spdlog::info("RKNN models reloaded after LLM usage");
-                    } else {
-                        spdlog::error("Failed to reload RKNN models!");
-                    }
-                }
-                
-                // 步骤3: 启动人脸识别
-                if (camera_ready) {
+
+                // 步骤2: 异步重新加载 RKNN 模型（不阻塞 UI）
+                // 加载完成后，on_rknn_models_reloaded 回调会自动启动识别
+                if (rknn_switching_.load()) {
+                    // 正在切换中（用户快速切换页面），标记需要在完成后启动识别
+                    pending_recognition_start_.store(true);
+                    spdlog::info("RKNN switching in progress, will start recognition after completion");
+                } else if (camera_ready && recognition_app_ && !recognition_app_->are_models_loaded()) {
+                    reload_rknn_models_async();
+                } else if (camera_ready && recognition_app_ && recognition_app_->are_models_loaded()) {
+                    // 模型已加载，直接启动识别
+                    recognition_paused_for_llm_ = false;
                     start_recognition();
-                    spdlog::info("Recognition resumed (back to recognition page)");
+                    spdlog::info("Recognition resumed (models already loaded)");
                 }
             }
         } else if (key == "dashboard") {
@@ -899,12 +920,9 @@ void MainWindow::setup_navigation() {
                 }
             }
             
-            // 释放 RKNN 模型（包括停止工作线程），彻底释放 NPU 资源
-            if (recognition_app_ && recognition_app_->are_models_loaded()) {
-                if (recognition_app_->release_models()) {
-                    spdlog::info("RKNN models released for LLM performance boost");
-                }
-            }
+            // 异步释放 RKNN 模型（包括停止工作线程），彻底释放 NPU 资源
+            // 使用异步方式避免阻塞 UI 线程
+            release_rknn_models_async();
         } else if (key == "attendance") {
             breadcrumb = tr("考勤记录");
         } else if (key == "users") {
@@ -1584,5 +1602,103 @@ void MainWindow::closeEvent(QCloseEvent* event) {
         event->accept();
     } else {
         event->ignore();
+    }
+}
+
+// ==================== NPU 模型异步切换实现 ====================
+
+void MainWindow::release_rknn_models_async() {
+    if (rknn_switching_.load()) {
+        spdlog::warn("RKNN model switching already in progress, skipping release request");
+        return;
+    }
+
+    if (!recognition_app_ || !recognition_app_->are_models_loaded()) {
+        spdlog::info("RKNN models already released, skipping");
+        on_rknn_models_released();  // 直接触发完成回调
+        return;
+    }
+
+    rknn_switching_.store(true);
+    spdlog::info("Starting async RKNN model release...");
+
+    // 使用 QtConcurrent 在后台线程执行模型释放
+    QFuture<void> future = QtConcurrent::run([this]() {
+        if (recognition_app_) {
+            recognition_app_->release_models();
+        }
+    });
+    rknn_release_watcher_->setFuture(future);
+}
+
+void MainWindow::reload_rknn_models_async() {
+    if (rknn_switching_.load()) {
+        spdlog::warn("RKNN model switching already in progress, skipping reload request");
+        return;
+    }
+
+    if (!recognition_app_) {
+        spdlog::error("Cannot reload RKNN models: recognition_app_ is null");
+        return;
+    }
+
+    if (recognition_app_->are_models_loaded()) {
+        spdlog::info("RKNN models already loaded, skipping");
+        on_rknn_models_reloaded(true);  // 直接触发完成回调
+        return;
+    }
+
+    rknn_switching_.store(true);
+    spdlog::info("Starting async RKNN model reload...");
+
+    // 使用 QtConcurrent 在后台线程执行模型加载
+    QFuture<bool> future = QtConcurrent::run([this]() -> bool {
+        if (recognition_app_) {
+            return recognition_app_->reload_models();
+        }
+        return false;
+    });
+    rknn_reload_watcher_->setFuture(future);
+}
+
+void MainWindow::on_rknn_models_released() {
+    rknn_switching_.store(false);
+    spdlog::info("RKNN models released (async callback)");
+
+    // 检查是否有 pending 的识别启动请求（用户快速切换回识别页面）
+    if (pending_recognition_start_.load() && recognition_paused_for_llm_) {
+        pending_recognition_start_.store(false);
+        spdlog::info("Processing pending recognition start after release...");
+
+        // 重新加载模型并启动识别
+        if (recognition_app_ && !recognition_app_->are_models_loaded()) {
+            reload_rknn_models_async();
+        } else if (recognition_app_ && recognition_app_->are_models_loaded()) {
+            recognition_paused_for_llm_ = false;
+            start_recognition();
+            spdlog::info("Recognition resumed (models already loaded, pending request)");
+        }
+    }
+}
+
+void MainWindow::on_rknn_models_reloaded(bool success) {
+    rknn_switching_.store(false);
+
+    if (success) {
+        spdlog::info("RKNN models reloaded successfully (async callback)");
+
+        // 模型加载成功后，如果是从 LLM 模式返回，启动识别
+        if (recognition_paused_for_llm_) {
+            recognition_paused_for_llm_ = false;
+
+            // 摄像头已在路由切换时恢复，直接启动识别
+            start_recognition();
+            spdlog::info("Recognition resumed after async RKNN reload");
+        }
+    } else {
+        spdlog::error("Failed to reload RKNN models (async callback)");
+        recognition_paused_for_llm_ = false;  // 即使失败也要重置标志
+        ToastNotification::showMessage(this, tr("错误"), tr("人脸模型加载失败"),
+                                        ToastNotification::Level::Error);
     }
 }

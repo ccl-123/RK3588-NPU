@@ -6,7 +6,7 @@
  */
 
 #include "database/user_dao.h"
-#include <iostream>
+#include <spdlog/spdlog.h>
 
 namespace db {
 
@@ -41,13 +41,13 @@ int UserDAO::insert(const UserInfo& user) {
     stmt->bind_int(8, user.status);
     
     if (!stmt->execute()) {
-        std::cerr << "Failed to insert user: " << user.user_name << std::endl;
-        std::cerr << "Database error: " << db_manager_->get_last_error() << std::endl;
+        spdlog::error("Failed to insert user: {}", user.user_name);
+        spdlog::error("Database error: {}", db_manager_->get_last_error());
         return -1;
     }
 
     int64_t id = stmt->last_insert_id();
-    std::cout << "User inserted with ID: " << id << std::endl;
+    spdlog::info("User inserted with ID: {}", id);
     return static_cast<int>(id);
 }
 
