@@ -137,6 +137,7 @@ MainWindow::MainWindow(QWidget* parent)
     , is_dark_theme_(false)  // 默认使用浅色主题
     , current_date_(QDate::currentDate())  // 初始化当前日期（用于跨日检测）
     , user_detection_{false, 0, "", 0.0f, std::chrono::steady_clock::now(), std::chrono::steady_clock::now(), false}
+    , last_displayed_user_id_(-1)
     , user_confirm_duration_ms_(1000)  // 默认1秒，从配置加载
     , stranger_detection_{false, std::chrono::steady_clock::now(), std::chrono::steady_clock::now()}
     , rknn_release_watcher_(nullptr)
@@ -1141,6 +1142,7 @@ void MainWindow::stop_recognition() {
         recognition_page_->updateFaceCount(0);
         recognition_page_->updateDetectionStatus(tr("已停止"), -1);
     }
+    last_displayed_user_id_ = -1;
 
     spdlog::info("Recognition stopped");
 }
@@ -1356,9 +1358,8 @@ void MainWindow::on_recognition_result(int user_id, const QString& name, float s
     }
     
     // 只在用户ID变化时获取用户详细信息（减少数据库查询）
-    static int last_displayed_user_id = -1;
-    if (user_id > 0 && user_id != last_displayed_user_id) {
-        last_displayed_user_id = user_id;
+    if (user_id > 0 && user_id != last_displayed_user_id_) {
+        last_displayed_user_id_ = user_id;
         
         if (user_service_) {
             db::UserInfo user_info;
@@ -1384,7 +1385,7 @@ void MainWindow::on_recognition_result(int user_id, const QString& name, float s
             }
         }
     } else if (user_id <= 0) {
-        last_displayed_user_id = -1;
+        last_displayed_user_id_ = -1;
         if (user_id_label_) {
             user_id_label_->setText(tr("工号: --"));
         }

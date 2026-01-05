@@ -274,11 +274,12 @@ void RecognitionPage::updateDetectionStatus(const QString& status, int progress)
         detection_status_label_->setText(status);
     }
     if (detection_progress_bar_) {
-        // 始终显示进度条，防止布局抖动
         if (progress < 0) {
-            detection_progress_bar_->setValue(0);  // 重置为0，但不隐藏
+            detection_progress_bar_->setValue(0);
+            detection_progress_bar_->setVisible(false);
         } else {
             detection_progress_bar_->setValue(progress);
+            detection_progress_bar_->setVisible(true);
         }
     }
 }

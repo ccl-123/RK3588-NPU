@@ -346,6 +346,7 @@ private:
     // 回调函数(新增)
     RecognitionCallback recognition_callback_;
     FrameCallback frame_callback_;  // 帧回调函数(新增 - 用于GUI)
+    RegistrationCallback registration_callback_;
 
     // 考勤服务指针（类型安全）
     service::AttendanceService* attendance_service_;

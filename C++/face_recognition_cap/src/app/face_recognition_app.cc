@@ -33,6 +33,7 @@ FaceRecognitionApp::FaceRecognitionApp()
     , running_(false)
     , recognition_callback_(nullptr)
     , frame_callback_(nullptr)
+    , registration_callback_(nullptr)
     , attendance_service_(nullptr)
     , camera_initialized_(false)
     , camera_error_("")
@@ -529,6 +530,9 @@ bool FaceRecognitionApp::reload_models() {
         if (frame_callback_) {
             set_frame_callback(frame_callback_);
         }
+        if (registration_callback_) {
+            set_registration_callback(registration_callback_);
+        }
     }
 
     if (!postprocess_thread_) {
@@ -734,8 +738,9 @@ void FaceRecognitionApp::set_frame_callback(FrameCallback callback) {
 }
 
 void FaceRecognitionApp::set_registration_callback(RegistrationCallback callback) {
+    registration_callback_ = std::move(callback);
     if (recognition_thread_) {
-        recognition_thread_->set_registration_callback(std::move(callback));
+        recognition_thread_->set_registration_callback(registration_callback_);
     }
 }
 

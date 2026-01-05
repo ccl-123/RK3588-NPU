@@ -215,6 +215,7 @@ private:
         bool attendance_recorded;                               // 本次检测是否已记录考勤
     };
     UserDetection user_detection_;
+    int last_displayed_user_id_;
     int user_confirm_duration_ms_;                              // 用户确认时长（可配置，默认1秒）
     static constexpr int USER_DETECTION_TIMEOUT_MS = 500;       // 用户检测超时（500ms，帧间隔容差）
     
