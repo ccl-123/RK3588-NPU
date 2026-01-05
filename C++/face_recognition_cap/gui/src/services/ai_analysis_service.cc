@@ -10,14 +10,13 @@
 #include "services/ai_analysis_service.h"
 #include "service/attendance_service.h"
 #include "config/config.h"
-#include "app/local_llm_thread.h"
+#include "services/ai_prompt_builder.h"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QNetworkRequest>
 #include <QUuid>
 #include <QTimer>
-#include <QDateTime>
 #include <spdlog/spdlog.h>
 #include <cstring>  // for strlen
 
@@ -30,19 +29,8 @@ AiAnalysisService::AiAnalysisService(QObject* parent)
     : QObject(parent)
     , current_retry_count_(0)
     , completed_(false)
-    , is_incremental_(false)
-    , current_backend_(LLMBackendType::Cloud)
-    , local_analyzing_(false) {
+    , is_incremental_(false) {
     network_manager_ = new QNetworkAccessManager(this);
-    
-    // 连接 LocalLLMThread 信号
-    auto local_llm = LocalLLMThread::instance();
-    connect(local_llm, &LocalLLMThread::modelReady, this, &AiAnalysisService::onLocalLLMReady);
-    connect(local_llm, &LocalLLMThread::modelFailed, this, &AiAnalysisService::onLocalLLMFailed);
-    connect(local_llm, &LocalLLMThread::chunkReady, this, &AiAnalysisService::onLocalLLMChunk);
-    connect(local_llm, &LocalLLMThread::inferenceFinished, this, &AiAnalysisService::onLocalLLMFinished);
-    connect(local_llm, &LocalLLMThread::errorOccurred, this, &AiAnalysisService::onLocalLLMError);
-    connect(local_llm, &LocalLLMThread::modelReleased, this, &AiAnalysisService::onLocalLLMReleased);
 
     // 检查环境变量是否已设置
     const char* app_key = Config::TencentAI::getAppKey();
@@ -120,46 +108,17 @@ void AiAnalysisService::cleanup() {
     incremental_buffer_.clear();
     current_retry_count_ = 0;
     completed_ = false;  // 重置完成标志，为下一次请求做准备
-    local_analyzing_ = false;
-}
-
-void AiAnalysisService::setBackend(LLMBackendType backend) {
-    if (current_backend_ != backend) {
-        current_backend_ = backend;
-        spdlog::info("LLM backend switched to: {}", backend == LLMBackendType::Local ? "Local" : "Cloud");
-        emit backendChanged(backend);
-    }
-}
-
-bool AiAnalysisService::initializeLocalLLM(const QString& model_path) {
-    return LocalLLMThread::instance()->initModel(model_path);
-}
-
-bool AiAnalysisService::isLocalLLMReady() const {
-    return LocalLLMThread::instance()->isModelReady();
 }
 
 bool AiAnalysisService::isAnalyzing() const {
-    if (current_backend_ == LLMBackendType::Local) {
-        return local_analyzing_;
-    }
     return current_reply_ != nullptr;
 }
 
 void AiAnalysisService::cancelAnalysis() {
-    if (current_backend_ == LLMBackendType::Local) {
-        if (local_analyzing_) {
-            LocalLLMThread::instance()->abortInference();
-            local_analyzing_ = false;
-            spdlog::info("Local LLM analysis cancelled by user");
-            emit analysisCancelled();
-        }
-    } else {
-        if (current_reply_) {
-            spdlog::info("Cloud AI analysis cancelled by user");
-            cleanup();
-            emit analysisCancelled();
-        }
+    if (current_reply_) {
+        spdlog::info("Cloud AI analysis cancelled by user");
+        cleanup();
+        emit analysisCancelled();
     }
 }
 
@@ -187,62 +146,7 @@ void AiAnalysisService::requestAnalysis(const service::AttendanceStatistics& sta
     // 发送开始信号
     emit analysisStarted();
 
-    // 根据后端类型选择执行方式
-    if (current_backend_ == LLMBackendType::Local) {
-        doLocalRequest(stats, trend_summary, detail_records, user_prompt, range_days);
-    } else {
-        doCloudRequest(stats, trend_summary, detail_records, user_prompt, range_days, 0);
-    }
-}
-
-QString AiAnalysisService::buildPrompt(const service::AttendanceStatistics& stats,
-                                       const QString& trend_summary,
-                                       const QString& detail_records,
-                                       const QString& user_prompt,
-                                       int range_days) {
-    QString current_time_str = QDateTime::currentDateTime().toString("MM月dd日 HH:mm");
-    QString content;
-
-    // 纯问答模式（range_days == 0）：只发送用户问题，不附带考勤数据
-    if (range_days == 0) {
-        content = QString(
-            "【当前时间】: %1\n\n"
-            "【用户问题】\n%2"
-        ).arg(current_time_str)
-         .arg(user_prompt.isEmpty() ? QStringLiteral("你好，请问有什么可以帮助您的？") : user_prompt);
-    } else {
-        // 正常模式：发送考勤数据 + 用户问题
-        QString data_title = (range_days > 1) ? QString("【近 %1 日全量考勤数据】").arg(range_days) : QString("【今日考勤数据概览】");
-        QString stats_date_label = (range_days > 1) ? QString("截止日期") : QString("统计日期");
-        QString detail_title = (range_days > 1) ? QString("【考勤明细流水 (近 %1 日)】").arg(range_days) : QString("【今日打卡明细】");
-
-        content = QString(
-            "【当前时间】: %1\n\n"
-            "%2\n"
-            "%3: %4\n"
-            "今日打卡总人数: %5\n"
-            "今日签到人数: %6\n"
-            "今日签退人数: %7\n"
-            "今日迟到人数: %8\n"
-            "今日早退人数: %9\n\n"
-            "%10\n%11\n\n"
-            "【趋势统计数据】\n%12\n\n"
-            "【用户问题】\n%13"
-        ).arg(current_time_str)
-         .arg(data_title)
-         .arg(stats_date_label)
-         .arg(QString::fromStdString(stats.date))
-         .arg(stats.total_count)
-         .arg(stats.check_in_count)
-         .arg(stats.check_out_count)
-         .arg(stats.late_count)
-         .arg(stats.early_leave_count)
-         .arg(detail_title)
-         .arg(detail_records)
-         .arg(trend_summary)
-         .arg(user_prompt.isEmpty() ? QStringLiteral("请生成今日考勤综合分析。") : user_prompt);
-    }
-    return content;
+    doCloudRequest(stats, trend_summary, detail_records, user_prompt, range_days, 0);
 }
 
 void AiAnalysisService::doCloudRequest(const service::AttendanceStatistics& stats,
@@ -261,7 +165,8 @@ void AiAnalysisService::doCloudRequest(const service::AttendanceStatistics& stat
     request.setRawHeader("Accept", "text/event-stream");  // 关键：告诉代理/CDN 这是 SSE 流
 
     // 构建 Prompt
-    QString content = buildPrompt(stats, trend_summary, detail_records, user_prompt, range_days);
+    QString content = AiPromptBuilder::buildPrompt(
+        stats, trend_summary, detail_records, user_prompt, range_days);
 
     // 生成唯一的 session_id 和 request_id
     // 文档说 request_id "非必填但建议必填"，用于排查串联
@@ -395,19 +300,17 @@ void AiAnalysisService::doCloudRequest(const service::AttendanceStatistics& stat
                 eventType = root["event"].toString();
             }
 
-            // 如果依然拿不到事件类型，但有 content，默认当作 reply 处理
-            if (eventType.isEmpty()) {
-                const QString content_probe = payload["content"].toString();
-                if (!content_probe.isEmpty()) {
-                    eventType = "reply";
-                }
-            }
-
             if (eventType.isEmpty()) {
                 continue;  // 跳过无效事件
             }
 
+            spdlog::debug("SSE event: type={}, dataLen={}", eventType.toStdString(), dataBuffer.size());
+
             // 处理各类事件
+            if (eventType == "workflow_status" || eventType == "workflow") {
+                spdlog::debug("Ignoring workflow event");
+                continue;
+            }
             if (eventType == "reply") {
                 // 处理回复事件
                 QString content = payload["content"].toString();
@@ -442,23 +345,21 @@ void AiAnalysisService::doCloudRequest(const service::AttendanceStatistics& stat
                         emit analysisResultReady(content);
                     }
                 } else {
+                    // 空 content 但 is_final=true 可能是工作流结束信号，忽略
+                    if (is_final) {
+                        spdlog::debug("Ignoring empty content with is_final=true (likely workflow signal)");
+                        continue;
+                    }
                     spdlog::warn("Received empty content, is_final={}", is_final);
                 }
 
-                // 结束判断：is_final == true（不是 OpenAI 的 [DONE] 标记）
+                // 注意：不在这里判断结束！
+                // 腾讯云 SSE 可能发送多个 reply 事件，每个都有自己的 is_final
+                // 第一个 reply 可能带 is_final=true（快速摘要），但后续还有更多数据
+                // 真正的结束判断放在 finished 信号处理中（HTTP 连接关闭时）
                 if (is_final) {
-                    spdlog::info("AI analysis completed (is_final=true)");
-                    timeout_timer_->stop();
-
-                    // 防止重复 emit analysisFinished
-                    if (!completed_) {
-                        completed_ = true;
-                        emit analysisFinished();
-                    }
-
-                    // 不要立即 cleanup()，让连接自然关闭
-                    // finished 信号会在连接关闭后触发，那时再清理
-                    // 这样可以确保所有数据都被处理完
+                    spdlog::info("Received is_final=true marker (total {} chars so far), waiting for connection close",
+                                incremental_buffer_.length());
                 }
             }
             else if (eventType == "error") {
@@ -599,23 +500,20 @@ void AiAnalysisService::doCloudRequest(const service::AttendanceStatistics& stat
             return;
         }
 
-        // HTTP 200 成功：对于 SSE 流式传输，finished 信号表示所有数据传输完成
-        spdlog::info("SSE connection finished (HTTP 200)");
+        // HTTP 200 成功：SSE 连接关闭，这才是真正的结束时机
+        spdlog::info("SSE connection finished (HTTP 200), total received: {} chars", incremental_buffer_.length());
 
-        // 正常情况下，应该在 readyRead 中收到 is_final=true 并设置 completed_=true
-        // 如果到这里 completed_ 还是 false，说明：
-        // 1. 服务器没有发送 is_final=true 就关闭了连接（异常情况）
-        // 2. 或者数据还在缓冲区中没有被 readyRead 处理（极少见）
+        // 在连接关闭时才触发 analysisFinished
+        // 这确保了所有数据都已接收完毕，按钮状态才会改变
         if (!completed_) {
-            spdlog::warn("SSE connection closed without receiving is_final=true");
             completed_ = true;
 
-            // 如果有接收到数据，视为成功完成（容错处理）
             if (!incremental_buffer_.isEmpty()) {
-                spdlog::info("Treating as completed due to received data");
+                spdlog::info("AI analysis completed (connection closed, {} chars)", incremental_buffer_.length());
                 emit analysisFinished();
             } else {
                 // 没有收到任何数据，视为错误
+                spdlog::warn("SSE connection closed without receiving any data");
                 emit errorOccurred("服务器未返回任何数据");
             }
         }
@@ -636,55 +534,4 @@ void AiAnalysisService::doCloudRequest(const service::AttendanceStatistics& stat
 
         reply->deleteLater();
     });
-}
-
-// === 本地 LLM 处理 ===
-
-void AiAnalysisService::doLocalRequest(const service::AttendanceStatistics& stats,
-                                       const QString& trend_summary,
-                                       const QString& detail_records,
-                                       const QString& user_prompt,
-                                       int range_days) {
-    auto local_llm = LocalLLMThread::instance();
-    if (!local_llm->isModelReady()) {
-        emit errorOccurred("本地模型未初始化，请先加载模型");
-        return;
-    }
-
-    QString prompt = buildPrompt(stats, trend_summary, detail_records, user_prompt, range_days);
-    local_analyzing_ = true;
-    spdlog::info("Sending prompt to local LLM ({} chars)", prompt.length());
-    local_llm->requestInference(prompt);
-}
-
-void AiAnalysisService::onLocalLLMReady() {
-    spdlog::info("Local LLM model loaded");
-    emit localLLMReady();
-}
-
-void AiAnalysisService::onLocalLLMFailed(const QString& error) {
-    spdlog::error("Local LLM init failed: {}", error.toStdString());
-    emit errorOccurred("本地模型加载失败: " + error);
-}
-
-void AiAnalysisService::onLocalLLMChunk(const QString& chunk) {
-    emit analysisResultReady(chunk);
-}
-
-void AiAnalysisService::onLocalLLMFinished() {
-    local_analyzing_ = false;
-    emit analysisFinished();
-}
-
-void AiAnalysisService::onLocalLLMError(const QString& error) {
-    local_analyzing_ = false;
-    emit errorOccurred(error);
-}
-
-void AiAnalysisService::onLocalLLMReleased() {
-    spdlog::info("Local LLM model released, switching to cloud backend");
-    // 模型被释放，切换到云端后端
-    current_backend_ = LLMBackendType::Cloud;
-    emit localLLMReleased();
-    emit backendChanged(LLMBackendType::Cloud);
 }

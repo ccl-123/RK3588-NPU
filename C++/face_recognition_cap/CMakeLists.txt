@@ -133,6 +133,8 @@ if(Qt5_FOUND)
         gui/src/services/holiday_service.cc
         gui/src/services/news_service.cc
         gui/src/services/ai_analysis_service.cc
+        gui/src/services/ai_prompt_builder.cc
+        gui/src/services/local_ai_analysis_service.cc
         gui/src/themes/theme_manager.cc
         gui/src/utils/svg_icon_manager.cc
         gui/src/utils/stack_router.cc
@@ -195,6 +197,8 @@ if(Qt5_FOUND)
         gui/include/services/holiday_service.h
         gui/include/services/news_service.h
         gui/include/services/ai_analysis_service.h
+        gui/include/services/ai_prompt_builder.h
+        gui/include/services/local_ai_analysis_service.h
         gui/include/themes/theme_manager.h
         gui/include/utils/svg_icon_manager.h
         gui/include/utils/stack_router.h

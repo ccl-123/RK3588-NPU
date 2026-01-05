@@ -1,5 +1,6 @@
 #include "ui/dashboard_page.h"
 #include "services/ai_analysis_service.h"
+#include "services/local_ai_analysis_service.h"
 #include "config/config.h"
 
 #include "database/database_types.h"
@@ -265,16 +266,21 @@ DashboardPage::DashboardPage(QWidget* parent)
     setup_ui();
 
     // 连接 AI 服务信号
-    auto ai_service = AiAnalysisService::instance();
-    connect(ai_service, &AiAnalysisService::analysisStarted, this, &DashboardPage::on_ai_analysis_started);
-    connect(ai_service, &AiAnalysisService::analysisResultReady, this, &DashboardPage::on_ai_result_ready);
-    connect(ai_service, &AiAnalysisService::analysisFinished, this, &DashboardPage::on_ai_analysis_finished);
-    connect(ai_service, &AiAnalysisService::errorOccurred, this, &DashboardPage::on_ai_error);
-    connect(ai_service, &AiAnalysisService::analysisCancelled, this, &DashboardPage::on_ai_analysis_cancelled);
-    
-    // 连接本地 LLM 信号
-    connect(ai_service, &AiAnalysisService::localLLMReady, this, &DashboardPage::on_local_llm_ready);
-    connect(ai_service, &AiAnalysisService::localLLMReleased, this, &DashboardPage::on_local_llm_released);
+    auto cloud_service = AiAnalysisService::instance();
+    connect(cloud_service, &AiAnalysisService::analysisStarted, this, &DashboardPage::on_ai_analysis_started);
+    connect(cloud_service, &AiAnalysisService::analysisResultReady, this, &DashboardPage::on_ai_result_ready);
+    connect(cloud_service, &AiAnalysisService::analysisFinished, this, &DashboardPage::on_ai_analysis_finished);
+    connect(cloud_service, &AiAnalysisService::errorOccurred, this, &DashboardPage::on_ai_error);
+    connect(cloud_service, &AiAnalysisService::analysisCancelled, this, &DashboardPage::on_ai_analysis_cancelled);
+
+    auto local_service = LocalAiAnalysisService::instance();
+    connect(local_service, &LocalAiAnalysisService::analysisStarted, this, &DashboardPage::on_ai_analysis_started);
+    connect(local_service, &LocalAiAnalysisService::analysisResultReady, this, &DashboardPage::on_ai_result_ready);
+    connect(local_service, &LocalAiAnalysisService::analysisFinished, this, &DashboardPage::on_ai_analysis_finished);
+    connect(local_service, &LocalAiAnalysisService::errorOccurred, this, &DashboardPage::on_ai_error);
+    connect(local_service, &LocalAiAnalysisService::analysisCancelled, this, &DashboardPage::on_ai_analysis_cancelled);
+    connect(local_service, &LocalAiAnalysisService::localLLMReady, this, &DashboardPage::on_local_llm_ready);
+    connect(local_service, &LocalAiAnalysisService::localLLMReleased, this, &DashboardPage::on_local_llm_released);
 }
 
 void DashboardPage::setAttendanceService(service::AttendanceService* service) {
@@ -386,7 +392,11 @@ void DashboardPage::on_ai_input_send() {
         return;
     }
     if (is_analyzing_) {
-        AiAnalysisService::instance()->cancelAnalysis();
+        if (is_local_llm_) {
+            LocalAiAnalysisService::instance()->cancelAnalysis();
+        } else {
+            AiAnalysisService::instance()->cancelAnalysis();
+        }
         return;
     }
     const QString user_text = ai_input_->text().trimmed();
@@ -404,8 +414,15 @@ void DashboardPage::on_ai_analysis_clicked() {
 
     // 如果正在分析，则取消
     if (is_analyzing_) {
-        if (AiAnalysisService::instance()->isAnalyzing()) {
-            AiAnalysisService::instance()->cancelAnalysis();
+        bool has_active = is_local_llm_
+            ? LocalAiAnalysisService::instance()->isAnalyzing()
+            : AiAnalysisService::instance()->isAnalyzing();
+        if (has_active) {
+            if (is_local_llm_) {
+                LocalAiAnalysisService::instance()->cancelAnalysis();
+            } else {
+                AiAnalysisService::instance()->cancelAnalysis();
+            }
         } else {
             is_analyzing_ = false;
             ai_result_label_ = nullptr;
@@ -467,7 +484,11 @@ void DashboardPage::on_ai_analysis_clicked() {
         empty_stats.early_leave_count = 0;
 
         // 发送纯问答请求（空数据 + 用户问题，range_days=0 标识纯问答模式）
-        AiAnalysisService::instance()->requestAnalysis(empty_stats, QString(), QString(), user_prompt, 0);
+        if (is_local_llm_) {
+            LocalAiAnalysisService::instance()->requestAnalysis(empty_stats, QString(), QString(), user_prompt, 0);
+        } else {
+            AiAnalysisService::instance()->requestAnalysis(empty_stats, QString(), QString(), user_prompt, 0);
+        }
         return;
     }
 
@@ -548,10 +569,16 @@ void DashboardPage::on_ai_analysis_clicked() {
 
     appendChatMessage("assistant", tr("正在分析中，请稍候..."));
     spdlog::info("Sending AI analysis with {} records for last {} days", range_records.size(), range_days);
-    AiAnalysisService::instance()->requestAnalysis(today_stats, trend_summary, detail_records_str, user_prompt, range_days);
+    if (is_local_llm_) {
+        LocalAiAnalysisService::instance()->requestAnalysis(today_stats, trend_summary, detail_records_str, user_prompt, range_days);
+    } else {
+        AiAnalysisService::instance()->requestAnalysis(today_stats, trend_summary, detail_records_str, user_prompt, range_days);
+    }
 }
 
 void DashboardPage::on_ai_analysis_started() {
+    is_analyzing_ = true;
+
     // 更新按钮状态
     if (ai_analysis_btn_) {
         ai_analysis_btn_->setText(tr("取消分析"));
@@ -561,6 +588,8 @@ void DashboardPage::on_ai_analysis_started() {
         ai_send_btn_->setText(tr("停止"));
         ai_send_btn_->setEnabled(true);
     }
+
+    spdlog::debug("AI analysis started, button changed to '停止'");
 }
 
 void DashboardPage::on_ai_result_ready(const QString& result) {
@@ -569,6 +598,7 @@ void DashboardPage::on_ai_result_ready(const QString& result) {
 
 
 void DashboardPage::on_ai_analysis_finished() {
+    spdlog::info("on_ai_analysis_finished() called");
     is_analyzing_ = false;
     ai_result_label_ = nullptr;
 
@@ -587,6 +617,7 @@ void DashboardPage::on_ai_analysis_finished() {
 
 
 void DashboardPage::on_ai_error(const QString& error) {
+    spdlog::warn("on_ai_error() called: {}", error.toStdString());
     is_analyzing_ = false;
     ai_result_label_ = nullptr;
 
@@ -1546,16 +1577,15 @@ void DashboardPage::on_backend_toggled(bool checked) {
         backend_status_label_->setText(checked ? tr("加载中...") : tr(""));
     }
     
-    // 切换服务后端
-    auto backend = checked ? LLMBackendType::Local : LLMBackendType::Cloud;
-    AiAnalysisService::instance()->setBackend(backend);
-    
     if (checked) {
+        if (AiAnalysisService::instance()->isAnalyzing()) {
+            AiAnalysisService::instance()->cancelAnalysis();
+        }
         // 如果切换到本地且模型未加载，则初始化
         QString model_path = Config::LocalLLM::MODEL_PATH;
-        if (!AiAnalysisService::instance()->isLocalLLMReady()) {
+        if (!LocalAiAnalysisService::instance()->isLocalLLMReady()) {
             ToastNotification::showMessage(this, tr("AI 模型"), tr("正在加载本地模型..."), ToastNotification::Level::Info);
-            AiAnalysisService::instance()->initializeLocalLLM(model_path);
+            LocalAiAnalysisService::instance()->initializeLocalLLM(model_path);
         } else {
             if (backend_status_label_) {
                 backend_status_label_->setText(tr("就绪"));
@@ -1563,6 +1593,9 @@ void DashboardPage::on_backend_toggled(bool checked) {
             }
         }
     } else {
+        if (LocalAiAnalysisService::instance()->isAnalyzing()) {
+            LocalAiAnalysisService::instance()->cancelAnalysis();
+        }
         ToastNotification::showMessage(this, tr("AI 模型"), tr("已切换至云端 API"), ToastNotification::Level::Info);
     }
 }

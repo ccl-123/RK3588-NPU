@@ -10,30 +10,11 @@
 #include "service/attendance_service.h"
 
 
-// LLM 后端类型
-enum class LLMBackendType {
-    Cloud,    // 云端 API (腾讯云混元)
-    Local     // 本地 RKLLM (librkllmrt.so)
-};
-
 class AiAnalysisService : public QObject {
     Q_OBJECT
 
 public:
     static AiAnalysisService* instance();
-
-    // === 后端切换 ===
-    // 设置 LLM 后端类型
-    void setBackend(LLMBackendType backend);
-    LLMBackendType currentBackend() const { return current_backend_; }
-
-    // 初始化本地 LLM (仅当使用 Local 后端时需要)
-    // model_path: 模型文件路径
-    // 返回: 是否开始初始化
-    bool initializeLocalLLM(const QString& model_path);
-
-    // 检查本地 LLM 是否已就绪
-    bool isLocalLLMReady() const;
 
     // 发起 AI 分析请求
     // stats: 当日统计数据
@@ -62,21 +43,6 @@ signals:
     void analysisStarted();
     // 分析取消信号
     void analysisCancelled();
-    // 本地 LLM 就绪信号
-    void localLLMReady();
-    // 本地 LLM 已释放信号（用于通知 UI 切换按钮状态）
-    void localLLMReleased();
-    // 后端切换信号
-    void backendChanged(LLMBackendType backend);
-
-private slots:
-    // 本地 LLM 信号处理
-    void onLocalLLMReady();
-    void onLocalLLMFailed(const QString& error);
-    void onLocalLLMChunk(const QString& chunk);
-    void onLocalLLMFinished();
-    void onLocalLLMError(const QString& error);
-    void onLocalLLMReleased();
 
 private:
     explicit AiAnalysisService(QObject* parent = nullptr);
@@ -92,20 +58,6 @@ private:
                         const QString& user_prompt,
                         int range_days,
                         int retry_count = 0);
-
-    // 执行本地 LLM 请求
-    void doLocalRequest(const service::AttendanceStatistics& stats,
-                        const QString& trend_summary,
-                        const QString& detail_records,
-                        const QString& user_prompt,
-                        int range_days);
-
-    // 构建发送给 LLM 的 prompt
-    QString buildPrompt(const service::AttendanceStatistics& stats,
-                        const QString& trend_summary,
-                        const QString& detail_records,
-                        const QString& user_prompt,
-                        int range_days);
 
     QNetworkAccessManager* network_manager_;
 
@@ -138,9 +90,6 @@ private:
     QString incremental_buffer_;
     bool is_incremental_;
 
-    // 后端管理
-    LLMBackendType current_backend_;
-    bool local_analyzing_;
 };
 
 #endif // AI_ANALYSIS_SERVICE_H
