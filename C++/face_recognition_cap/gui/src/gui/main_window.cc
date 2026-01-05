@@ -457,8 +457,7 @@ bool MainWindow::finish_initialization_after_core() {
     });
     
     // 从配置加载用户识别确认时间
-    user_confirm_duration_ms_ = ConfigManager::instance()->getUserConfirmDuration();
-    spdlog::info("Loaded user confirm duration from config: {}ms", user_confirm_duration_ms_);
+    apply_user_confirm_duration(ConfigManager::instance()->getUserConfirmDuration());
     
     spdlog::info("System initialized successfully");
 
@@ -1017,6 +1016,17 @@ void MainWindow::apply_theme() {
 
 void MainWindow::start_recognition() {
     if (!recognition_app_) {
+        return;
+    }
+    if (!recognition_app_->are_models_loaded()) {
+        spdlog::warn("Cannot start recognition: models not loaded");
+        if (status_label_) {
+            status_label_->setText(tr("模型未加载"));
+        }
+        if (recognition_page_) {
+            recognition_page_->setRecognitionRunning(false);
+            recognition_page_->updateDetectionStatus(tr("模型未加载"), -1);
+        }
         return;
     }
     if (is_running_) {
