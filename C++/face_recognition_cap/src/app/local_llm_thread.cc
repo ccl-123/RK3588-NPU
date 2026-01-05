@@ -73,12 +73,18 @@ void LocalLLMThread::requestInference(const QString& prompt) {
         return;
     }
 
+    QMutexLocker locker(&mutex_);
     if (inferring_) {
-        emit errorOccurred("模型正在忙碌");
+        spdlog::info("Model busy, queueing new inference request");
+        pending_prompt_ = prompt;
+        pending_request_ = RequestType::Infer;
+        abort_requested_ = true;
+        if (llm_handle_) {
+            rkllm_abort(llm_handle_);
+        }
         return;
     }
 
-    QMutexLocker locker(&mutex_);
     pending_prompt_ = prompt;
     pending_request_ = RequestType::Infer;
     condition_.wakeOne();

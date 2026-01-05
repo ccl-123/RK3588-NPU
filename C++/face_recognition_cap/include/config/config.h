@@ -158,7 +158,7 @@ namespace LocalLLM {
     
     // 推理参数
     constexpr int MAX_NEW_TOKENS = 2048;
-    constexpr int MAX_CONTEXT_LEN = 1024 * 16;
+    constexpr int MAX_CONTEXT_LEN = 1024 * 8;
 }
 
 } // namespace Config
