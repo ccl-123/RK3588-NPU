@@ -16,7 +16,11 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QCoreApplication>
-#include <QUrl>
+#include <QProcess>
+#include <QRegularExpression>
+#include <QMetaObject>
+#include <QtConcurrent>
+#include <QPointer>
 #include <mutex>
 #include <spdlog/spdlog.h>
 
@@ -25,65 +29,66 @@ AudioManager* AudioManager::instance_ = nullptr;
 
 AudioManager::AudioManager(QObject* parent)
     : QObject(parent)
-    , player_(nullptr)
+    , aplay_process_(new QProcess(this))
     , enabled_(true)
     , volume_(70)
-    , is_playing_(false) {
-    
-    // 检查音频设备可用性
-    QAudioDeviceInfo default_device = QAudioDeviceInfo::defaultOutputDevice();
-    if (!default_device.isNull()) {
-        current_device_ = default_device.deviceName();
-        spdlog::info("AudioManager: Default audio device: {}", 
-                     current_device_.toStdString());
-    } else {
-        spdlog::error("AudioManager: No default audio output device found - audio disabled");
-        enabled_ = false;  // 没有音频设备，禁用音频
-        return;
-    }
-    
-    // 延迟创建 QMediaPlayer（异步初始化）
+    , volume_timer_(new QTimer(this))
+    , pending_volume_(70)
+    , alsa_device_("plughw:0,0")
+    , is_playing_(false)
+    , devices_loaded_(false)
+    , devices_refresh_in_progress_(false)
+    , volume_task_running_(false)
+    , last_applied_volume_(-1) {
+
+    // 延迟检测设备，避免阻塞构造函数
     QTimer::singleShot(0, this, [this]() {
-        try {
-            player_ = new QMediaPlayer(this);
-            
-            // 连接信号槽
-            connect(player_, &QMediaPlayer::stateChanged,
-                    this, &AudioManager::onPlayerStateChanged);
-            connect(player_, static_cast<void(QMediaPlayer::*)(QMediaPlayer::Error)>(&QMediaPlayer::error),
-                    this, &AudioManager::onPlayerError);
-            
-            // 设置默认音量
-            player_->setVolume(volume_);
-            
-            spdlog::info("AudioManager: QMediaPlayer initialized (volume: {}, enabled: {})", 
-                         volume_, enabled_);
-        } catch (const std::exception& e) {
-            spdlog::error("AudioManager: Failed to create QMediaPlayer: {}", e.what());
-            enabled_ = false;
+        detectAlsaDevice();
+        current_device_ = alsa_device_;
+        spdlog::info("AudioManager: Using ALSA device: {}", alsa_device_.toStdString());
+    });
+
+    connect(aplay_process_, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, &AudioManager::onProcessFinished);
+    connect(aplay_process_, &QProcess::errorOccurred,
+            this, &AudioManager::onProcessError);
+
+    volume_timer_->setSingleShot(true);
+    connect(volume_timer_, &QTimer::timeout, this, [this]() {
+        int volume = 0;
+        {
+            QMutexLocker locker(&mutex_);
+            volume = pending_volume_;
         }
+        applyAlsaVolume(volume);
     });
 }
 
 AudioManager::~AudioManager() {
-    // 先停止播放（可能会触发信号，所以在获取锁之前调用）
-    stopPlayback();
-
-    QMutexLocker locker(&mutex_);
-
-    // 清理播放器
-    if (player_) {
-        try {
-            player_->stop();
-            delete player_;
-            player_ = nullptr;
-        } catch (const std::exception& e) {
-            spdlog::error("AudioManager: Error cleaning up player in destructor: {}", e.what());
-        }
+    // 先断开所有信号连接，防止回调触发死锁
+    if (aplay_process_) {
+        disconnect(aplay_process_, nullptr, this, nullptr);
     }
 
-    // 清理队列
-    audio_queue_.clear();
+    // 停止播放（不会再触发回调了）
+    {
+        QMutexLocker locker(&mutex_);
+        if (aplay_process_ && aplay_process_->state() != QProcess::NotRunning) {
+            aplay_process_->kill();
+        }
+        // 清理状态
+        is_playing_ = false;
+        current_playing_.clear();
+        audio_queue_.clear();
+    }
+
+    // 在锁外等待进程结束，避免死锁
+    if (aplay_process_) {
+        aplay_process_->waitForFinished(1000);
+        delete aplay_process_;
+        aplay_process_ = nullptr;
+    }
+
     spdlog::info("AudioManager destroyed");
 }
 
@@ -103,15 +108,20 @@ AudioManager* AudioManager::instance() {
 }
 
 void AudioManager::playSound(const QString& audioFile) {
+    // 线程安全：如果不在 AudioManager 所属线程，使用 invokeMethod 转发
+    if (QThread::currentThread() != this->thread()) {
+        QMetaObject::invokeMethod(this, "playSoundInternal",
+            Qt::QueuedConnection, Q_ARG(QString, audioFile));
+        return;
+    }
+    playSoundInternal(audioFile);
+}
+
+void AudioManager::playSoundInternal(const QString& audioFile) {
     QMutexLocker locker(&mutex_);
     
     if (!enabled_) {
         spdlog::debug("AudioManager: playSound called but audio is disabled");
-        return;
-    }
-    
-    if (!player_) {
-        spdlog::warn("AudioManager: QMediaPlayer not initialized yet, audio request ignored");
         return;
     }
     
@@ -193,14 +203,89 @@ QString AudioManager::audioPath(AudioType type) {
 }
 
 QStringList AudioManager::availableDevices() const {
-    QStringList devices;
-    
-    QList<QAudioDeviceInfo> audioDevices = QAudioDeviceInfo::availableDevices(QAudio::AudioOutput);
-    for (const QAudioDeviceInfo& deviceInfo : audioDevices) {
-        devices.append(deviceInfo.deviceName());
+    QMutexLocker locker(&mutex_);
+    if (devices_loaded_) {
+        return cached_devices_;
     }
-    
+    // 首次调用时返回默认设备，并自动触发异步刷新
+    QStringList defaultList;
+    defaultList.append(current_device_.isEmpty() ? alsa_device_ : current_device_);
+    return defaultList;
+}
+
+QStringList AudioManager::detectDevicesSync() const {
+    QStringList devices;
+    QString defaultDevice;
+    {
+        QMutexLocker locker(&mutex_);
+        defaultDevice = alsa_device_;
+    }
+
+    QProcess proc;
+    proc.start("aplay", QStringList() << "-l");
+    if (!proc.waitForFinished(2000)) {
+        spdlog::warn("AudioManager: aplay -l timeout, returning default device");
+        devices.append(defaultDevice);
+        return devices;
+    }
+
+    QString output = QString::fromLocal8Bit(proc.readAllStandardOutput());
+    QRegularExpression re("card (\\d+):\\s*(\\S+)\\s*\\[([^\\]]+)\\], device (\\d+):");
+    QRegularExpressionMatchIterator it = re.globalMatch(output);
+    while (it.hasNext()) {
+        QRegularExpressionMatch match = it.next();
+        QString card = match.captured(1);
+        QString cardName = match.captured(3);
+        QString device = match.captured(4);
+
+        QString alsaDevice = QString("plughw:%1,%2").arg(card, device);
+        QString displayName = QString("%1 (%2)").arg(alsaDevice, cardName);
+        devices.append(displayName);
+    }
+
+    if (devices.isEmpty()) {
+        devices.append(defaultDevice);
+    }
+
     return devices;
+}
+
+void AudioManager::refreshDevicesAsync() {
+    if (QThread::currentThread() != this->thread()) {
+        QMetaObject::invokeMethod(this, "refreshDevicesAsync", Qt::QueuedConnection);
+        return;
+    }
+
+    {
+        QMutexLocker locker(&mutex_);
+        if (devices_refresh_in_progress_) {
+            return;
+        }
+        devices_refresh_in_progress_ = true;
+    }
+
+    // 使用 QPointer 防护，避免析构后回调悬空指针
+    // 注意：如果对象在任务执行期间被销毁，devices_refresh_in_progress_
+    // 不会被重置，但由于对象已销毁，这个标志也不复存在，所以是安全的
+    QPointer<AudioManager> self = this;
+    QtConcurrent::run([self]() {
+        if (!self) return;  // 对象已销毁
+        QStringList devices = self->detectDevicesSync();
+        if (!self) return;  // 再次检查
+        QMetaObject::invokeMethod(self.data(), "onDevicesDetected",
+            Qt::QueuedConnection, Q_ARG(QStringList, devices));
+    });
+}
+
+void AudioManager::onDevicesDetected(const QStringList& devices) {
+    {
+        QMutexLocker locker(&mutex_);
+        cached_devices_ = devices;
+        devices_loaded_ = true;
+        devices_refresh_in_progress_ = false;
+    }
+    spdlog::info("AudioManager: Detected {} audio device(s)", devices.size());
+    emit devicesRefreshed(devices);
 }
 
 QString AudioManager::currentDevice() const {
@@ -209,35 +294,42 @@ QString AudioManager::currentDevice() const {
 }
 
 void AudioManager::setAudioDevice(const QString& deviceName) {
-    QMutexLocker locker(&mutex_);
-    
-    // 查找设备
-    QList<QAudioDeviceInfo> audioDevices = QAudioDeviceInfo::availableDevices(QAudio::AudioOutput);
-    for (const QAudioDeviceInfo& deviceInfo : audioDevices) {
-        if (deviceInfo.deviceName() == deviceName) {
-            current_device_ = deviceName;
-            spdlog::info("AudioManager: Audio device changed to: {}", deviceName.toStdString());
-            
-            // 注意：Qt5 的 QMediaPlayer 不直接支持切换音频设备
-            // 需要重新创建 QMediaPlayer 或使用 QAudioOutput (Qt6)
-            // 这里只记录设备名称，实际切换需要更复杂的实现
-            
-            return;
-        }
+    // 线程安全：确保在 AudioManager 所属线程执行
+    if (QThread::currentThread() != this->thread()) {
+        QMetaObject::invokeMethod(this, "setAudioDevice",
+            Qt::QueuedConnection, Q_ARG(QString, deviceName));
+        return;
     }
-    
-    spdlog::warn("AudioManager: Audio device not found: {}", deviceName.toStdString());
+
+    QMutexLocker locker(&mutex_);
+
+    QString trimmed = deviceName.trimmed();
+    QString device = trimmed.section(' ', 0, 0).trimmed();
+    if (!device.startsWith("plughw:") && !device.startsWith("hw:")) {
+        spdlog::warn("AudioManager: Invalid ALSA device: {}", deviceName.toStdString());
+        return;
+    }
+
+    alsa_device_ = device;
+    current_device_ = deviceName;
+    spdlog::info("AudioManager: Audio device changed to: {}", deviceName.toStdString());
 }
 
 void AudioManager::setVolume(int volume) {
-    QMutexLocker locker(&mutex_);
-    
-    volume_ = qBound(0, volume, 100);
-    
-    if (player_) {
-        player_->setVolume(volume_);
+    // 线程安全：确保在 AudioManager 所属线程执行（因为涉及 QTimer）
+    if (QThread::currentThread() != this->thread()) {
+        QMetaObject::invokeMethod(this, "setVolume",
+            Qt::QueuedConnection, Q_ARG(int, volume));
+        return;
     }
-    
+
+    QMutexLocker locker(&mutex_);
+
+    volume_ = qBound(0, volume, 100);
+
+    pending_volume_ = volume_;
+    volume_timer_->start(150);
+
     spdlog::debug("AudioManager: Volume set to {}", volume_);
 }
 
@@ -247,16 +339,26 @@ int AudioManager::volume() const {
 }
 
 void AudioManager::setEnabled(bool enabled) {
+    // 线程安全：确保在 AudioManager 所属线程执行（因为涉及 QProcess）
+    if (QThread::currentThread() != this->thread()) {
+        QMetaObject::invokeMethod(this, "setEnabled",
+            Qt::QueuedConnection, Q_ARG(bool, enabled));
+        return;
+    }
+
     QMutexLocker locker(&mutex_);
-    
+
     enabled_ = enabled;
-    
-    if (!enabled_ && player_ && player_->state() == QMediaPlayer::PlayingState) {
-        player_->stop();
+
+    if (!enabled_) {
+        if (aplay_process_ && aplay_process_->state() != QProcess::NotRunning) {
+            aplay_process_->kill();
+        }
         audio_queue_.clear();
         is_playing_ = false;
+        current_playing_.clear();
     }
-    
+
     spdlog::info("AudioManager: Audio {} ", enabled_ ? "enabled" : "disabled");
 }
 
@@ -266,8 +368,14 @@ bool AudioManager::isEnabled() const {
 }
 
 void AudioManager::clearQueue() {
+    // 线程安全
+    if (QThread::currentThread() != this->thread()) {
+        QMetaObject::invokeMethod(this, "clearQueue", Qt::QueuedConnection);
+        return;
+    }
+
     QMutexLocker locker(&mutex_);
-    
+
     audio_queue_.clear();
     spdlog::debug("AudioManager: Queue cleared");
 }
@@ -278,11 +386,17 @@ int AudioManager::queueSize() const {
 }
 
 void AudioManager::stopPlayback() {
+    // 线程安全：确保在 AudioManager 所属线程执行（因为涉及 QProcess）
+    if (QThread::currentThread() != this->thread()) {
+        QMetaObject::invokeMethod(this, "stopPlayback", Qt::QueuedConnection);
+        return;
+    }
+
     QMutexLocker locker(&mutex_);
 
     try {
-        if (player_ && player_->state() == QMediaPlayer::PlayingState) {
-            player_->stop();
+        if (aplay_process_ && aplay_process_->state() != QProcess::NotRunning) {
+            aplay_process_->kill();
         }
     } catch (const std::exception& e) {
         spdlog::error("AudioManager: Error stopping playback: {}", e.what());
@@ -294,54 +408,39 @@ void AudioManager::stopPlayback() {
     spdlog::debug("AudioManager: Playback stopped");
 }
 
-void AudioManager::onPlayerStateChanged(QMediaPlayer::State state) {
-    spdlog::debug("AudioManager: Player state changed: {}", static_cast<int>(state));
-    
-    if (state == QMediaPlayer::StoppedState) {
-        QMutexLocker locker(&mutex_);
-        
-        is_playing_ = false;
-        
-        // 播放完成
-        if (!current_playing_.isEmpty()) {
-            spdlog::info("AudioManager: Finished playing: {}", current_playing_.toStdString());
-            emit playbackFinished(current_playing_);
-            current_playing_.clear();
-        }
-        
-        locker.unlock();
-        
-        // 播放下一个
-        playNext();
-    } else if (state == QMediaPlayer::PlayingState) {
-        QMutexLocker locker(&mutex_);
-        is_playing_ = true;
-        
-        if (!current_playing_.isEmpty()) {
-            spdlog::info("AudioManager: Started playing: {}", current_playing_.toStdString());
-            emit playbackStarted(current_playing_);
+void AudioManager::onProcessFinished(int exitCode, QProcess::ExitStatus status) {
+    QMutexLocker locker(&mutex_);
+    is_playing_ = false;
+    QString finished = current_playing_;
+    current_playing_.clear();
+    locker.unlock();
+
+    if (!finished.isEmpty()) {
+        if (status == QProcess::NormalExit && exitCode == 0) {
+            spdlog::info("AudioManager: Finished playing: {}", finished.toStdString());
+            emit playbackFinished(finished);
+        } else {
+            spdlog::error("AudioManager: playback failed (exitCode={}, status={}) for {}",
+                          exitCode, static_cast<int>(status), finished.toStdString());
+            emit playbackError(finished, "aplay 播放失败");
         }
     }
+
+    playNext();
 }
 
-void AudioManager::onPlayerError(QMediaPlayer::Error error) {
-    QString errorString = player_->errorString();
-    
-    spdlog::error("AudioManager: Player error: {} - {}", 
-                  static_cast<int>(error), errorString.toStdString());
-    
+void AudioManager::onProcessError(QProcess::ProcessError error) {
     QMutexLocker locker(&mutex_);
-    
-    if (!current_playing_.isEmpty()) {
-        emit playbackError(current_playing_, errorString);
-        current_playing_.clear();
-    }
-    
     is_playing_ = false;
-    
+    QString failed = current_playing_;
+    current_playing_.clear();
     locker.unlock();
-    
-    // 尝试播放下一个
+
+    spdlog::error("AudioManager: aplay process error: {} ({})",
+                  static_cast<int>(error), failed.toStdString());
+    if (!failed.isEmpty()) {
+        emit playbackError(failed, "aplay 进程错误");
+    }
     playNext();
 }
 
@@ -349,11 +448,6 @@ void AudioManager::playNext() {
     QMutexLocker locker(&mutex_);
     
     if (!enabled_) {
-        return;
-    }
-    
-    if (!player_) {
-        spdlog::warn("AudioManager: QMediaPlayer not ready, cannot play");
         return;
     }
     
@@ -368,32 +462,21 @@ void AudioManager::playNext() {
     // 从队列中取出下一个音频
     QString nextAudio = audio_queue_.dequeue();
     current_playing_ = nextAudio;
-    
-    spdlog::debug("AudioManager: Playing next: {} (remaining in queue: {})", 
-                  nextAudio.toStdString(), audio_queue_.size());
-    
-    // 异步设置媒体内容并播放（避免阻塞）
-    QUrl url = QUrl::fromLocalFile(nextAudio);
-    locker.unlock();  // 释放锁，避免死锁
-    
-    try {
-        player_->setMedia(QMediaContent(url));
-        player_->play();
-        // 注意：is_playing_状态由onPlayerStateChanged信号处理，不要在这里设置
-        // 避免竞态条件
-    } catch (const std::exception& e) {
-        spdlog::error("AudioManager: Failed to play audio: {}", e.what());
+    is_playing_ = true;
 
-        // 重新获取锁并清理状态
-        QMutexLocker error_locker(&mutex_);
-        is_playing_ = false;
-        current_playing_.clear();
+    // 复制需要的成员变量，解锁后使用
+    QString device = alsa_device_;
+    int queueSize = audio_queue_.size();
 
-        // 尝试播放下一个
-        QTimer::singleShot(100, this, [this]() {
-            playNext();
-        });
-    }
+    locker.unlock();  // 释放锁，避免阻塞其他线程
+
+    spdlog::info("AudioManager: Playing (aplay -D {}): {} (remaining: {})",
+                 device.toStdString(), nextAudio.toStdString(), queueSize);
+
+    QStringList args;
+    args << "-D" << device << "-q" << nextAudio;
+    emit playbackStarted(nextAudio);
+    aplay_process_->start("aplay", args);
 }
 
 QString AudioManager::getAudioBasePath() {
@@ -428,3 +511,106 @@ QString AudioManager::getAudioBasePath() {
     return defaultPath;
 }
 
+void AudioManager::detectAlsaDevice() {
+    QProcess proc;
+    proc.start("aplay", QStringList() << "-l");
+    if (!proc.waitForFinished(2000)) {
+        spdlog::warn("AudioManager: aplay -l timeout, using default: {}", alsa_device_.toStdString());
+        return;
+    }
+
+    QString output = QString::fromLocal8Bit(proc.readAllStandardOutput());
+    QRegularExpression re("card (\\d+):\\s*(\\S+)\\s*\\[([^\\]]+)\\], device (\\d+):");
+    QRegularExpressionMatchIterator it = re.globalMatch(output);
+
+    while (it.hasNext()) {
+        QRegularExpressionMatch match = it.next();
+        QString card = match.captured(1);
+        QString cardId = match.captured(2);
+        QString cardName = match.captured(3);
+        QString device = match.captured(4);
+
+        if (cardName.contains("hdmi", Qt::CaseInsensitive) ||
+            cardName.contains("dp", Qt::CaseInsensitive) ||
+            cardName.contains("bt", Qt::CaseInsensitive) ||
+            cardId.contains("hdmi", Qt::CaseInsensitive) ||
+            cardId.contains("dp", Qt::CaseInsensitive)) {
+            continue;
+        }
+
+        alsa_device_ = QString("plughw:%1,%2").arg(card, device);
+        current_device_ = QString("%1 (%2)").arg(alsa_device_, cardName);
+        spdlog::info("AudioManager: Detected ALSA device: {}", alsa_device_.toStdString());
+        return;
+    }
+}
+
+void AudioManager::applyAlsaVolume(int volume) {
+    QString device;
+    {
+        QMutexLocker locker(&mutex_);
+        device = alsa_device_;
+        if (volume_task_running_) {
+            return;
+        }
+        volume_task_running_ = true;
+    }
+
+    QRegularExpression re("^(?:plug)?hw:(\\d+),");
+    QRegularExpressionMatch match = re.match(device);
+    if (!match.hasMatch()) {
+        spdlog::warn("AudioManager: Cannot parse ALSA card from device: {}", device.toStdString());
+        {
+            QMutexLocker locker(&mutex_);
+            volume_task_running_ = false;
+        }
+        return;
+    }
+
+    QString cardNum = match.captured(1);
+
+    // 在后台线程执行音量设置，避免阻塞 UI
+    QPointer<AudioManager> self = this;
+    QtConcurrent::run([self, cardNum, volume]() {
+        if (!self) return;
+        // 尝试多个控件，优先级：Master -> PCM -> Output 1/2
+        // es8388 声卡使用 Output 1/2，其他声卡可能使用 Master/PCM
+        QStringList controls = {"Master", "PCM", "Output 1", "Output 2"};
+
+        for (const QString& ctrl : controls) {
+            QStringList args;
+            args << "-c" << cardNum << "sset" << ctrl << QString("%1%").arg(volume);
+
+            QProcess proc;
+            proc.start("amixer", args);
+            if (proc.waitForFinished(1000) && proc.exitCode() == 0) {
+                spdlog::debug("AudioManager: Volume set via {} to {}%", ctrl.toStdString(), volume);
+                // Master/PCM 成功后就返回，Output 1/2 需要同时设置
+                if (ctrl == "Master" || ctrl == "PCM") {
+                    break;
+                }
+            }
+        }
+        if (!self) return;
+        QMetaObject::invokeMethod(self.data(), "onVolumeTaskFinished",
+                                  Qt::QueuedConnection, Q_ARG(int, volume));
+    });
+}
+
+void AudioManager::onVolumeTaskFinished(int appliedVolume) {
+    int nextVolume = -1;
+    {
+        QMutexLocker locker(&mutex_);
+        last_applied_volume_ = appliedVolume;
+        volume_task_running_ = false;
+        if (pending_volume_ != appliedVolume) {
+            nextVolume = pending_volume_;
+            // 不在这里设置 volume_task_running_ = true
+            // applyAlsaVolume() 会自己设置该标志
+        }
+    }
+
+    if (nextVolume >= 0) {
+        applyAlsaVolume(nextVolume);
+    }
+}

@@ -61,20 +61,54 @@ void SettingsPage::activate() {
     }
     activated_ = true;
 
-    // 先填充设备列表，再加载配置（load_settings 会按配置选择当前项）
+    // 异步加载音频设备列表
     if (audio_device_combo_) {
         QSignalBlocker blocker(audio_device_combo_);
         audio_device_combo_->clear();
-        const QStringList devices = AudioManager::instance()->availableDevices();
-        if (devices.isEmpty()) {
-            audio_device_combo_->addItem(tr("未检测到音频设备"));
-        } else {
-            audio_device_combo_->addItems(devices);
-        }
+        audio_device_combo_->addItem(tr("正在加载设备..."));
+
+        // 连接异步刷新信号
+        connect(AudioManager::instance(), &AudioManager::devicesRefreshed,
+                this, &SettingsPage::onAudioDevicesRefreshed,
+                Qt::UniqueConnection);
+
+        // 触发异步刷新
+        AudioManager::instance()->refreshDevicesAsync();
     }
 
     scan_usb_cameras();
     load_settings();
+}
+
+void SettingsPage::onAudioDevicesRefreshed(const QStringList& devices) {
+    if (!audio_device_combo_) return;
+
+    QSignalBlocker blocker(audio_device_combo_);
+    audio_device_combo_->clear();
+
+    if (devices.isEmpty()) {
+        audio_device_combo_->addItem(tr("未检测到音频设备"));
+    } else {
+        audio_device_combo_->addItems(devices);
+
+        // 恢复之前保存的设备选择
+        QString savedDevice = ConfigManager::instance()->getAudioDevice();
+        if (!savedDevice.isEmpty()) {
+            int idx = audio_device_combo_->findText(savedDevice);
+            if (idx >= 0) {
+                audio_device_combo_->setCurrentIndex(idx);
+            } else {
+                // 尝试模糊匹配
+                for (int i = 0; i < audio_device_combo_->count(); i++) {
+                    const QString itemText = audio_device_combo_->itemText(i);
+                    if (itemText.startsWith(savedDevice) || itemText.contains(savedDevice)) {
+                        audio_device_combo_->setCurrentIndex(i);
+                        break;
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -781,11 +815,19 @@ void SettingsPage::load_settings() {
         audio_volume_label_->setText(QString("%1%").arg(config->getAudioVolume()));
     }
     if (audio_device_combo_) {
-        QString currentDevice = config->getAudioDevice();
-        if (!currentDevice.isEmpty()) {
-            int deviceIndex = audio_device_combo_->findText(currentDevice);
+        QString savedDevice = config->getAudioDevice();
+        if (!savedDevice.isEmpty()) {
+            int deviceIndex = audio_device_combo_->findText(savedDevice);
             if (deviceIndex >= 0) {
                 audio_device_combo_->setCurrentIndex(deviceIndex);
+            } else {
+                for (int i = 0; i < audio_device_combo_->count(); i++) {
+                    const QString itemText = audio_device_combo_->itemText(i);
+                    if (itemText.startsWith(savedDevice) || itemText.contains(savedDevice)) {
+                        audio_device_combo_->setCurrentIndex(i);
+                        break;
+                    }
+                }
             }
         }
     }

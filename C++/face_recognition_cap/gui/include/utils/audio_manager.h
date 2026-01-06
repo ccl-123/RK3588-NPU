@@ -15,13 +15,13 @@
 #pragma once
 
 #include <QObject>
-#include <QMediaPlayer>
-#include <QAudioDeviceInfo>
+#include <QProcess>
 #include <QQueue>
 #include <QMutex>
 #include <QString>
 #include <QStringList>
 #include <QTimer>
+#include <QThread>
 
 /**
  * @brief 音频类型枚举
@@ -93,13 +93,13 @@ public:
      * @brief 设置音频输出设备
      * @param deviceName 设备名称（必须在 availableDevices() 返回的列表中）
      */
-    void setAudioDevice(const QString& deviceName);
+    Q_INVOKABLE void setAudioDevice(const QString& deviceName);
 
     /**
      * @brief 设置音量
      * @param volume 音量值（0-100）
      */
-    void setVolume(int volume);
+    Q_INVOKABLE void setVolume(int volume);
 
     /**
      * @brief 获取当前音量
@@ -111,7 +111,7 @@ public:
      * @brief 启用或禁用音频播放
      * @param enabled true=启用，false=禁用
      */
-    void setEnabled(bool enabled);
+    Q_INVOKABLE void setEnabled(bool enabled);
 
     /**
      * @brief 检查音频是否启用
@@ -122,7 +122,7 @@ public:
     /**
      * @brief 清空播放队列
      */
-    void clearQueue();
+    Q_INVOKABLE void clearQueue();
 
     /**
      * @brief 获取队列中待播放的音频数量
@@ -133,7 +133,13 @@ public:
     /**
      * @brief 安全停止当前播放
      */
-    void stopPlayback();
+    Q_INVOKABLE void stopPlayback();
+
+    /**
+     * @brief 异步刷新设备列表
+     * 注意：这是一个 slot，支持跨线程 invokeMethod 调用
+     */
+    Q_INVOKABLE void refreshDevicesAsync();
 
 signals:
     /**
@@ -155,18 +161,18 @@ signals:
      */
     void playbackError(const QString& audioFile, const QString& error);
 
-private slots:
     /**
-     * @brief 处理 QMediaPlayer 状态变化
-     * @param state 新状态
+     * @brief 设备列表刷新完成信号
+     * @param devices 设备列表
      */
-    void onPlayerStateChanged(QMediaPlayer::State state);
+    void devicesRefreshed(const QStringList& devices);
 
-    /**
-     * @brief 处理 QMediaPlayer 错误
-     * @param error 错误类型
-     */
-    void onPlayerError(QMediaPlayer::Error error);
+private slots:
+    void onProcessFinished(int exitCode, QProcess::ExitStatus status);
+    void onProcessError(QProcess::ProcessError error);
+    void playSoundInternal(const QString& audioFile);
+    void onDevicesDetected(const QStringList& devices);
+    void onVolumeTaskFinished(int appliedVolume);
 
 private:
     /**
@@ -194,6 +200,10 @@ private:
      */
     void playNext();
 
+    void detectAlsaDevice();
+    void applyAlsaVolume(int volume);
+    QStringList detectDevicesSync() const;
+
     /**
      * @brief 获取音频文件的基础路径
      * @return QString 音频文件目录路径
@@ -202,13 +212,20 @@ private:
 
 private:
     static AudioManager* instance_;  ///< 单例实例
-    QMediaPlayer* player_;            ///< 媒体播放器
+    QProcess* aplay_process_;         ///< aplay 外部播放器
     QQueue<QString> audio_queue_;     ///< 音频播放队列（FIFO）
     mutable QMutex mutex_;            ///< 互斥锁（保证线程安全）
     bool enabled_;                    ///< 是否启用音频
     int volume_;                      ///< 音量（0-100）
+    QTimer* volume_timer_;            ///< 音量设置节流定时器
+    int pending_volume_;              ///< 等待应用的音量
+    QString alsa_device_;             ///< ALSA 设备名 (plughw:card,device)
     QString current_device_;          ///< 当前音频设备
     QString current_playing_;         ///< 当前正在播放的文件
     bool is_playing_;                 ///< 是否正在播放
+    QStringList cached_devices_;      ///< 缓存的设备列表
+    bool devices_loaded_;             ///< 设备列表是否已加载
+    bool devices_refresh_in_progress_;///< 设备刷新是否进行中
+    bool volume_task_running_;        ///< 音量设置任务进行中
+    int last_applied_volume_;         ///< 最近一次应用的音量
 };
-

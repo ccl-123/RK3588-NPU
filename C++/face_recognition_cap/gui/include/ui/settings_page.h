@@ -29,6 +29,7 @@ private slots:
     void on_reset_clicked();
     void on_clear_cache_clicked();
     void on_apply_camera_clicked();  // 应用摄像头设置
+    void onAudioDevicesRefreshed(const QStringList& devices);  // 音频设备异步刷新完成
 
 private:
     void setup_ui();
