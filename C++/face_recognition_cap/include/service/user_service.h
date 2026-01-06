@@ -14,6 +14,7 @@
 #include "app/feature_library.h"
 #include <string>
 #include <vector>
+#include <memory>
 #include <opencv2/opencv.hpp>
 
 namespace service {
@@ -131,8 +132,8 @@ public:
     
 private:
     db::DatabaseManager* db_manager_;
-    db::UserDAO* user_dao_;
-    db::FaceFeatureDAO* feature_dao_;
+    std::unique_ptr<db::UserDAO> user_dao_;
+    std::unique_ptr<db::FaceFeatureDAO> feature_dao_;
     FeatureLibrary* feature_library_;
 };
 

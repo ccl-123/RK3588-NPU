@@ -111,9 +111,10 @@ bool AttendanceService::has_today_check_record(int user_id, int check_type) {
 }
 
 int AttendanceService::determine_status(std::time_t check_time, int check_type) {
-    std::tm* tm_info = std::localtime(&check_time);
-    int hour = tm_info->tm_hour;
-    int minute = tm_info->tm_min;
+    std::tm tm_info;
+    localtime_r(&check_time, &tm_info);
+    int hour = tm_info.tm_hour;
+    int minute = tm_info.tm_min;
     
     // 将打卡时间转换为分钟数（从 00:00 开始计算）
     int check_minutes = hour * 60 + minute;
@@ -162,9 +163,10 @@ int AttendanceService::auto_determine_check_type(int user_id, std::time_t curren
     }
     
     // 判断当前时间是上午还是下午
-    std::tm* tm_info = std::localtime(&current_time);
-    int hour = tm_info->tm_hour;
-    int minute = tm_info->tm_min;
+    std::tm tm_info;
+    localtime_r(&current_time, &tm_info);
+    int hour = tm_info.tm_hour;
+    int minute = tm_info.tm_min;
     int current_minutes = hour * 60 + minute;
     
     // 使用12:00（中午）作为固定分界点，更符合日常习惯
@@ -318,26 +320,28 @@ bool AttendanceService::delete_record(int record_id) {
 
 std::string AttendanceService::get_current_date() {
     std::time_t now = std::time(nullptr);
-    std::tm* tm_info = std::localtime(&now);
-    
+    std::tm tm_info;
+    localtime_r(&now, &tm_info);
+
     std::ostringstream oss;
-    oss << (tm_info->tm_year + 1900) << "-"
-        << std::setfill('0') << std::setw(2) << (tm_info->tm_mon + 1) << "-"
-        << std::setfill('0') << std::setw(2) << tm_info->tm_mday;
+    oss << (tm_info.tm_year + 1900) << "-"
+        << std::setfill('0') << std::setw(2) << (tm_info.tm_mon + 1) << "-"
+        << std::setfill('0') << std::setw(2) << tm_info.tm_mday;
     return oss.str();
 }
 
 std::string AttendanceService::get_current_time() {
     std::time_t now = std::time(nullptr);
-    std::tm* tm_info = std::localtime(&now);
-    
+    std::tm tm_info;
+    localtime_r(&now, &tm_info);
+
     std::ostringstream oss;
-    oss << (tm_info->tm_year + 1900) << "-"
-        << std::setfill('0') << std::setw(2) << (tm_info->tm_mon + 1) << "-"
-        << std::setfill('0') << std::setw(2) << tm_info->tm_mday << " "
-        << std::setfill('0') << std::setw(2) << tm_info->tm_hour << ":"
-        << std::setfill('0') << std::setw(2) << tm_info->tm_min << ":"
-        << std::setfill('0') << std::setw(2) << tm_info->tm_sec;
+    oss << (tm_info.tm_year + 1900) << "-"
+        << std::setfill('0') << std::setw(2) << (tm_info.tm_mon + 1) << "-"
+        << std::setfill('0') << std::setw(2) << tm_info.tm_mday << " "
+        << std::setfill('0') << std::setw(2) << tm_info.tm_hour << ":"
+        << std::setfill('0') << std::setw(2) << tm_info.tm_min << ":"
+        << std::setfill('0') << std::setw(2) << tm_info.tm_sec;
     return oss.str();
 }
 

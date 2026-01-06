@@ -66,6 +66,9 @@ Thumbs.db
 *.sublime-workspace
 .cursor
 .claude
+CLAUDE.md
+GEMINI.md
+AGENTS.md
 # Qt Creator
 *.pro.user
 *.pro.user.*

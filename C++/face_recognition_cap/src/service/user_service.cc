@@ -13,15 +13,14 @@ namespace service {
 
 UserService::UserService(db::DatabaseManager* db_manager, FeatureLibrary* feature_library)
     : db_manager_(db_manager)
+    , user_dao_(std::make_unique<db::UserDAO>(db_manager_))
+    , feature_dao_(std::make_unique<db::FaceFeatureDAO>(db_manager_))
     , feature_library_(feature_library)
 {
-    user_dao_ = new db::UserDAO(db_manager_);
-    feature_dao_ = new db::FaceFeatureDAO(db_manager_);
 }
 
 UserService::~UserService() {
-    delete user_dao_;
-    delete feature_dao_;
+    // 智能指针自动释放，无需手动 delete
 }
 
 RegistrationResult UserService::register_user(const std::string& user_name,

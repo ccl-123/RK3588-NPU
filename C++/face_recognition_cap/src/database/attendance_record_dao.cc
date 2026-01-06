@@ -334,10 +334,11 @@ std::string AttendanceRecordDAO::time_to_string(std::time_t time) {
     if (time == 0) {
         time = std::time(nullptr);
     }
-    
-    std::tm* tm_info = std::localtime(&time);
+
+    std::tm tm_info;
+    localtime_r(&time, &tm_info);
     std::ostringstream oss;
-    oss << std::put_time(tm_info, "%Y-%m-%d %H:%M:%S");
+    oss << std::put_time(&tm_info, "%Y-%m-%d %H:%M:%S");
     return oss.str();
 }
 

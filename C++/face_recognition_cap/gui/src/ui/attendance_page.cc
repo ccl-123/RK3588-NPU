@@ -498,7 +498,9 @@ void AttendancePage::write_csv(const std::vector<db::AttendanceRecord>& records,
 
 QString AttendancePage::format_timestamp(time_t timestamp) const {
     char time_str[64];
-    std::strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", std::localtime(&timestamp));
+    std::tm tm_info;
+    localtime_r(&timestamp, &tm_info);
+    std::strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", &tm_info);
     return QString::fromLatin1(time_str);
 }
 

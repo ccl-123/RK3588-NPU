@@ -1278,9 +1278,10 @@ void MainWindow::update_status() {
             if (attendance_service_) {
                 // 获取今天的日期
                 std::time_t now = std::time(nullptr);
-                std::tm* tm_now = std::localtime(&now);
+                std::tm tm_now;
+                localtime_r(&now, &tm_now);
                 char date_buf[16];
-                std::strftime(date_buf, sizeof(date_buf), "%Y-%m-%d", tm_now);
+                std::strftime(date_buf, sizeof(date_buf), "%Y-%m-%d", &tm_now);
                 
                 auto stats = attendance_service_->get_statistics(std::string(date_buf));
                 recognition_page_->updateAttendanceStats(
