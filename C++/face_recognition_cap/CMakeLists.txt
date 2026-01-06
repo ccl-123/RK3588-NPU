@@ -117,10 +117,6 @@ set(APP_SOURCES
     # local_llm_thread.cc 移到 GUI_SOURCES，因为依赖 Qt
 )
 
-set(MAIN_SOURCES
-    src/main.cc
-)
-
 # GUI 源文件 (仅当 Qt5 可用时)
 if(Qt5_FOUND)
     set(GUI_SOURCES
@@ -165,24 +161,6 @@ if(Qt5_FOUND)
         src/main_gui.cc
     )
 endif()
-
-# 命令行版本
-add_executable(${TARGET_NAME}
-    ${MAIN_SOURCES}
-    ${CORE_SOURCES}
-    ${HARDWARE_SOURCES}
-    ${DATABASE_SOURCES}
-    ${SERVICE_SOURCES}
-    ${APP_SOURCES}
-)
-
-target_link_libraries(${TARGET_NAME}
-  ${RKNN_RT_LIB}
-  ${RKLLM_RT_LIB}
-  ${RGA_LIB}
-  ${OpenCV_LIBS}
-  ${SQLite3_LIBRARIES}
-)
 
 # GUI 版本 (仅当 Qt5 可用时)
 if(Qt5_FOUND)
@@ -275,9 +253,6 @@ target_link_libraries(db_tool
   ${OpenCV_LIBS}
   ${SQLite3_LIBRARIES}
 )
-
-# install target and libraries
-install(TARGETS ${TARGET_NAME} DESTINATION ./)
 
 
 # 仅当 db_tool 不存在时才安装，避免重复编译和替换

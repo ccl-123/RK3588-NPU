@@ -29,6 +29,12 @@
 ## 核心特性
 
 ### 🤖 混合双引擎 AI 助手 (Dual-Engine AI Agent)
+
+<div align="center">
+<img src="C++/face_recognition_cap/docs/文档image/rkllm_image.png" alt="RKLLM 模型转换流程" width="80%">
+<p><em>HuggingFace 大模型转换为 RKLLM 格式的完整流程</em></p>
+</div>
+
 - **端侧大模型 (Local LLM)**: 深度集成 **RKLLM**，在 RK3588 本地 NPU 上运行 2B/7B 级大模型（如 Qwen-2B）。
   - **离线运行**: 无需联网，数据完全不出域，隐私性极高。
   - **NPU 加速**: 充分利用 NPU 算力，推理速度快（~10 token/s），首字延迟 < 200ms。
@@ -47,7 +53,7 @@
 - **多线程流水线**: 采用 5 级流水线设计，最大化并行处理能力。
 
 ### 🛡️ 业务功能完备
-- **灵活交互模式**: 提供基于 Qt5 的现代化触控 GUI 界面，同时支持 Headless CLI 运行模式。
+- **灵活交互模式**: 提供基于 Qt5 的现代化触控 GUI 界面。
 - **高性能数据库**: 内置 SQLite3，支持百万级记录的秒级查询与写入。
 - **高健壮性设计**: 包含摄像头热插拔自动恢复机制、人脸特征库实时同步与动态加载。
 

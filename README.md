@@ -29,6 +29,12 @@ The system no longer just records clock-ins; it integrates **On-Device Offline L
 ## Core Features
 
 ### 🤖 Dual-Engine AI Agent
+
+<div align="center">
+<img src="C++/face_recognition_cap/docs/文档image/rkllm_image.png" alt="RKLLM Model Conversion Pipeline" width="80%">
+<p><em>Complete Pipeline for Converting HuggingFace LLM to RKLLM Format</em></p>
+</div>
+
 - **On-Device LLM (Local Mode)**: Deep integration with **RKLLM**, running 2B/7B class LLMs (e.g., Qwen-2B) locally on the RK3588 NPU.
   - **Offline Operation**: No internet required, data never leaves the device, ensuring high privacy.
   - **NPU Acceleration**: Fully utilizes NPU computing power, with fast inference (~10 token/s) and < 200ms first-token latency.
@@ -47,7 +53,7 @@ The system no longer just records clock-ins; it integrates **On-Device Offline L
 - **Multi-Threaded Pipeline**: Adopts a 5-stage pipeline design to maximize parallel processing capabilities.
 
 ### 🛡️ Comprehensive Business Functions
-- **Flexible Interaction Modes**: Provides a modern touch-enabled GUI interface based on Qt5, while also supporting Headless CLI operation mode.
+- **Flexible Interaction Modes**: Provides a modern touch-enabled GUI interface based on Qt5.
 - **High-Performance Database**: Built-in SQLite3, supporting sub-second queries and writes for millions of records.
 - **High Robustness Design**: Includes automatic recovery mechanism for camera hot-plugging, real-time synchronization, and dynamic loading of face feature libraries.
 

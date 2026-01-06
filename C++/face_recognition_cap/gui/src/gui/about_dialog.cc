@@ -106,10 +106,10 @@ QString AboutDialog::get_system_info() {
     // 性能指标
     stream << QString::fromUtf8("<h3>⚡ 性能指标</h3>");
     stream << "<table cellpadding='5'>";
-    stream << QString::fromUtf8("<tr><td><b>识别帧率:</b></td><td>45-65 FPS (GUI) / 60-73 FPS (CLI)</td></tr>");
-    stream << QString::fromUtf8("<tr><td><b>识别延迟:</b></td><td>&lt;80ms (GUI) / &lt;50ms (CLI)</td></tr>");
+    stream << QString::fromUtf8("<tr><td><b>识别帧率:</b></td><td>45-65 FPS</td></tr>");
+    stream << QString::fromUtf8("<tr><td><b>识别延迟:</b></td><td>&lt;80ms</td></tr>");
     stream << QString::fromUtf8("<tr><td><b>识别准确率:</b></td><td>&gt;95% (良好光照)</td></tr>");
-    stream << QString::fromUtf8("<tr><td><b>内存占用:</b></td><td>~200MB (GUI) / ~150MB (CLI)</td></tr>");
+    stream << QString::fromUtf8("<tr><td><b>内存占用:</b></td><td>~200MB</td></tr>");
     stream << "</table>";
     
     // 功能特性

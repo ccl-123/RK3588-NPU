@@ -210,7 +210,6 @@ if [ "$DO_DEPLOY" = true ]; then
         echo "  cd ${DEVICE_TARGET_DIR}"
         echo "  export LD_LIBRARY_PATH=./lib:\$LD_LIBRARY_PATH"
         echo "  ./face_recognition_cap_gui   # GUI 版本"
-        echo "  ./face_recognition_cap       # 命令行版本"
     else
         echo ""
         echo "❌ 部署失败！请检查网络连接和 SSH 配置。"
