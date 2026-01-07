@@ -46,6 +46,7 @@ void RecognitionThread::start() {
 void RecognitionThread::stop() {
     if (running_) {
         running_ = false;
+        cv_.notify_all();  // 唤醒可能在等待的线程
         if (thread_.joinable()) {
             thread_.join();
         }
@@ -53,14 +54,17 @@ void RecognitionThread::stop() {
 }
 
 bool RecognitionThread::submit_task(const RecognitionTask& task) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
 
-    // 丢弃旧帧，只保留最新
-    while (queue_.size() >= MAX_QUEUE_SIZE) {
-        queue_.pop();
+        // 丢弃旧帧，只保留最新
+        while (queue_.size() >= MAX_QUEUE_SIZE) {
+            queue_.pop();
+        }
+
+        queue_.push(task);
     }
-
-    queue_.push(task);
+    cv_.notify_one();  // 通知等待的线程
     return true;
 }
 
@@ -93,11 +97,13 @@ void RecognitionThread::thread_func() {
     while (running_) {
         RecognitionTask task;
 
-        // 尝试获取任务（恢复轮询方式，避免条件变量开销）
+        // 使用条件变量等待任务，避免忙等待浪费 CPU
         {
-            std::lock_guard<std::mutex> lock(mutex_);
-            if (queue_.empty()) {
-                continue;  // 忙等待，但对性能影响应该很小
+            std::unique_lock<std::mutex> lock(mutex_);
+            cv_.wait(lock, [this] { return !queue_.empty() || !running_; });
+
+            if (!running_) {
+                break;
             }
 
             task = queue_.front();

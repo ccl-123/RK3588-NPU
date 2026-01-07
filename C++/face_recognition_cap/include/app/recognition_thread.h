@@ -16,6 +16,7 @@
 #include <opencv2/opencv.hpp>
 #include <thread>
 #include <mutex>
+#include <condition_variable>
 #include <queue>
 #include <atomic>
 #include <functional>
@@ -123,6 +124,7 @@ private:
     std::atomic<bool> running_;
 
     std::mutex mutex_;
+    std::condition_variable cv_;           // 条件变量，避免忙等待
     std::queue<RecognitionTask> queue_;
 
     ModelManager* model_manager_;

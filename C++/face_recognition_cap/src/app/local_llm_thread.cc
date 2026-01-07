@@ -10,17 +10,20 @@
 #include <spdlog/spdlog.h>
 #include <QCoreApplication>
 #include <iostream>
+#include <mutex>
 
-// 静态实例
+// 静态实例和线程安全初始化
 static LocalLLMThread* s_instance = nullptr;
+static std::once_flag s_instance_flag;
 
 // 考勤助手系统提示词
 const char* LocalLLMThread::SYSTEM_PROMPT = "你是考勤助手，负责分析考勤数据并回答问题。简洁回答，直接给出结论。用户不管问什么都必须回答。";
 
 LocalLLMThread* LocalLLMThread::instance() {
-    if (!s_instance) {
+    // 使用 std::call_once 保证线程安全的单例初始化
+    std::call_once(s_instance_flag, []() {
         s_instance = new LocalLLMThread(qApp);
-    }
+    });
     return s_instance;
 }
 

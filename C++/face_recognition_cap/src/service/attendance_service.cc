@@ -202,19 +202,29 @@ void AttendanceService::set_work_schedule(const std::string& work_start_time,
                                          int early_leave_threshold,
                                          bool allow_multiple_checkin,
                                          int duplicate_check_interval) {
-    // 解析上班时间（HH:mm 格式）
-    sscanf(work_start_time.c_str(), "%d:%d", &work_start_hour_, &work_start_minute_);
-    
-    // 解析下班时间（HH:mm 格式）
-    sscanf(work_end_time.c_str(), "%d:%d", &work_end_hour_, &work_end_minute_);
-    
+    // 解析上班时间（HH:mm 格式），添加错误检查
+    int parsed_start = sscanf(work_start_time.c_str(), "%d:%d", &work_start_hour_, &work_start_minute_);
+    if (parsed_start != 2) {
+        spdlog::warn("Invalid work_start_time format '{}', using default 09:00", work_start_time);
+        work_start_hour_ = 9;
+        work_start_minute_ = 0;
+    }
+
+    // 解析下班时间（HH:mm 格式），添加错误检查
+    int parsed_end = sscanf(work_end_time.c_str(), "%d:%d", &work_end_hour_, &work_end_minute_);
+    if (parsed_end != 2) {
+        spdlog::warn("Invalid work_end_time format '{}', using default 18:00", work_end_time);
+        work_end_hour_ = 18;
+        work_end_minute_ = 0;
+    }
+
     // 设置阈值
     late_threshold_ = late_threshold;
     early_leave_threshold_ = early_leave_threshold;
     allow_multiple_checkin_ = allow_multiple_checkin;
     duplicate_check_interval_ = duplicate_check_interval;
-    
-    spdlog::info("Work schedule updated: {} - {} (late: {}min, early_leave: {}min, multiple_checkin: {}, dup_interval: {}s)", 
+
+    spdlog::info("Work schedule updated: {} - {} (late: {}min, early_leave: {}min, multiple_checkin: {}, dup_interval: {}s)",
                  work_start_time, work_end_time, late_threshold, early_leave_threshold,
                  allow_multiple_checkin ? "yes" : "no", duplicate_check_interval);
 }
