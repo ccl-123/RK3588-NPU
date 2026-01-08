@@ -81,6 +81,10 @@ include_directories( ${CMAKE_SOURCE_DIR}/include/utils)
 include_directories( ${CMAKE_SOURCE_DIR}/include/app)
 include_directories( ${CMAKE_SOURCE_DIR}/include/database)
 include_directories( ${CMAKE_SOURCE_DIR}/include/service)
+include_directories( ${CMAKE_SOURCE_DIR}/include/agent)
+include_directories( ${CMAKE_SOURCE_DIR}/include/tools)
+include_directories( ${CMAKE_SOURCE_DIR}/include/gui_services)
+include_directories( ${CMAKE_SOURCE_DIR}/include/gui_utils)
 include_directories( ${CMAKE_SOURCE_DIR}/gui/include)
 
 # 源文件分组
@@ -106,6 +110,22 @@ set(SERVICE_SOURCES
     src/service/user_service.cc
 )
 
+# Agent 模块源文件
+set(AGENT_SOURCES
+    src/agent/tool_registry.cc
+    src/agent/tool_executor.cc
+    src/agent/conversation_memory.cc
+    src/agent/react_agent.cc
+    src/agent/agent_service.cc
+)
+
+# Agent 工具源文件
+set(TOOLS_SOURCES
+    src/tools/attendance_tool.cc
+    src/tools/user_tool.cc
+    src/tools/system_tool.cc
+)
+
 set(APP_SOURCES
     src/app/preprocessing_thread.cc
     src/app/postprocess_thread.cc
@@ -119,23 +139,30 @@ set(APP_SOURCES
 
 # GUI 源文件 (仅当 Qt5 可用时)
 if(Qt5_FOUND)
+    # GUI 服务和工具类（已移至主项目目录）
+    set(GUI_SERVICES_SOURCES
+        src/gui_services/weather_service.cc
+        src/gui_services/holiday_service.cc
+        src/gui_services/news_service.cc
+        src/gui_services/ai_analysis_service.cc
+        src/gui_services/ai_prompt_builder.cc
+        src/gui_services/local_ai_analysis_service.cc
+    )
+
+    set(GUI_UTILS_SOURCES
+        src/gui_utils/svg_icon_manager.cc
+        src/gui_utils/stack_router.cc
+        src/gui_utils/audio_manager.cc
+        src/gui_utils/config_manager.cc
+    )
+
     set(GUI_SOURCES
         gui/src/gui/main_window.cc
         gui/src/gui/video_display_widget.cc
         gui/src/gui/face_registration_dialog.cc
         gui/src/gui/user_edit_dialog.cc
         gui/src/gui/about_dialog.cc
-        gui/src/services/weather_service.cc
-        gui/src/services/holiday_service.cc
-        gui/src/services/news_service.cc
-        gui/src/services/ai_analysis_service.cc
-        gui/src/services/ai_prompt_builder.cc
-        gui/src/services/local_ai_analysis_service.cc
         gui/src/themes/theme_manager.cc
-        gui/src/utils/svg_icon_manager.cc
-        gui/src/utils/stack_router.cc
-        gui/src/utils/audio_manager.cc
-        gui/src/utils/config_manager.cc
         gui/src/widgets/card_widget.cc
         gui/src/widgets/icon_button.cc
         gui/src/widgets/search_input.cc
@@ -171,17 +198,17 @@ if(Qt5_FOUND)
         gui/include/gui/face_registration_dialog.h
         gui/include/gui/user_edit_dialog.h
         gui/include/gui/about_dialog.h
-        gui/include/services/weather_service.h
-        gui/include/services/holiday_service.h
-        gui/include/services/news_service.h
-        gui/include/services/ai_analysis_service.h
-        gui/include/services/ai_prompt_builder.h
-        gui/include/services/local_ai_analysis_service.h
+        include/gui_services/weather_service.h
+        include/gui_services/holiday_service.h
+        include/gui_services/news_service.h
+        include/gui_services/ai_analysis_service.h
+        include/gui_services/ai_prompt_builder.h
+        include/gui_services/local_ai_analysis_service.h
         gui/include/themes/theme_manager.h
-        gui/include/utils/svg_icon_manager.h
-        gui/include/utils/stack_router.h
-        gui/include/utils/audio_manager.h
-        gui/include/utils/config_manager.h
+        include/gui_utils/svg_icon_manager.h
+        include/gui_utils/stack_router.h
+        include/gui_utils/audio_manager.h
+        include/gui_utils/config_manager.h
         gui/include/widgets/card_widget.h
         gui/include/widgets/icon_button.h
         gui/include/widgets/search_input.h
@@ -199,6 +226,8 @@ if(Qt5_FOUND)
         gui/include/ui/user_management_page.h
         gui/include/ui/settings_page.h
         include/app/local_llm_thread.h
+        include/agent/react_agent.h
+        include/agent/agent_service.h
     )
 
     add_executable(${TARGET_NAME}_gui
@@ -209,6 +238,10 @@ if(Qt5_FOUND)
         ${SERVICE_SOURCES}
         ${APP_SOURCES}
         ${GUI_SOURCES}
+        ${GUI_SERVICES_SOURCES}
+        ${GUI_UTILS_SOURCES}
+        ${AGENT_SOURCES}
+        ${TOOLS_SOURCES}
     )
 
     # 保持头文件可见性但不参与编译
@@ -219,6 +252,17 @@ if(Qt5_FOUND)
         AUTOMOC ON
         AUTOUIC ON
         AUTORCC ON
+    )
+
+    # 设置 AUTOMOC 的 include 目录，让 MOC 能找到 agent 模块的头文件
+    set_property(TARGET ${TARGET_NAME}_gui PROPERTY
+        AUTOMOC_MOC_OPTIONS "-I${CMAKE_SOURCE_DIR}/include/agent"
+    )
+
+    # 添加 target include 目录，确保 moc 文件能被找到
+    target_include_directories(${TARGET_NAME}_gui PRIVATE
+        ${CMAKE_CURRENT_BINARY_DIR}/${TARGET_NAME}_gui_autogen/include
+        ${CMAKE_SOURCE_DIR}/include/agent
     )
 
     target_link_libraries(${TARGET_NAME}_gui

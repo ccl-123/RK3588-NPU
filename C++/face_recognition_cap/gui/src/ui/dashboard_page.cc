@@ -1,14 +1,14 @@
 #include "ui/dashboard_page.h"
-#include "services/ai_analysis_service.h"
-#include "services/local_ai_analysis_service.h"
-#include "services/ai_prompt_builder.h"
+#include "gui_services/ai_analysis_service.h"
+#include "gui_services/local_ai_analysis_service.h"
+#include "gui_services/ai_prompt_builder.h"
 #include "config/config.h"
 
 #include "database/database_types.h"
 #include "service/attendance_service.h"
 #include "service/user_service.h"
-#include "utils/config_manager.h"
-#include "utils/svg_icon_manager.h"
+#include "gui_utils/config_manager.h"
+#include "gui_utils/svg_icon_manager.h"
 #include "widgets/card_widget.h"
 #include "widgets/toast_notification.h"
 
@@ -217,6 +217,20 @@ void clear_layout(QLayout* layout) {
     }
 }
 
+/**
+ * @brief 创建空的考勤统计数据（用于纯问答模式和 Agent 模式）
+ */
+service::AttendanceStatistics make_empty_stats() {
+    service::AttendanceStatistics stats;
+    stats.date = QDate::currentDate().toString("yyyy-MM-dd").toStdString();
+    stats.total_count = 0;
+    stats.check_in_count = 0;
+    stats.check_out_count = 0;
+    stats.late_count = 0;
+    stats.early_leave_count = 0;
+    return stats;
+}
+
 }  // namespace
 
 DashboardPage::DashboardPage(QWidget* parent)
@@ -263,7 +277,10 @@ DashboardPage::DashboardPage(QWidget* parent)
     , ai_data_range_label_(nullptr)
     , backend_toggle_btn_(nullptr)
     , backend_status_label_(nullptr)
-    , is_local_llm_(false) {
+    , is_local_llm_(false)
+    , agent_mode_btn_(nullptr)
+    , agent_status_label_(nullptr)
+    , is_agent_mode_(true) {  // 默认启用 Agent 模式
     ai_skip_prefix_.clear();
     setup_ui();
 
@@ -283,6 +300,11 @@ DashboardPage::DashboardPage(QWidget* parent)
     connect(local_service, &LocalAiAnalysisService::analysisCancelled, this, &DashboardPage::on_ai_analysis_cancelled);
     connect(local_service, &LocalAiAnalysisService::localLLMReady, this, &DashboardPage::on_local_llm_ready);
     connect(local_service, &LocalAiAnalysisService::localLLMReleased, this, &DashboardPage::on_local_llm_released);
+
+    // 连接 Agent 状态信号
+    connect(local_service, &LocalAiAnalysisService::agentThinking, this, &DashboardPage::on_agent_thinking);
+    connect(local_service, &LocalAiAnalysisService::agentToolCalling, this, &DashboardPage::on_agent_tool_calling);
+    connect(local_service, &LocalAiAnalysisService::agentToolCompleted, this, &DashboardPage::on_agent_tool_completed);
 }
 
 void DashboardPage::setAttendanceService(service::AttendanceService* service) {
@@ -293,6 +315,11 @@ void DashboardPage::setAttendanceService(service::AttendanceService* service) {
 void DashboardPage::setUserService(service::UserService* service) {
     user_service_ = service;
     need_refresh_ = true;
+
+    // 初始化 Agent（当两个服务都设置后）
+    if (attendance_service_ && user_service_) {
+        LocalAiAnalysisService::instance()->initializeAgent(attendance_service_, user_service_);
+    }
 }
 
 void DashboardPage::showEvent(QShowEvent* event) {
@@ -473,16 +500,7 @@ void DashboardPage::on_ai_analysis_clicked() {
         appendChatMessage("assistant", tr("正在思考中，请稍候..."));
         spdlog::info("Sending pure Q&A request (no attendance data)");
 
-        // 创建空的统计数据
-        service::AttendanceStatistics empty_stats;
-        empty_stats.date = QDate::currentDate().toString("yyyy-MM-dd").toStdString();
-        empty_stats.total_count = 0;
-        empty_stats.check_in_count = 0;
-        empty_stats.check_out_count = 0;
-        empty_stats.late_count = 0;
-        empty_stats.early_leave_count = 0;
-
-        // 发送纯问答请求（空数据 + 用户问题，range_days=0 标识纯问答模式）
+        auto empty_stats = make_empty_stats();
         if (is_local_llm_) {
             LocalAiAnalysisService::instance()->requestAnalysis(empty_stats, QString(), QString(), user_prompt, 0);
         } else {
@@ -491,7 +509,21 @@ void DashboardPage::on_ai_analysis_clicked() {
         return;
     }
 
-    // 正常模式：获取考勤统计数据
+    // Agent 模式：跳过数据收集，直接调用 Agent（Agent 会通过工具自主查询数据）
+    if (is_local_llm_ && is_agent_mode_) {
+        if (!user_prompt.isEmpty()) {
+            appendChatMessage("user", user_prompt);
+        }
+        ai_skip_prefix_.clear();
+        appendChatMessage("assistant", tr("正在思考中，请稍候..."));
+        spdlog::info("Agent mode: skipping data collection, sending user prompt directly");
+
+        auto empty_stats = make_empty_stats();
+        LocalAiAnalysisService::instance()->requestAnalysis(empty_stats, QString(), QString(), user_prompt, 0);
+        return;
+    }
+
+    // Chat 模式：获取考勤统计数据
     QDate end_date = QDate::currentDate();
     QDate start_date = end_date.addDays(-(range_days - 1));
     std::string start_str = start_date.toString("yyyy-MM-dd").toStdString();
@@ -553,12 +585,21 @@ void DashboardPage::on_ai_analysis_clicked() {
         }
     }
 
-    // 显示用户气泡（无论云端/本地，都附带完整数据）
+    // 显示用户气泡
+    // Agent 模式：只显示用户问题（Agent 自主决定查询什么数据）
+    // Chat 模式：显示完整 prompt（附带数据上下文）
     if (!user_prompt.isEmpty()) {
-        QString display_prompt = AiPromptBuilder::buildPrompt(
-            today_stats, QString(), detail_records_str, user_prompt, range_days);
-        appendChatMessage("user", display_prompt);
-        ai_skip_prefix_ = is_local_llm_ ? QString() : display_prompt;
+        if (is_local_llm_ && is_agent_mode_) {
+            // Agent 模式：只显示用户原始问题
+            appendChatMessage("user", user_prompt);
+            ai_skip_prefix_.clear();
+        } else {
+            // Chat 模式：显示带数据的完整 prompt
+            QString display_prompt = AiPromptBuilder::buildPrompt(
+                today_stats, QString(), detail_records_str, user_prompt, range_days);
+            appendChatMessage("user", display_prompt);
+            ai_skip_prefix_ = is_local_llm_ ? QString() : display_prompt;
+        }
     }
 
     appendChatMessage("assistant", tr("正在分析中，请稍候..."));
@@ -625,6 +666,11 @@ void DashboardPage::on_ai_analysis_finished() {
         ai_send_btn_->setEnabled(true);
     }
 
+    // 隐藏 Agent 状态标签
+    if (agent_status_label_) {
+        agent_status_label_->hide();
+    }
+
     ToastNotification::showMessage(this, tr("AI 分析"), tr("分析完成"), ToastNotification::Level::Success);
     spdlog::info("AI analysis finished, button restored");
 }
@@ -645,6 +691,11 @@ void DashboardPage::on_ai_error(const QString& error) {
         ai_send_btn_->setEnabled(true);
     }
 
+    // 隐藏 Agent 状态标签
+    if (agent_status_label_) {
+        agent_status_label_->hide();
+    }
+
     // 显示错误信息面板
     appendChatMessage("assistant", tr("分析失败: ") + error);
 
@@ -663,6 +714,11 @@ void DashboardPage::on_ai_analysis_cancelled() {
     if (ai_send_btn_) {
         ai_send_btn_->setText(tr("发送"));
         ai_send_btn_->setEnabled(true);
+    }
+
+    // 隐藏 Agent 状态标签
+    if (agent_status_label_) {
+        agent_status_label_->hide();
     }
 
     appendChatMessage("assistant", tr("分析已取消"));
@@ -1049,6 +1105,24 @@ void DashboardPage::setup_ui() {
     connect(ai_data_qa_btn_, &QPushButton::clicked, this, [this]() { on_data_range_changed(0); });  // 0 表示纯问答模式
     quick_layout->addWidget(ai_data_qa_btn_);
 
+    // Agent 模式默认开启，禁用数据范围按钮（Agent 自主决定查询范围）
+    if (is_agent_mode_) {
+        auto disable_range_btn = [](QPushButton* btn) {
+            if (!btn) {
+                return;
+            }
+            btn->setEnabled(false);
+            btn->setChecked(false);
+            btn->style()->unpolish(btn);
+            btn->style()->polish(btn);
+            btn->update();
+        };
+        disable_range_btn(ai_data_today_btn_);
+        disable_range_btn(ai_data_7day_btn_);
+        disable_range_btn(ai_data_30day_btn_);
+        disable_range_btn(ai_data_qa_btn_);
+    }
+
     // 显示当前数据范围的记录数
     ai_data_range_label_ = new QLabel(tr("(今日数据)"), quick_row);
     ai_data_range_label_->setStyleSheet("color: #52c41a; font-size: 11px;");
@@ -1106,7 +1180,55 @@ void DashboardPage::setup_ui() {
     )");
     connect(backend_toggle_btn_, &QPushButton::toggled, this, &DashboardPage::on_backend_toggled);
     input_layout->addWidget(backend_toggle_btn_);
-    
+
+    // Agent/Chat 模式切换按钮（仅本地 LLM 可用）
+    agent_mode_btn_ = new QPushButton(tr("Agent"), input_row);  // 初始文案与 checked 状态一致
+    agent_mode_btn_->setObjectName("AgentModeToggle");
+    agent_mode_btn_->setCheckable(true);
+    agent_mode_btn_->setChecked(true);  // 默认启用 Agent 模式
+    agent_mode_btn_->setMinimumWidth(70);
+    agent_mode_btn_->setCursor(Qt::PointingHandCursor);
+    agent_mode_btn_->setToolTip(tr("Agent 模式：支持工具调用，自动查询数据"));
+    agent_mode_btn_->setStyleSheet(R"(
+        QPushButton {
+            background-color: #fff7e6;
+            color: #fa8c16;
+            border: 1px solid #ffd591;
+            border-radius: 4px;
+            padding: 4px 10px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        QPushButton:hover {
+            background-color: #ffe7ba;
+            border-color: #fa8c16;
+        }
+        QPushButton:checked {
+            background-color: #f6ffed;
+            color: #52c41a;
+            border-color: #b7eb8f;
+        }
+        QPushButton:checked:hover {
+            background-color: #d9f7be;
+            border-color: #52c41a;
+        }
+        QPushButton:disabled {
+            background-color: #f5f5f5;
+            color: #bfbfbf;
+            border-color: #d9d9d9;
+        }
+    )");
+    agent_mode_btn_->setEnabled(false);  // 默认禁用，等待本地 LLM 加载
+    connect(agent_mode_btn_, &QPushButton::toggled, this, &DashboardPage::on_agent_mode_toggled);
+    input_layout->addWidget(agent_mode_btn_);
+
+    // Agent 状态标签（显示思考中/调用工具等状态）
+    agent_status_label_ = new QLabel(input_row);
+    agent_status_label_->setStyleSheet("color: #1890ff; font-size: 11px; font-weight: bold;");
+    agent_status_label_->setMinimumWidth(100);
+    agent_status_label_->hide();  // 默认隐藏，有状态时显示
+    input_layout->addWidget(agent_status_label_);
+
     // 后端状态标签（显示就绪/加载中）
     backend_status_label_ = new QLabel(input_row);
     backend_status_label_->setStyleSheet("color: #888; font-size: 11px; min-width: 50px;");
@@ -1622,6 +1744,13 @@ void DashboardPage::on_local_llm_ready() {
         backend_status_label_->setStyleSheet("color: #52c41a; font-size: 11px;");
         ToastNotification::showMessage(this, tr("AI 模型"), tr("本地模型加载完成"), ToastNotification::Level::Success);
     }
+
+    // 启用 Agent 模式按钮（仅本地 LLM 模式下）
+    if (agent_mode_btn_ && is_local_llm_) {
+        agent_mode_btn_->setEnabled(true);
+        // 同步当前状态到服务
+        LocalAiAnalysisService::instance()->setAgentMode(is_agent_mode_);
+    }
 }
 
 void DashboardPage::on_local_llm_progress(int percent) {
@@ -1634,7 +1763,7 @@ void DashboardPage::on_local_llm_released() {
     // 模型被释放（通常是因为回到识别页面，NPU 资源需要给人脸识别使用）
     // 将按钮状态切回云端模式
     is_local_llm_ = false;
-    
+
     if (backend_toggle_btn_) {
         // 阻止信号触发 on_backend_toggled
         backend_toggle_btn_->blockSignals(true);
@@ -1643,10 +1772,87 @@ void DashboardPage::on_local_llm_released() {
         backend_toggle_btn_->setToolTip(tr("点击切换到本地大模型"));
         backend_toggle_btn_->blockSignals(false);
     }
-    
+
     if (backend_status_label_) {
         backend_status_label_->setText(tr(""));
     }
-    
+
+    // 禁用 Agent 模式按钮（云端不支持 Agent）
+    if (agent_mode_btn_) {
+        agent_mode_btn_->setEnabled(false);
+    }
+
     spdlog::info("Dashboard: Local LLM released, button switched to cloud mode");
+}
+
+// ==================== Agent 状态处理 ====================
+
+void DashboardPage::on_agent_thinking() {
+    if (agent_status_label_) {
+        agent_status_label_->setText(tr("🤔 思考中..."));
+        agent_status_label_->setStyleSheet("color: #1890ff; font-weight: bold;");
+        agent_status_label_->show();
+    }
+    spdlog::debug("Agent: thinking started");
+}
+
+void DashboardPage::on_agent_tool_calling(const QString& tool_name) {
+    if (agent_status_label_) {
+        agent_status_label_->setText(tr("🔧 调用工具: %1").arg(tool_name));
+        agent_status_label_->setStyleSheet("color: #faad14; font-weight: bold;");
+        agent_status_label_->show();
+    }
+    spdlog::debug("Agent: calling tool {}", tool_name.toStdString());
+}
+
+void DashboardPage::on_agent_tool_completed(const QString& tool_name, const QString& result) {
+    if (agent_status_label_) {
+        agent_status_label_->setText(tr("✅ %1 完成").arg(tool_name));
+        agent_status_label_->setStyleSheet("color: #52c41a; font-weight: bold;");
+    }
+    spdlog::debug("Agent: tool {} completed, result length: {}",
+        tool_name.toStdString(), result.length());
+}
+
+void DashboardPage::on_agent_mode_toggled(bool checked) {
+    is_agent_mode_ = checked;
+
+    // 更新按钮文字和提示
+    if (agent_mode_btn_) {
+        agent_mode_btn_->setText(checked ? tr("Agent") : tr("Chat"));
+        agent_mode_btn_->setToolTip(checked
+            ? tr("Agent 模式：支持工具调用，自动查询数据")
+            : tr("Chat 模式：传统对话，需手动提供数据上下文"));
+    }
+
+    // Agent 模式下禁用数据范围按钮（Agent 自主决定查询范围）
+    // Chat 模式下启用数据范围按钮（用户手动选择附带的数据）
+    bool enable_range_btns = !checked;
+    auto update_range_btn = [enable_range_btns](QPushButton* btn) {
+        if (!btn) {
+            return;
+        }
+        btn->setEnabled(enable_range_btns);
+        if (!enable_range_btns) {
+            btn->setChecked(false);
+        }
+        btn->style()->unpolish(btn);
+        btn->style()->polish(btn);
+        btn->update();
+    };
+    update_range_btn(ai_data_today_btn_);
+    update_range_btn(ai_data_7day_btn_);
+    update_range_btn(ai_data_30day_btn_);
+    update_range_btn(ai_data_qa_btn_);
+
+    if (enable_range_btns) {
+        update_data_range_buttons();
+    }
+
+    // 同步到 LocalAiAnalysisService
+    LocalAiAnalysisService::instance()->setAgentMode(checked);
+
+    spdlog::info("Agent mode toggled: {}, data range buttons {}",
+                 checked ? "Agent" : "Chat",
+                 enable_range_btns ? "enabled" : "disabled");
 }

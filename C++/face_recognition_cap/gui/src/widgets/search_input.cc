@@ -1,6 +1,6 @@
 #include "widgets/search_input.h"
 
-#include "utils/svg_icon_manager.h"
+#include "gui_utils/svg_icon_manager.h"
 
 #include <QHBoxLayout>
 #include <QLabel>

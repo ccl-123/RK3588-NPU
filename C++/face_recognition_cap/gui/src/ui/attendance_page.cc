@@ -2,7 +2,7 @@
 
 #include "widgets/card_widget.h"
 #include "widgets/modern_table_view.h"
-#include "utils/svg_icon_manager.h"
+#include "gui_utils/svg_icon_manager.h"
 
 #include <QMenu>
 #include <QLabel>

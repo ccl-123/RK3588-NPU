@@ -19,7 +19,7 @@
 #include <cstdlib>  // for setenv, getenv
 
 #include "gui/main_window.h"
-#include "utils/config_manager.h"
+#include "gui_utils/config_manager.h"
 #include "themes/theme_manager.h"
 #include "config/config.h"
 

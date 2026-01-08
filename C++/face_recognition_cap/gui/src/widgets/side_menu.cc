@@ -6,7 +6,7 @@
  */
 
 #include "widgets/side_menu.h"
-#include "utils/svg_icon_manager.h"
+#include "gui_utils/svg_icon_manager.h"
 
 #include <QLabel>
 #include <QListWidget>

@@ -5,7 +5,7 @@
  * @date 2025-11-25
  */
 
-#include "utils/config_manager.h"
+#include "gui_utils/config_manager.h"
 #include "config/config.h"
 #include <QCoreApplication>
 #include <mutex>

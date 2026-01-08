@@ -8,7 +8,7 @@
 #include "gui/face_registration_dialog.h"
 
 #include "widgets/card_widget.h"
-#include "utils/audio_manager.h"
+#include "gui_utils/audio_manager.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>

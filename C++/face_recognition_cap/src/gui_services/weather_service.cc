@@ -5,7 +5,7 @@
  * @date 2025-12-05
  */
 
-#include "services/weather_service.h"
+#include "gui_services/weather_service.h"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkRequest>

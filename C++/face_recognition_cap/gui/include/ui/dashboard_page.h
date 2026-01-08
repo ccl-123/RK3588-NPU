@@ -109,9 +109,20 @@ private slots:
     void on_local_llm_progress(int percent);
     void on_local_llm_released();
 
+    // Agent 状态相关
+    void on_agent_thinking();
+    void on_agent_tool_calling(const QString& tool_name);
+    void on_agent_tool_completed(const QString& tool_name, const QString& result);
+    void on_agent_mode_toggled(bool checked);
+
 private:
     // LLM 后端切换
     QPushButton* backend_toggle_btn_;
     QLabel* backend_status_label_;
     bool is_local_llm_;
+
+    // Agent 模式切换（仅本地 LLM 可用）
+    QPushButton* agent_mode_btn_;
+    QLabel* agent_status_label_;
+    bool is_agent_mode_;
 };

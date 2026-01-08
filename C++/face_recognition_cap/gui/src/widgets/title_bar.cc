@@ -6,7 +6,7 @@
  */
 
 #include "widgets/title_bar.h"
-#include "utils/svg_icon_manager.h"
+#include "gui_utils/svg_icon_manager.h"
 #include "widgets/icon_button.h"
 #include "widgets/news_ticker.h"
 

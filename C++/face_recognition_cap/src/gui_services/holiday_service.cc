@@ -3,7 +3,7 @@
  * @brief 节假日查询服务（jiejiariapi.com）
  */
 
-#include "services/holiday_service.h"
+#include "gui_services/holiday_service.h"
 
 #include <QJsonDocument>
 #include <QJsonObject>

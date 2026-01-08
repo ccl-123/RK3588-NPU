@@ -1,4 +1,4 @@
-#include "utils/svg_icon_manager.h"
+#include "gui_utils/svg_icon_manager.h"
 
 #include <QPainter>
 #include <QPixmap>

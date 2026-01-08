@@ -7,10 +7,10 @@
  * 
  * @copyright Copyright (c) 2025
  */
-#include "services/ai_analysis_service.h"
+#include "gui_services/ai_analysis_service.h"
 #include "service/attendance_service.h"
 #include "config/config.h"
-#include "services/ai_prompt_builder.h"
+#include "gui_services/ai_prompt_builder.h"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>

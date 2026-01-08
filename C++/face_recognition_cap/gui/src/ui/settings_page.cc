@@ -1,8 +1,8 @@
 #include "ui/settings_page.h"
 
 #include "widgets/card_widget.h"
-#include "utils/audio_manager.h"
-#include "utils/config_manager.h"
+#include "gui_utils/audio_manager.h"
+#include "gui_utils/config_manager.h"
 
 #include <QLabel>
 #include <QPushButton>

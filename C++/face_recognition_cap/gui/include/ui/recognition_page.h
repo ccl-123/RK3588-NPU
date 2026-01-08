@@ -1,7 +1,7 @@
 #pragma once
 
 #include <QWidget>
-#include "services/weather_service.h"
+#include "gui_services/weather_service.h"
 #include "widgets/attendance_list_widget.h"
 
 class CardWidget;

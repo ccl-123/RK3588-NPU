@@ -11,7 +11,7 @@
  * - 线程安全
  */
 
-#include "utils/audio_manager.h"
+#include "gui_utils/audio_manager.h"
 
 #include <QFileInfo>
 #include <QDir>

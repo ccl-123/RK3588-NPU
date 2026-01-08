@@ -2,7 +2,7 @@
  * @file ai_prompt_builder.cc
  * @brief Build prompts for AI analysis requests.
  */
-#include "services/ai_prompt_builder.h"
+#include "gui_services/ai_prompt_builder.h"
 
 #include <QDateTime>
 

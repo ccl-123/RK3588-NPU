@@ -26,7 +26,7 @@
 #include <QSizePolicy>
 #include <QTimer>
 #include <spdlog/spdlog.h>
-#include "utils/config_manager.h"
+#include "gui_utils/config_manager.h"
 
 RecognitionPage::RecognitionPage(QWidget* parent)
     : QWidget(parent)

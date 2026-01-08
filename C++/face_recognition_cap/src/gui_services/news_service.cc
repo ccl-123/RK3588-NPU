@@ -3,7 +3,7 @@
  * @brief 热点新闻服务实现（freejk 热榜 API）
  */
 
-#include "services/news_service.h"
+#include "gui_services/news_service.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>

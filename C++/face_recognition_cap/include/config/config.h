@@ -47,7 +47,7 @@ namespace Performance {
     constexpr int REPORT_INTERVAL = 50;         // 性能报告间隔 (帧)
     constexpr int QUEUE_MAX_SIZE = 2;           // 线程队列容量 (越小延迟越低)
     constexpr bool USE_RGA = true;              // RGA 硬件加速 (Valgrind 调试时设 false)
-    constexpr bool ENABLE_PERF_REPORT = true;   // 输出 FPS/延迟日志
+    constexpr bool ENABLE_PERF_REPORT = false;   // 输出 FPS/延迟日志
 }
 
 // ===== 默认值 [UI 可配置] =====
@@ -121,7 +121,23 @@ namespace API {
 namespace LocalLLM {
     inline const char* MODEL_PATH = "/home/firefly/open_project/Qwen3-1.7B_W8A8_RK3588.rkllm";
     constexpr int MAX_NEW_TOKENS = 1028;        // 单次最大生成长度
-    constexpr int MAX_CONTEXT_LEN = 1024 * 3;   // 上下文窗口 (tokens)
+    constexpr int MAX_CONTEXT_LEN = 1024 * 6;   // 上下文窗口 (tokens)
+}
+
+// ===== Agent 配置 [固定] =====
+// ReAct Agent 智能助手配置
+namespace Agent {
+    constexpr int MAX_ITERATIONS = 5;           // ReAct 最大循环次数
+    constexpr int CONVERSATION_HISTORY = 10;    // 对话历史保留轮数
+    constexpr int LLM_TIMEOUT_MS = 60000;       // LLM 推理超时 (毫秒)
+    constexpr bool STREAM_OUTPUT = true;        // 流式输出模式
+
+    // 工具调用配置
+    namespace Tools {
+        constexpr bool ENABLE_ATTENDANCE = true;    // 启用考勤查询工具
+        constexpr bool ENABLE_USER = true;          // 启用用户查询工具
+        constexpr bool ENABLE_SYSTEM = true;        // 启用系统信息工具
+    }
 }
 
 // ===== 腾讯云 LLM [环境变量] =====

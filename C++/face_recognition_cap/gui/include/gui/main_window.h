@@ -28,9 +28,9 @@
 #include "database/database_manager.h"
 #include "service/user_service.h"
 #include "service/attendance_service.h"
-#include "utils/audio_manager.h"
-#include "services/holiday_service.h"
-#include "services/news_service.h"
+#include "gui_utils/audio_manager.h"
+#include "gui_services/holiday_service.h"
+#include "gui_services/news_service.h"
 
 // 前向声明
     class VideoDisplayWidget;
