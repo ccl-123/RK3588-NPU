@@ -222,9 +222,6 @@ QString ReactAgent::buildPrompt(const QString& user_input, const QString& contex
 
     // 添加当前问题
     prompt += "## 当前问题\n用户: " + user_input + "\n\n";
-    prompt += "请分析问题并选择合适的行动：\n";
-    prompt += "- 如果需要查询数据，使用 <tool_call>{...}</tool_call> 调用工具\n";
-    prompt += "- 如果可以直接回答，使用 <answer>...</answer> 给出答案\n";
 
     return prompt;
 }
@@ -238,32 +235,22 @@ QString ReactAgent::getDefaultSystemPrompt() const {
 3. **系统信息**: 获取当前时间、系统状态、考勤规则配置
 4. **数学计算**: 进行简单的数学运算（出勤率、平均值等）
 
-## 可用工具
-- `query_attendance`: 查询考勤数据 (period: today/week/month)
-- `query_user`: 查询用户信息 (query_type: list/search/count, keyword: 搜索关键词)
-- `system_info`: 获取系统信息 (query_type: datetime/status/config/all)
-- `calculator`: 数学计算 (expression: 数学表达式)
-- `help`: 获取帮助信息
+## 工具使用规范
+1. 你必须根据以下提供的 JSON 定义来调用工具，严禁编造工具或参数。
+2. 优先调用工具获取准确数据，不要猜测。
 
 ## 回答格式
-1. 需要查询数据时:
-   <tool_call>{"name":"工具名","arguments":{"参数名":"参数值"}}</tool_call>
+- 思考：<thought>简述下一步操作意图</thought> (非必须，仅在需要复杂推理时使用)
+- 调工具：<tool_call>{"name":"工具名","arguments":{"参数名":"参数值"}}</tool_call>
+- 给答案：<answer>最终回答内容</answer>
 
-2. 给出最终答案时:
-   <answer>答案内容</answer>
-
-3. 需要思考时:
-   <thought>思考过程</thought>
-
-## 工作流程
-1. 理解用户问题
-2. 判断是否需要调用工具获取数据
-3. 如需数据，调用相应工具
-4. 根据工具返回结果生成答案
-5. 用 <answer> 标签包裹最终回答
+## 交互示例
+用户: 查询今天的考勤统计
+助手: <tool_call>{"name":"query_attendance", "arguments":{"date_range":"today"}}</tool_call>
+(工具返回: 考勤统计: 总打卡人数 45 人，其中迟到 2 人)
+助手: <answer>今天共有 45 人打卡，其中 2 人迟到。</answer>
 
 ## 注意事项
-- 优先使用工具获取准确数据，不要猜测
 - 回答简洁明了，使用中文
 - 数字和统计结果要准确
 - 如果工具返回错误，告知用户并建议解决方案
