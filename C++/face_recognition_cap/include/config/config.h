@@ -129,7 +129,7 @@ namespace LocalLLM {
 namespace Agent {
     constexpr int MAX_ITERATIONS = 5;           // ReAct 最大循环次数
     constexpr int CONVERSATION_HISTORY = 10;    // 对话历史保留轮数
-    constexpr int LLM_TIMEOUT_MS = 60000;       // LLM 推理超时 (毫秒)
+    constexpr int LLM_TIMEOUT_MS = 200000;       // LLM 推理超时 (毫秒，200秒)
     constexpr bool STREAM_OUTPUT = true;        // 流式输出模式
 
     // 工具调用配置

@@ -452,15 +452,20 @@ std::function<QString(const QString&)> LocalAiAnalysisService::createThreadSafeL
         // 设置超时（防止无限等待）
         QTimer timeout_timer;
         timeout_timer.setSingleShot(true);
-        connect(&timeout_timer, &QTimer::timeout, &loop, [&loop, &error_occurred, &error_msg]() {
+        connect(&timeout_timer, &QTimer::timeout, &loop, [&loop, &error_occurred, &error_msg, llm]() {
             error_occurred = true;
             error_msg = "LLM 推理超时";
+            // 超时后主动中止 LLM 推理，避免资源浪费
+            llm->abortInference();
             loop.quit();
         });
         timeout_timer.start(Config::Agent::LLM_TIMEOUT_MS);  // 使用 Agent LLM 超时配置
 
         // 等待完成
         loop.exec();
+
+        // 停止超时计时器（如果正常完成则取消超时）
+        timeout_timer.stop();
 
         // 断开临时连接
         disconnect(conn_chunk);
@@ -469,7 +474,11 @@ std::function<QString(const QString&)> LocalAiAnalysisService::createThreadSafeL
 
         if (error_occurred) {
             spdlog::error("LLM callback error: {}", error_msg.toStdString());
-            emit errorOccurred(error_msg);
+            // 超时错误不再发送 errorOccurred 信号，让 Agent 循环自然结束
+            // 只有非超时错误才发送信号
+            if (error_msg != "LLM 推理超时") {
+                emit errorOccurred(error_msg);
+            }
             return QString();
         }
 
