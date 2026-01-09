@@ -69,6 +69,8 @@ Thumbs.db
 CLAUDE.md
 GEMINI.md
 AGENTS.md
+.serena
+源代码说明.txt
 # Qt Creator
 *.pro.user
 *.pro.user.*

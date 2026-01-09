@@ -16,9 +16,11 @@
 #include "gui_services/ai_prompt_builder.h"
 #include "config/config.h"
 #include "agent/agent_service.h"
+#include "agent/agent_worker.h"
 #include <spdlog/spdlog.h>
 #include <QEventLoop>
 #include <QTimer>
+#include <QThread>
 
 namespace {
 
@@ -122,26 +124,43 @@ bool LocalAiAnalysisService::isAnalyzing() const {
 }
 
 void LocalAiAnalysisService::cancelAnalysis() {
-    if (local_analyzing_) {
-        // 设置取消标志
-        agent_cancel_requested_ = true;
-
-        // 停止 Agent 循环（如果正在运行）
-        if (agent_running_ && agent_service_) {
-            agent_service_->stop();
-            spdlog::info("Agent stopped by user");
-        }
-
-        // 中断 LLM 推理
-        LocalLLMThread::instance()->abortInference();
-
-        agent_running_ = false;
-        local_analyzing_ = false;
-        spdlog::info("Local LLM analysis cancelled by user");
-
-        // 只发 analysisCancelled，不触发 analysisFinished
-        emit analysisCancelled();
+    if (!local_analyzing_ && !agent_running_.load()) {
+        return;
     }
+
+    spdlog::info("Cancelling analysis (cooperative stop)...");
+
+    // 设置取消标志
+    agent_cancel_requested_ = true;
+
+    // 协作式停止：发送停止信号，不阻塞等待
+    // 1. 停止 Agent 服务
+    if (agent_service_) {
+        agent_service_->stop();
+    }
+
+    // 2. 停止 AgentWorker
+    if (current_worker_) {
+        current_worker_->requestStop();
+    }
+
+    // 3. 中断 LLM 推理
+    LocalLLMThread::instance()->abortInference();
+
+    // 4. 请求线程退出（协作式）
+    if (current_thread_) {
+        current_thread_->requestInterruption();
+        current_thread_->quit();
+    }
+
+    // 立即更新 UI 状态，不等待线程结束
+    // 线程的实际清理在 finished 信号回调中完成（见 requestAgentChat）
+    local_analyzing_ = false;
+
+    spdlog::info("Cancel request sent, cleanup will happen asynchronously");
+
+    // 发送取消信号
+    emit analysisCancelled();
 }
 
 void LocalAiAnalysisService::requestAnalysis(const service::AttendanceStatistics& stats,
@@ -289,9 +308,10 @@ void LocalAiAnalysisService::requestAgentChat(const QString& user_input) {
         return;
     }
 
-    if (local_analyzing_) {
-        spdlog::warn("Previous analysis running, cancelling...");
-        cancelAnalysis();
+    // 防止重复启动（不再取消前一个，而是拒绝新请求）
+    if (agent_running_.load()) {
+        spdlog::warn("Agent already running, ignoring new request");
+        return;
     }
 
     spdlog::info("Agent chat request: {}", user_input.left(50).toStdString());
@@ -299,120 +319,62 @@ void LocalAiAnalysisService::requestAgentChat(const QString& user_input) {
     // 重置状态标志
     local_analyzing_ = true;
     agent_running_ = true;
-    agent_cancel_requested_ = false;  // 重置取消标志
+    agent_cancel_requested_ = false;
     emit analysisStarted();
 
-    // 流式输出状态
-    bool in_answer_mode = false;
-    bool has_streamed_output = false;
-    QString answer_buffer;
+    // 创建工作线程（按需启动，完成后自动销毁）
+    QThread* thread = new QThread;
+    agent::AgentWorker* worker = new agent::AgentWorker(agent_service_.get());
+    worker->moveToThread(thread);
 
-    // 创建 LLM 回调函数（在主线程执行，使用 QEventLoop 等待）
-    auto llm_callback = [this, &in_answer_mode, &has_streamed_output, &answer_buffer](const QString& prompt) -> QString {
-        // 检查是否已取消
-        if (agent_cancel_requested_) {
-            return QString();
+    // 设置 LLM 回调
+    worker->setLlmCallback(createThreadSafeLlmCallback());
+
+    // 启动时执行
+    connect(thread, &QThread::started, worker, [worker, user_input]() {
+        worker->process(user_input);
+    });
+
+    // 转发状态信号
+    connect(worker, &agent::AgentWorker::thinkingStarted,
+            this, &LocalAiAnalysisService::agentThinking);
+    connect(worker, &agent::AgentWorker::toolCalling,
+            this, &LocalAiAnalysisService::agentToolCalling);
+    connect(worker, &agent::AgentWorker::toolCompleted,
+            this, &LocalAiAnalysisService::agentToolCompleted);
+    connect(worker, &agent::AgentWorker::chunkReady,
+            this, &LocalAiAnalysisService::analysisResultReady);
+    connect(worker, &agent::AgentWorker::errorOccurred,
+            this, &LocalAiAnalysisService::errorOccurred);
+
+    // 完成后处理
+    connect(worker, &agent::AgentWorker::finished, this, [this](const QString& answer) {
+        agent_running_ = false;
+        local_analyzing_ = false;
+        current_worker_ = nullptr;
+        current_thread_ = nullptr;
+
+        if (!agent_cancel_requested_) {
+            if (!answer.isEmpty()) {
+                spdlog::info("Agent chat completed, answer length: {}", answer.length());
+            }
+            emit analysisFinished();
+        } else {
+            spdlog::info("Agent chat was cancelled");
         }
+    });
 
-        QString result;
-        in_answer_mode = false;
-        answer_buffer.clear();
+    // 自动清理
+    connect(worker, &agent::AgentWorker::finished, thread, &QThread::quit);
+    connect(thread, &QThread::finished, worker, &QObject::deleteLater);
+    connect(thread, &QThread::finished, thread, &QObject::deleteLater);
 
-        // 创建临时连接
-        auto conn_chunk = connect(LocalLLMThread::instance(), &LocalLLMThread::chunkReady,
-            this, [this, &result, &in_answer_mode, &has_streamed_output, &answer_buffer](const QString& chunk) {
-                // 取消后不再处理 chunk
-                if (agent_cancel_requested_) return;
+    // 保存引用用于取消
+    current_worker_ = worker;
+    current_thread_ = thread;
 
-                result += chunk;
-
-                // 检测是否进入答案模式
-                if (!in_answer_mode) {
-                    answer_buffer += chunk;
-                    if (answer_buffer.contains(TAG_ANSWER_START) || answer_buffer.contains(TAG_ANSWER_ALT_START)) {
-                        in_answer_mode = true;
-                        int idx = answer_buffer.indexOf(TAG_ANSWER_START);
-                        if (idx == -1) idx = answer_buffer.indexOf(TAG_ANSWER_ALT_START);
-                        if (idx != -1) {
-                            int tag_end = answer_buffer.indexOf(">", idx) + 1;
-                            QString after_tag = answer_buffer.mid(tag_end);
-                            after_tag.remove(TAG_ANSWER_END).remove(TAG_ANSWER_ALT_END);
-                            if (!after_tag.isEmpty()) {
-                                emit analysisResultReady(after_tag);
-                                has_streamed_output = true;
-                            }
-                        }
-                        spdlog::debug("Agent: entered answer streaming mode");
-                    }
-                } else {
-                    QString clean_chunk = chunk;
-                    clean_chunk.remove(TAG_ANSWER_END).remove(TAG_ANSWER_ALT_END).remove(TAG_ANSWER_ALT_START);
-                    if (!clean_chunk.isEmpty()) {
-                        emit analysisResultReady(clean_chunk);
-                        has_streamed_output = true;
-                    }
-                }
-            });
-
-        auto conn_finished = connect(LocalLLMThread::instance(), &LocalLLMThread::inferenceFinished,
-            this, []() {});  // 空槽，仅用于事件循环退出
-
-        auto conn_error = connect(LocalLLMThread::instance(), &LocalLLMThread::errorOccurred,
-            this, [&result](const QString& error) {
-                result = "错误: " + error;
-            });
-
-        // 发起推理
-        LocalLLMThread::instance()->requestInference(prompt);
-
-        // 使用 QEventLoop 等待（主线程执行，UI 事件仍会处理）
-        QEventLoop loop;
-        QTimer timeout;
-        timeout.setSingleShot(true);
-
-        connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
-        connect(LocalLLMThread::instance(), &LocalLLMThread::inferenceFinished, &loop, &QEventLoop::quit);
-        connect(LocalLLMThread::instance(), &LocalLLMThread::errorOccurred, &loop, &QEventLoop::quit);
-
-        timeout.start(Config::Agent::LLM_TIMEOUT_MS);
-        loop.exec();
-
-        // 断开临时连接
-        disconnect(conn_chunk);
-        disconnect(conn_finished);
-        disconnect(conn_error);
-
-        // 取消后返回空结果
-        if (agent_cancel_requested_) {
-            return QString();
-        }
-
-        return result;
-    };
-
-    // 调用 Agent（主线程执行，但 QEventLoop 保持 UI 响应）
-    QString answer = agent_service_->chat(user_input, llm_callback);
-
-    // 检查是否被取消（取消时不触发 analysisFinished，已由 cancelAnalysis 触发 analysisCancelled）
-    if (agent_cancel_requested_) {
-        spdlog::info("Agent chat was cancelled");
-        return;
-    }
-
-    // Fallback: 如果没有流式输出，则输出完整答案
-    if (!has_streamed_output && !answer.isEmpty()) {
-        spdlog::warn("Agent: no <answer> tag detected, using fallback output");
-        QString fallback = cleanAgentTags(answer);
-        if (!fallback.isEmpty()) {
-            emit analysisResultReady(fallback);
-        }
-    }
-
-    agent_running_ = false;
-    local_analyzing_ = false;
-    emit analysisFinished();
-
-    spdlog::info("Agent chat completed, answer length: {}", answer.length());
+    thread->start();
+    spdlog::info("Agent worker thread started");
 }
 
 // ==================== Agent 模式控制 ====================
@@ -427,4 +389,91 @@ void LocalAiAnalysisService::clearAgentHistory() {
         agent_service_->clearHistory();
         spdlog::info("Agent history cleared");
     }
+}
+
+// ==================== 线程安全 LLM 回调 ====================
+
+std::function<QString(const QString&)> LocalAiAnalysisService::createThreadSafeLlmCallback() {
+    /**
+     * 创建线程安全的 LLM 回调函数
+     *
+     * 工作原理：
+     * 1. 在工作线程中调用此回调
+     * 2. 通过 QMetaObject::invokeMethod 将请求转发到主线程
+     * 3. 使用 QEventLoop 在工作线程中等待结果
+     * 4. 通过信号收集 LLM 输出的 chunks 并拼接
+     *
+     * 注意：QEventLoop 在工作线程中使用是安全的，不会阻塞 UI
+     */
+    return [this](const QString& prompt) -> QString {
+        // 检查取消标志
+        if (agent_cancel_requested_.load()) {
+            return QString();
+        }
+
+        QString result;
+        bool finished = false;
+        bool error_occurred = false;
+        QString error_msg;
+
+        // 在工作线程中创建事件循环
+        QEventLoop loop;
+
+        auto* llm = LocalLLMThread::instance();
+
+        // 临时连接：收集 chunks
+        auto conn_chunk = connect(llm, &LocalLLMThread::chunkReady,
+            &loop, [this, &result](const QString& chunk) {
+                result += chunk;
+                // 同时转发给 UI 进行流式显示
+                emit analysisResultReady(chunk);
+            }, Qt::QueuedConnection);
+
+        // 临时连接：推理完成
+        auto conn_finished = connect(llm, &LocalLLMThread::inferenceFinished,
+            &loop, [&finished, &loop]() {
+                finished = true;
+                loop.quit();
+            }, Qt::QueuedConnection);
+
+        // 临时连接：错误处理
+        auto conn_error = connect(llm, &LocalLLMThread::errorOccurred,
+            &loop, [&error_occurred, &error_msg, &loop](const QString& error) {
+                error_occurred = true;
+                error_msg = error;
+                loop.quit();
+            }, Qt::QueuedConnection);
+
+        // 在主线程中启动推理
+        QMetaObject::invokeMethod(llm, [llm, prompt]() {
+            llm->requestInference(prompt);
+        }, Qt::QueuedConnection);
+
+        // 设置超时（防止无限等待）
+        QTimer timeout_timer;
+        timeout_timer.setSingleShot(true);
+        connect(&timeout_timer, &QTimer::timeout, &loop, [&loop, &error_occurred, &error_msg]() {
+            error_occurred = true;
+            error_msg = "LLM 推理超时";
+            loop.quit();
+        });
+        timeout_timer.start(Config::Agent::LLM_TIMEOUT_MS);  // 使用 Agent LLM 超时配置
+
+        // 等待完成
+        loop.exec();
+
+        // 断开临时连接
+        disconnect(conn_chunk);
+        disconnect(conn_finished);
+        disconnect(conn_error);
+
+        if (error_occurred) {
+            spdlog::error("LLM callback error: {}", error_msg.toStdString());
+            emit errorOccurred(error_msg);
+            return QString();
+        }
+
+        spdlog::debug("LLM callback completed, result length: {}", result.length());
+        return result;
+    };
 }

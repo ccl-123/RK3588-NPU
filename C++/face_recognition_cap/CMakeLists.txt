@@ -117,6 +117,7 @@ set(AGENT_SOURCES
     src/agent/conversation_memory.cc
     src/agent/react_agent.cc
     src/agent/agent_service.cc
+    src/agent/agent_worker.cc
 )
 
 # Agent 工具源文件
@@ -228,6 +229,7 @@ if(Qt5_FOUND)
         include/app/local_llm_thread.h
         include/agent/react_agent.h
         include/agent/agent_service.h
+        include/agent/agent_worker.h
     )
 
     add_executable(${TARGET_NAME}_gui
