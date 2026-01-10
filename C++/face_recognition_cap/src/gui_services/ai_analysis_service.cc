@@ -634,7 +634,6 @@ void AiAnalysisService::requestAgentChat(const QString& user_input) {
 
     // 完成处理
     connect(current_worker_, &agent::AgentWorker::finished, this, [this, request_id](const QString& answer) {
-        Q_UNUSED(answer);
         if (agent_active_request_id_.load() != request_id) {
             return;
         }
@@ -643,6 +642,10 @@ void AiAnalysisService::requestAgentChat(const QString& user_input) {
         current_thread_ = nullptr;
 
         if (!agent_cancel_requested_) {
+            // 发送最终答案到 UI
+            if (!answer.isEmpty()) {
+                emit analysisResultReady(answer);
+            }
             emit analysisFinished();
         }
     });
@@ -668,12 +671,14 @@ void AiAnalysisService::initializeAgent(service::AttendanceService* attendance_s
     agent::AgentConfig config;
     config.max_iterations = Config::Agent::MAX_ITERATIONS;
     config.stream_output = Config::Agent::STREAM_OUTPUT;
+    config.skip_system_prompt = Config::Agent::Cloud::PRESET_SYSTEM_PROMPT;
 
     agent_service_ = std::make_unique<agent::AgentService>(config, nullptr);
     if (attendance_svc || user_svc) {
         agent_service_->registerBuiltinTools(attendance_svc, user_svc);
     }
-    spdlog::info("Cloud Agent initialized with {} tools", agent_service_->getToolCount());
+    spdlog::info("Cloud Agent initialized with {} tools (skip_system_prompt={})",
+        agent_service_->getToolCount(), config.skip_system_prompt);
 }
 
 void AiAnalysisService::setAgentMode(bool enabled) {
@@ -804,11 +809,16 @@ QString AiAnalysisService::doSyncCloudRequest(const QString& prompt) {
             }
 
             result += content;
+            // 流式输出到 UI（调试用）
             emit analysisResultReady(content);
         }
     });
 
-    connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+    connect(reply, &QNetworkReply::finished, &loop, [&loop, &result]() {
+        spdlog::info("Cloud Agent SSE finished, total result length: {}", result.length());
+        spdlog::debug("Cloud Agent SSE result: {}", result.left(200).toStdString());
+        loop.quit();
+    });
 
     // 超时处理
     connect(&timer, &QTimer::timeout, &loop, [&loop, &error, reply]() {

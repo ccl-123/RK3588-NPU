@@ -193,6 +193,11 @@ if [ "$DO_DEPLOY" = true ]; then
     ${SCP_CMD} ${INSTALL_DIR}/face_recognition_cap/face_recognition_cap \
         ${INSTALL_DIR}/face_recognition_cap/face_recognition_cap_gui \
         ${DEVICE_USER}@${DEVICE_IP}:${DEVICE_TARGET_DIR}/face_recognition_cap/
+    if [ $? -eq 0 ]; then
+        echo "     ✓ 核心可执行文件传输完成"
+    else
+        echo "     ✗ 核心可执行文件传输失败"
+    fi
 
     # 传输运行时库 (RKNN/RGA/RKLLM) - 仅在设备缺失时传输
     echo "  -> 检查并传输运行时库 (RKNN/RGA/RKLLM)..."

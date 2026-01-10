@@ -132,6 +132,11 @@ namespace Agent {
     constexpr int LLM_TIMEOUT_MS = 200000;       // LLM 推理超时 (毫秒，200秒)
     constexpr bool STREAM_OUTPUT = true;        // 流式输出模式
 
+    // 云端 Agent 配置
+    namespace Cloud {
+        constexpr bool PRESET_SYSTEM_PROMPT = true;  // 云端已预设系统提示词（在 LKE 控制台配置）
+    }
+
     // 工具调用配置
     namespace Tools {
         constexpr bool ENABLE_ATTENDANCE = true;    // 启用考勤查询工具
