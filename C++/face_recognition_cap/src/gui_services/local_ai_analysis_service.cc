@@ -20,6 +20,7 @@
 #include <spdlog/spdlog.h>
 #include <QEventLoop>
 #include <QTimer>
+#include <QCoreApplication>
 #include <QThread>
 
 namespace {
@@ -136,7 +137,11 @@ void LocalAiAnalysisService::cancelAnalysis() {
     // 协作式停止：发送停止信号，不阻塞等待
     // 1. 停止 Agent 服务
     if (agent_service_) {
-        agent_service_->stop();
+        if (agent_service_->thread() != QThread::currentThread()) {
+            QMetaObject::invokeMethod(agent_service_.get(), &agent::AgentService::stop, Qt::QueuedConnection);
+        } else {
+            agent_service_->stop();
+        }
     }
 
     // 2. 停止 AgentWorker
@@ -270,7 +275,7 @@ void LocalAiAnalysisService::initializeAgent(service::AttendanceService* attenda
     config.max_iterations = Config::Agent::MAX_ITERATIONS;
     config.stream_output = Config::Agent::STREAM_OUTPUT;
 
-    agent_service_ = std::make_unique<agent::AgentService>(config, this);
+    agent_service_ = std::make_unique<agent::AgentService>(config, nullptr);
 
     // 根据配置注册工具
     if (Config::Agent::Tools::ENABLE_ATTENDANCE || Config::Agent::Tools::ENABLE_USER) {
@@ -324,6 +329,9 @@ void LocalAiAnalysisService::requestAgentChat(const QString& user_input) {
 
     // 创建工作线程（按需启动，完成后自动销毁）
     QThread* thread = new QThread;
+    if (agent_service_ && agent_service_->thread() != thread) {
+        agent_service_->moveToThread(thread);
+    }
     agent::AgentWorker* worker = new agent::AgentWorker(agent_service_.get());
     worker->moveToThread(thread);
 
@@ -364,8 +372,15 @@ void LocalAiAnalysisService::requestAgentChat(const QString& user_input) {
         }
     });
 
-    // 自动清理
-    connect(worker, &agent::AgentWorker::finished, thread, &QThread::quit);
+    // 自动清理与线程归位
+    connect(worker, &agent::AgentWorker::finished, worker, [this, thread]() {
+        if (agent_service_ && agent_service_->thread() != QCoreApplication::instance()->thread()) {
+            agent_service_->moveToThread(QCoreApplication::instance()->thread());
+        }
+        if (thread) {
+            thread->quit();
+        }
+    });
     connect(thread, &QThread::finished, worker, &QObject::deleteLater);
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
 

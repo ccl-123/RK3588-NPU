@@ -6,9 +6,18 @@
 #include <QNetworkReply>
 #include <QTimer>
 #include <QPointer>
+#include <QThread>
+#include <atomic>
+#include <memory>
 #include <functional>
 #include "service/attendance_service.h"
+#include "service/user_service.h"
+#include "agent/agent_service.h"
 
+// 前向声明
+namespace agent {
+class AgentWorker;
+}
 
 class AiAnalysisService : public QObject {
     Q_OBJECT
@@ -26,11 +35,25 @@ public:
                          const QString& user_prompt = "",
                          int range_days = 1);
 
+    // 新增：Agent 对话接口
+    void requestAgentChat(const QString& user_input);
+
+    // 新增：初始化 Agent
+    void initializeAgent(service::AttendanceService* attendance_svc,
+                         service::UserService* user_svc);
+
+    // 新增：Agent 模式开关
+    void setAgentMode(bool enabled);
+    bool isAgentMode() const { return agent_mode_; }
+
     // 取消当前分析请求
     void cancelAnalysis();
 
     // 检查是否正在分析
     bool isAnalyzing() const;
+
+    // 新增：清空 Agent 对话历史
+    void clearAgentHistory();
 
 signals:
     // 分析结果信号（增量内容）
@@ -43,6 +66,11 @@ signals:
     void analysisStarted();
     // 分析取消信号
     void analysisCancelled();
+
+    // 新增：Agent 状态信号
+    void agentThinking();
+    void agentToolCalling(const QString& tool_name);
+    void agentToolCompleted(const QString& tool_name, const QString& result);
 
 private:
     explicit AiAnalysisService(QObject* parent = nullptr);
@@ -58,6 +86,17 @@ private:
                         const QString& user_prompt,
                         int range_days,
                         int retry_count = 0);
+
+    /**
+     * @brief 创建同步的云端 LLM 回调函数
+     * @return LLM 回调函数
+     */
+    std::function<QString(const QString&)> createSyncCloudLlmCallback();
+
+    /**
+     * @brief 执行同步云端请求（阻塞，用于 Agent）
+     */
+    QString doSyncCloudRequest(const QString& prompt);
 
     QNetworkAccessManager* network_manager_;
 
@@ -90,6 +129,17 @@ private:
     QString incremental_buffer_;
     bool is_incremental_;
 
+    // Agent 相关
+    bool agent_mode_ = true;
+    std::atomic<bool> agent_running_{false};
+    std::atomic<bool> agent_cancel_requested_{false};
+    std::atomic<uint64_t> agent_request_seq_{0};
+    std::atomic<uint64_t> agent_active_request_id_{0};
+    std::unique_ptr<agent::AgentService> agent_service_;
+
+    // Agent 工作线程
+    QThread* current_thread_ = nullptr;
+    agent::AgentWorker* current_worker_ = nullptr;
 };
 
 #endif // AI_ANALYSIS_SERVICE_H

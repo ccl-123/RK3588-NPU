@@ -305,6 +305,10 @@ DashboardPage::DashboardPage(QWidget* parent)
     connect(local_service, &LocalAiAnalysisService::agentThinking, this, &DashboardPage::on_agent_thinking);
     connect(local_service, &LocalAiAnalysisService::agentToolCalling, this, &DashboardPage::on_agent_tool_calling);
     connect(local_service, &LocalAiAnalysisService::agentToolCompleted, this, &DashboardPage::on_agent_tool_completed);
+
+    connect(cloud_service, &AiAnalysisService::agentThinking, this, &DashboardPage::on_agent_thinking);
+    connect(cloud_service, &AiAnalysisService::agentToolCalling, this, &DashboardPage::on_agent_tool_calling);
+    connect(cloud_service, &AiAnalysisService::agentToolCompleted, this, &DashboardPage::on_agent_tool_completed);
 }
 
 void DashboardPage::setAttendanceService(service::AttendanceService* service) {
@@ -318,7 +322,10 @@ void DashboardPage::setUserService(service::UserService* service) {
 
     // 初始化 Agent（当两个服务都设置后）
     if (attendance_service_ && user_service_) {
+        // 初始化本地 Agent
         LocalAiAnalysisService::instance()->initializeAgent(attendance_service_, user_service_);
+        // 初始化云端 Agent
+        AiAnalysisService::instance()->initializeAgent(attendance_service_, user_service_);
     }
 }
 
@@ -510,16 +517,20 @@ void DashboardPage::on_ai_analysis_clicked() {
     }
 
     // Agent 模式：跳过数据收集，直接调用 Agent（Agent 会通过工具自主查询数据）
-    if (is_local_llm_ && is_agent_mode_) {
+    if (is_agent_mode_) {
         if (!user_prompt.isEmpty()) {
             appendChatMessage("user", user_prompt);
         }
         ai_skip_prefix_.clear();
         appendChatMessage("assistant", tr("正在思考中，请稍候..."));
-        spdlog::info("Agent mode: skipping data collection, sending user prompt directly");
+        spdlog::info("Agent mode: skipping data collection, sending user prompt directly (local={})", is_local_llm_);
 
-        auto empty_stats = make_empty_stats();
-        LocalAiAnalysisService::instance()->requestAnalysis(empty_stats, QString(), QString(), user_prompt, 0);
+        if (is_local_llm_) {
+            auto empty_stats = make_empty_stats();
+            LocalAiAnalysisService::instance()->requestAnalysis(empty_stats, QString(), QString(), user_prompt, 0);
+        } else {
+            AiAnalysisService::instance()->requestAgentChat(user_prompt);
+        }
         return;
     }
 
@@ -1218,7 +1229,8 @@ void DashboardPage::setup_ui() {
             border-color: #d9d9d9;
         }
     )");
-    agent_mode_btn_->setEnabled(false);  // 默认禁用，等待本地 LLM 加载
+    // 云端模式下支持 Agent，默认启用
+    agent_mode_btn_->setEnabled(true);
     connect(agent_mode_btn_, &QPushButton::toggled, this, &DashboardPage::on_agent_mode_toggled);
     input_layout->addWidget(agent_mode_btn_);
 
@@ -1702,19 +1714,19 @@ void DashboardPage::on_data_range_changed(int days) {
 
 void DashboardPage::on_backend_toggled(bool checked) {
     is_local_llm_ = checked;
-    
+
     // 更新按钮文字和提示
     if (backend_toggle_btn_) {
         backend_toggle_btn_->setText(checked ? tr("本地大模型") : tr("云端大模型"));
-        backend_toggle_btn_->setToolTip(checked 
-            ? tr("点击切换到云端大模型") 
+        backend_toggle_btn_->setToolTip(checked
+            ? tr("点击切换到云端大模型")
             : tr("点击切换到本地大模型"));
     }
-    
+
     if (backend_status_label_) {
         backend_status_label_->setText(checked ? tr("加载中...") : tr(""));
     }
-    
+
     if (checked) {
         if (AiAnalysisService::instance()->isAnalyzing()) {
             AiAnalysisService::instance()->cancelAnalysis();
@@ -1730,11 +1742,25 @@ void DashboardPage::on_backend_toggled(bool checked) {
                 backend_status_label_->setStyleSheet("color: #52c41a; font-size: 10px; min-width: 40px;");
             }
         }
+        // 启用 Agent 按钮（本地 LLM）
+        if (agent_mode_btn_) {
+            agent_mode_btn_->setEnabled(true);
+        }
     } else {
         if (LocalAiAnalysisService::instance()->isAnalyzing()) {
             LocalAiAnalysisService::instance()->cancelAnalysis();
         }
         ToastNotification::showMessage(this, tr("AI 模型"), tr("已切换至云端 API"), ToastNotification::Level::Info);
+
+        // 云端也支持 Agent 模式，启用按钮
+        if (agent_mode_btn_) {
+            agent_mode_btn_->setEnabled(true);
+        }
+
+        // 初始化云端 Agent（如果尚未初始化）
+        if (attendance_service_ && user_service_) {
+            AiAnalysisService::instance()->initializeAgent(attendance_service_, user_service_);
+        }
     }
 }
 
@@ -1777,9 +1803,9 @@ void DashboardPage::on_local_llm_released() {
         backend_status_label_->setText(tr(""));
     }
 
-    // 禁用 Agent 模式按钮（云端不支持 Agent）
+    // 云端支持 Agent 模式，所以保持按钮可用
     if (agent_mode_btn_) {
-        agent_mode_btn_->setEnabled(false);
+        agent_mode_btn_->setEnabled(true);
     }
 
     spdlog::info("Dashboard: Local LLM released, button switched to cloud mode");
@@ -1851,6 +1877,8 @@ void DashboardPage::on_agent_mode_toggled(bool checked) {
 
     // 同步到 LocalAiAnalysisService
     LocalAiAnalysisService::instance()->setAgentMode(checked);
+    // 同步到 Cloud AiAnalysisService
+    AiAnalysisService::instance()->setAgentMode(checked);
 
     spdlog::info("Agent mode toggled: {}, data range buttons {}",
                  checked ? "Agent" : "Chat",

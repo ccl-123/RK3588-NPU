@@ -11,12 +11,16 @@
 #include "service/attendance_service.h"
 #include "config/config.h"
 #include "gui_services/ai_prompt_builder.h"
+#include "agent/agent_worker.h"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QNetworkRequest>
+#include <QCoreApplication>
 #include <QUuid>
 #include <QTimer>
+#include <QEventLoop>
+#include <QThread>
 #include <spdlog/spdlog.h>
 #include <cstring>  // for strlen
 
@@ -29,7 +33,8 @@ AiAnalysisService::AiAnalysisService(QObject* parent)
     : QObject(parent)
     , current_retry_count_(0)
     , completed_(false)
-    , is_incremental_(false) {
+    , is_incremental_(false)
+    , agent_mode_(true) {
     network_manager_ = new QNetworkAccessManager(this);
 
     // 检查环境变量是否已设置
@@ -104,6 +109,27 @@ void AiAnalysisService::cleanup() {
         current_reply_.clear();
     }
 
+    // 清理 Agent 相关
+    if (agent_running_.load()) {
+        agent_cancel_requested_ = true;
+        if (agent_service_) {
+            if (agent_service_->thread() != QThread::currentThread()) {
+                QMetaObject::invokeMethod(agent_service_.get(), &agent::AgentService::stop, Qt::QueuedConnection);
+            } else {
+                agent_service_->stop();
+            }
+        }
+        if (current_worker_) {
+            current_worker_->requestStop();
+        }
+        if (current_thread_) {
+            current_thread_->requestInterruption();
+            current_thread_->quit();
+            // 不要在 cleanup 中等待，避免阻塞主线程。
+            // 线程的实际清理由其 finished 信号连接的 deleteLater 完成。
+        }
+    }
+
     sse_buffer_.clear();
     incremental_buffer_.clear();
     current_retry_count_ = 0;
@@ -111,13 +137,38 @@ void AiAnalysisService::cleanup() {
 }
 
 bool AiAnalysisService::isAnalyzing() const {
-    return current_reply_ != nullptr;
+    return current_reply_ != nullptr || agent_running_.load();
 }
 
 void AiAnalysisService::cancelAnalysis() {
+    // 取消 HTTP 请求
     if (current_reply_) {
         spdlog::info("Cloud AI analysis cancelled by user");
         cleanup();
+        emit analysisCancelled();
+        return;
+    }
+
+    // 取消 Agent 请求
+    if (agent_running_.load()) {
+        spdlog::info("Cloud Agent analysis cancelled by user");
+        agent_cancel_requested_ = true;
+        agent_active_request_id_ = 0;
+        if (agent_service_) {
+            if (agent_service_->thread() != QThread::currentThread()) {
+                QMetaObject::invokeMethod(agent_service_.get(), &agent::AgentService::stop, Qt::QueuedConnection);
+            } else {
+                agent_service_->stop();
+            }
+        }
+        if (current_worker_) {
+            current_worker_->requestStop();
+        }
+        if (current_thread_) {
+            current_thread_->requestInterruption();
+            current_thread_->quit();
+        }
+        agent_running_ = false;
         emit analysisCancelled();
     }
 }
@@ -534,4 +585,253 @@ void AiAnalysisService::doCloudRequest(const service::AttendanceStatistics& stat
 
         reply->deleteLater();
     });
+}
+
+// ==================== Cloud Agent 功能实现 ====================
+
+void AiAnalysisService::requestAgentChat(const QString& user_input) {
+    if (!agent_service_) {
+        emit errorOccurred("Agent 未初始化");
+        return;
+    }
+
+    if (agent_running_.load()) {
+        spdlog::warn("Cloud Agent already running, ignoring new request");
+        return;
+    }
+
+    spdlog::info("Cloud Agent chat request: {}", user_input.left(50).toStdString());
+
+    const uint64_t request_id = ++agent_request_seq_;
+    agent_active_request_id_ = request_id;
+
+    agent_running_ = true;
+    agent_cancel_requested_ = false;
+    emit analysisStarted();
+
+    // 创建工作线程
+    current_thread_ = new QThread;
+    if (agent_service_->thread() != current_thread_) {
+        agent_service_->moveToThread(current_thread_);
+    }
+    current_worker_ = new agent::AgentWorker(agent_service_.get());
+    current_worker_->moveToThread(current_thread_);
+
+    // 设置同步云端 LLM 回调
+    current_worker_->setLlmCallback(createSyncCloudLlmCallback());
+
+    // 线程启动逻辑
+    connect(current_thread_, &QThread::started, current_worker_, [this, user_input]() {
+        current_worker_->process(user_input);
+    });
+
+    // 转发信号
+    connect(current_worker_, &agent::AgentWorker::thinkingStarted, this, &AiAnalysisService::agentThinking);
+    connect(current_worker_, &agent::AgentWorker::toolCalling, this, &AiAnalysisService::agentToolCalling);
+    connect(current_worker_, &agent::AgentWorker::toolCompleted, this, &AiAnalysisService::agentToolCompleted);
+    connect(current_worker_, &agent::AgentWorker::chunkReady, this, &AiAnalysisService::analysisResultReady);
+    connect(current_worker_, &agent::AgentWorker::errorOccurred, this, &AiAnalysisService::errorOccurred);
+
+    // 完成处理
+    connect(current_worker_, &agent::AgentWorker::finished, this, [this, request_id](const QString& answer) {
+        Q_UNUSED(answer);
+        if (agent_active_request_id_.load() != request_id) {
+            return;
+        }
+        agent_running_ = false;
+        current_worker_ = nullptr;
+        current_thread_ = nullptr;
+
+        if (!agent_cancel_requested_) {
+            emit analysisFinished();
+        }
+    });
+
+    // 自动清理与线程归位
+    QThread* worker_thread = current_thread_;
+    connect(current_worker_, &agent::AgentWorker::finished, current_worker_, [this, worker_thread]() {
+        if (agent_service_ && agent_service_->thread() != QCoreApplication::instance()->thread()) {
+            agent_service_->moveToThread(QCoreApplication::instance()->thread());
+        }
+        if (worker_thread) {
+            worker_thread->quit();
+        }
+    });
+    connect(current_thread_, &QThread::finished, current_worker_, &QObject::deleteLater);
+    connect(current_thread_, &QThread::finished, current_thread_, &QObject::deleteLater);
+
+    current_thread_->start();
+}
+
+void AiAnalysisService::initializeAgent(service::AttendanceService* attendance_svc,
+                                         service::UserService* user_svc) {
+    agent::AgentConfig config;
+    config.max_iterations = Config::Agent::MAX_ITERATIONS;
+    config.stream_output = Config::Agent::STREAM_OUTPUT;
+
+    agent_service_ = std::make_unique<agent::AgentService>(config, nullptr);
+    if (attendance_svc || user_svc) {
+        agent_service_->registerBuiltinTools(attendance_svc, user_svc);
+    }
+    spdlog::info("Cloud Agent initialized with {} tools", agent_service_->getToolCount());
+}
+
+void AiAnalysisService::setAgentMode(bool enabled) {
+    agent_mode_ = enabled;
+    spdlog::info("Cloud Agent mode {}", enabled ? "enabled" : "disabled");
+}
+
+void AiAnalysisService::clearAgentHistory() {
+    if (agent_service_) {
+        agent_service_->clearHistory();
+        spdlog::info("Cloud Agent history cleared");
+    }
+}
+
+std::function<QString(const QString&)> AiAnalysisService::createSyncCloudLlmCallback() {
+    return [this](const QString& prompt) -> QString {
+        if (agent_cancel_requested_.load()) {
+            return QString();
+        }
+        return doSyncCloudRequest(prompt);
+    };
+}
+
+QString AiAnalysisService::doSyncCloudRequest(const QString& prompt) {
+    QString result;
+    bool error = false;
+
+    spdlog::debug("Cloud Agent sync request, prompt length: {}", prompt.length());
+
+    // 由于是在 AgentWorker 线程中，我们可以使用本地 QEventLoop 进行同步等待
+    QEventLoop loop;
+
+    // 创建线程局部的 QNetworkAccessManager，确保信号槽在当前线程正确执行
+    QNetworkAccessManager local_manager;
+
+    // 同步请求实现，使用 SSE 获取流式输出
+    QUrl url(QString::fromStdString(Config::TencentAI::API_URL));
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    request.setRawHeader("Accept", "text/event-stream");
+
+    QString session_id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    QString request_id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+
+    QJsonObject jsonBody;
+    jsonBody["session_id"] = session_id;
+    jsonBody["request_id"] = request_id;
+    jsonBody["bot_app_key"] = QString::fromUtf8(Config::TencentAI::getAppKey());
+    jsonBody["visitor_biz_id"] = QString::fromStdString(Config::TencentAI::VISITOR_BIZ_ID);
+    jsonBody["content"] = prompt;
+    jsonBody["incremental"] = true;
+    jsonBody["streaming_throttle"] = 10;
+    jsonBody["search_network"] = "disable";
+    jsonBody["stream"] = "enable";
+    jsonBody["workflow_status"] = "enable";
+
+    QNetworkReply* reply = local_manager.post(request, QJsonDocument(jsonBody).toJson());
+
+    QByteArray sse_buffer;
+    QTimer timer;
+    timer.setSingleShot(true);
+
+    connect(reply, &QNetworkReply::readyRead, &loop, [this, reply, &loop, &sse_buffer, &result, &timer]() {
+        if (agent_cancel_requested_.load()) {
+            reply->abort();
+            loop.quit();
+            return;
+        }
+
+        if (timer.isActive()) {
+            timer.start(Config::Agent::LLM_TIMEOUT_MS);
+        }
+        sse_buffer.append(reply->readAll());
+
+        while (true) {
+            int idx = sse_buffer.indexOf("\n\n");
+            int separator_len = 2;
+            if (idx == -1) {
+                idx = sse_buffer.indexOf("\r\n\r\n");
+                separator_len = 4;
+                if (idx == -1) break;
+            }
+
+            QByteArray event_data = sse_buffer.left(idx).trimmed();
+            sse_buffer.remove(0, idx + separator_len);
+
+            if (event_data.isEmpty()) {
+                continue;
+            }
+
+            QString event_type;
+            QByteArray data_buffer;
+            QList<QByteArray> lines = event_data.split('\n');
+            for (const QByteArray& line : lines) {
+                QByteArray trimmed = line.trimmed();
+                if (trimmed.startsWith("event:") || trimmed.startsWith("event :")) {
+                    int colon_idx = trimmed.indexOf(':');
+                    event_type = QString::fromUtf8(trimmed.mid(colon_idx + 1)).trimmed();
+                } else if (trimmed.startsWith("data:") || trimmed.startsWith("data :")) {
+                    int colon_idx = trimmed.indexOf(':');
+                    QByteArray data_content = trimmed.mid(colon_idx + 1).trimmed();
+                    if (!data_buffer.isEmpty()) {
+                        data_buffer.append(data_content);
+                    } else {
+                        data_buffer = data_content;
+                    }
+                }
+            }
+
+            if (event_type == "workflow_status" || event_type == "workflow") {
+                continue;
+            }
+
+            if (data_buffer.isEmpty()) {
+                continue;
+            }
+
+            QJsonDocument doc = QJsonDocument::fromJson(data_buffer);
+            if (!doc.isObject()) {
+                continue;
+            }
+
+            QJsonObject root = doc.object();
+            QJsonObject payload = root.contains("payload") ? root["payload"].toObject() : root;
+            QString content = payload["content"].toString();
+            if (content.isEmpty()) {
+                continue;
+            }
+
+            result += content;
+            emit analysisResultReady(content);
+        }
+    });
+
+    connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+
+    // 超时处理
+    connect(&timer, &QTimer::timeout, &loop, [&loop, &error, reply]() {
+        error = true;
+        reply->abort();
+        loop.quit();
+    });
+    timer.start(Config::Agent::LLM_TIMEOUT_MS);
+
+    loop.exec();
+
+    if (!error && reply->error() == QNetworkReply::NoError) {
+        if (result.isEmpty()) {
+            spdlog::warn("Cloud Agent: SSE finished without content");
+        }
+    } else {
+        if (error) {
+            spdlog::error("Sync Cloud Agent request timeout after {}ms", Config::Agent::LLM_TIMEOUT_MS);
+        } else {
+            spdlog::error("Sync Cloud Agent request failed: {}", reply->errorString().toStdString());
+        }
+    }
+
+    reply->deleteLater();
+    return result;
 }
