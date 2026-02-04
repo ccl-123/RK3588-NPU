@@ -368,7 +368,7 @@ void DashboardPage::appendChatMessage(const QString& role, const QString& text) 
 
     auto label = new QLabel(text, bubble);
     label->setObjectName("AiChatText");
-    label->setStyleSheet("font-size: 18px;");
+    // 样式由 QSS #AiChatText 定义
     label->setWordWrap(true);
     label->setTextInteractionFlags(Qt::TextSelectableByMouse);
     bubble_layout->addWidget(label);
