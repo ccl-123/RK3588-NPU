@@ -1,5 +1,6 @@
 #include "ui/settings_page.h"
 
+#include "config/config.h"
 #include "widgets/card_widget.h"
 #include "gui_utils/audio_manager.h"
 #include "gui_utils/config_manager.h"
@@ -1043,44 +1044,44 @@ void SettingsPage::on_reset_clicked() {
     
     if (reply == QMessageBox::Yes) {
         // 识别设置
-        if (recognition_threshold_spin_) recognition_threshold_spin_->setValue(0.60);
-        if (duplicate_check_interval_spin_) duplicate_check_interval_spin_->setValue(300);
-        if (user_confirm_duration_spin_) user_confirm_duration_spin_->setValue(1.0);
-        
+        if (recognition_threshold_spin_) recognition_threshold_spin_->setValue(Config::Default::RECOGNITION_THRESHOLD);
+        if (duplicate_check_interval_spin_) duplicate_check_interval_spin_->setValue(Config::Default::DUPLICATE_CHECK_INTERVAL);
+        if (user_confirm_duration_spin_) user_confirm_duration_spin_->setValue(Config::Default::USER_CONFIRM_DURATION_MS / 1000.0);
+
         // 考勤设置
-        if (work_start_time_edit_) work_start_time_edit_->setTime(QTime(9, 0));
-        if (work_end_time_edit_) work_end_time_edit_->setTime(QTime(18, 0));
-        if (late_threshold_spin_) late_threshold_spin_->setValue(30);
-        if (early_leave_threshold_spin_) early_leave_threshold_spin_->setValue(30);
+        if (work_start_time_edit_) work_start_time_edit_->setTime(QTime(Config::Default::WORK_START_HOUR, Config::Default::WORK_START_MINUTE));
+        if (work_end_time_edit_) work_end_time_edit_->setTime(QTime(Config::Default::WORK_END_HOUR, Config::Default::WORK_END_MINUTE));
+        if (late_threshold_spin_) late_threshold_spin_->setValue(Config::Default::LATE_THRESHOLD);
+        if (early_leave_threshold_spin_) early_leave_threshold_spin_->setValue(Config::Default::EARLY_LEAVE_THRESHOLD);
         if (allow_multiple_checkin_check_) allow_multiple_checkin_check_->setChecked(false);
-        if (checkin_sound_check_) checkin_sound_check_->setChecked(true);
+        if (checkin_sound_check_) checkin_sound_check_->setChecked(Config::Default::AUDIO_ENABLED);
         if (show_checkin_reminder_check_) show_checkin_reminder_check_->setChecked(true);
-        
+
         // 显示设置
         if (show_fps_check_) show_fps_check_->setChecked(true);
         if (show_confidence_check_) show_confidence_check_->setChecked(true);
         if (auto_start_check_) auto_start_check_->setChecked(false);
-        
+
         // 音频设置
-        if (audio_enabled_check_) audio_enabled_check_->setChecked(true);
-        if (audio_volume_slider_) audio_volume_slider_->setValue(70);
-        if (audio_volume_label_) audio_volume_label_->setText("70%");
-        
+        if (audio_enabled_check_) audio_enabled_check_->setChecked(Config::Default::AUDIO_ENABLED);
+        if (audio_volume_slider_) audio_volume_slider_->setValue(Config::Default::AUDIO_VOLUME);
+        if (audio_volume_label_) audio_volume_label_->setText(QString::number(Config::Default::AUDIO_VOLUME) + "%");
+
         // 摄像头设置
         if (camera_device_combo_) {
             for (int i = 0; i < camera_device_combo_->count(); i++) {
-                if (camera_device_combo_->itemData(i).toInt() == 21) {
+                if (camera_device_combo_->itemData(i).toInt() == Config::Default::CAMERA_ID) {
                     camera_device_combo_->setCurrentIndex(i);
                     break;
                 }
             }
         }
-        
+
         // 天气/城市设置
         if (auto_location_check_) auto_location_check_->setChecked(false);
-        if (manual_city_edit_) manual_city_edit_->setText(QString::fromUtf8("佛山"));
-        if (manual_lat_spin_) manual_lat_spin_->setValue(23.0215);
-        if (manual_lon_spin_) manual_lon_spin_->setValue(113.1214);
+        if (manual_city_edit_) manual_city_edit_->setText(QString::fromUtf8(Config::Default::CITY));
+        if (manual_lat_spin_) manual_lat_spin_->setValue(Config::Default::LATITUDE);
+        if (manual_lon_spin_) manual_lon_spin_->setValue(Config::Default::LONGITUDE);
         on_auto_location_changed(false);
         
         QMessageBox::information(this, tr("成功"), tr("已恢复默认设置"));

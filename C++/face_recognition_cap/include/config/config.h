@@ -77,6 +77,11 @@ namespace Default {
     // 设备标识
     constexpr const char* DEVICE_ID = "device_001";
     constexpr const char* LOCATION = "Main Entrance";
+
+    // 天气/位置 (默认佛山)
+    constexpr const char* CITY = "佛山";
+    constexpr double LATITUDE = 23.0215;
+    constexpr double LONGITUDE = 113.1214;
 }
 
 // ===== UI 定时任务 [固定] =====
