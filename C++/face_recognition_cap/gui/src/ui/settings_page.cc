@@ -706,10 +706,10 @@ void SettingsPage::setup_ui() {
 
 void SettingsPage::load_settings() {
     ConfigManager* config = ConfigManager::instance();
-    
+
     // 更新数据库大小信息
     update_db_size();
-    
+
     // 加载识别设置
     if (recognition_threshold_spin_) {
         recognition_threshold_spin_->setValue(config->getRecognitionThreshold());
@@ -720,7 +720,7 @@ void SettingsPage::load_settings() {
     if (user_confirm_duration_spin_) {
         user_confirm_duration_spin_->setValue(config->getUserConfirmDuration() / 1000.0);
     }
-    
+
     // 加载考勤设置
     if (work_start_time_edit_) {
         work_start_time_edit_->setTime(QTime::fromString(config->getWorkStartTime(), "HH:mm"));
@@ -733,23 +733,25 @@ void SettingsPage::load_settings() {
     if (allow_multiple_checkin_check_) allow_multiple_checkin_check_->setChecked(config->isAllowMultipleCheckin());
     if (checkin_sound_check_) checkin_sound_check_->setChecked(config->isCheckinSound());
     if (show_checkin_reminder_check_) show_checkin_reminder_check_->setChecked(config->isShowCheckinReminder());
-    
+
     // 加载显示设置
     if (show_fps_check_) show_fps_check_->setChecked(config->isShowFPS());
     if (show_confidence_check_) show_confidence_check_->setChecked(config->isShowConfidence());
     if (auto_start_check_) auto_start_check_->setChecked(config->isAutoStart());
-    
-    // 加载音频设置
+
+    // 加载音频设置 - 使用 QSignalBlocker 阻止触发 AudioManager 副作用
     if (audio_enabled_check_) {
         audio_enabled_check_->setChecked(config->isAudioEnabled());
     }
     if (audio_volume_slider_) {
+        const QSignalBlocker blocker(audio_volume_slider_);
         audio_volume_slider_->setValue(config->getAudioVolume());
     }
     if (audio_volume_label_) {
         audio_volume_label_->setText(QString("%1%").arg(config->getAudioVolume()));
     }
     if (audio_device_combo_) {
+        const QSignalBlocker blocker(audio_device_combo_);
         QString savedDevice = config->getAudioDevice();
         if (!savedDevice.isEmpty()) {
             int deviceIndex = audio_device_combo_->findText(savedDevice);
@@ -766,7 +768,7 @@ void SettingsPage::load_settings() {
             }
         }
     }
-    
+
     // 加载摄像头设置
     if (camera_device_combo_) {
         int cameraId = config->getCameraId();
@@ -777,7 +779,7 @@ void SettingsPage::load_settings() {
             }
         }
     }
-    
+
     // 加载天气/城市设置
     if (auto_location_check_) {
         auto_location_check_->setChecked(config->isAutoLocationEnabled());
