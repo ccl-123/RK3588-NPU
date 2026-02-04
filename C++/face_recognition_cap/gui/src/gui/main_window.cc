@@ -40,7 +40,6 @@
 #include <QStackedWidget>
 #include <QDateTime>
 #include <QDate>
-#include <QCoreApplication>
 #include <QTableWidgetItem>
 #include <QMenu>
 #include <QtConcurrent>
