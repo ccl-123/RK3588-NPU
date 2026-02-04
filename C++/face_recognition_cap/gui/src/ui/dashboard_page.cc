@@ -917,7 +917,7 @@ void DashboardPage::setup_ui() {
 
     auto insight_title = new QLabel(tr("智能考勤助手 AI Agent"), insight_header);
     insight_title->setObjectName("CardTitle");
-    insight_title->setStyleSheet("font-size: 18px; font-weight: bold; color: #1f1f1f;");
+    // 样式由 QSS #CardTitle 定义
     ai_title_layout->addWidget(insight_title);
     
     insight_header_layout->addLayout(ai_title_layout);
