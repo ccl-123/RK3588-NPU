@@ -8,8 +8,7 @@
  * 用户列表和考勤记录等组件。
  */
 
-#ifndef MAIN_WINDOW_H
-#define MAIN_WINDOW_H
+#pragma once
 
 #include <QMainWindow>
 #include <QLabel>
@@ -259,4 +258,3 @@ private:
     int camera_id_;
 };
 
-#endif // MAIN_WINDOW_H
