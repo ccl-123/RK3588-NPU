@@ -120,7 +120,6 @@ private:
     void setup_navigation();
     void setup_pages();
     void connect_page_signals();
-    void apply_theme();
     bool finish_initialization_after_core();
 
     // NPU 模型异步加载/卸载
@@ -196,10 +195,6 @@ private:
     std::atomic<bool> ui_update_scheduled_{false};
     std::atomic<uint64_t> latest_frame_seq_{0};
 
-
-    // 主题状态
-    bool is_dark_theme_;
-    
     // 当前日期（用于跨日检测）
     QDate current_date_;
     

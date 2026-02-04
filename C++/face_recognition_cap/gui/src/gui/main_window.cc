@@ -134,7 +134,6 @@ MainWindow::MainWindow(QWidget* parent)
     , npu_fps_(0.0)
     , camera_fps_(0.0)
     , camera_id_(0)
-    , is_dark_theme_(false)  // 默认使用浅色主题
     , current_date_(QDate::currentDate())  // 初始化当前日期（用于跨日检测）
     , user_detection_{false, 0, "", 0.0f, std::chrono::steady_clock::now(), std::chrono::steady_clock::now(), false}
     , last_displayed_user_id_(-1)
@@ -795,7 +794,7 @@ void MainWindow::setup_ui() {
     setup_pages();
     setup_navigation();
     connect_page_signals();
-    apply_theme();
+    // 主题由 ThemeManager 在 main_gui.cc 中初始化，不再在此调用 apply_theme()
 
     connect(title_bar_, &TitleBar::requestMinimize, this, &MainWindow::showMinimized);
     connect(title_bar_, &TitleBar::requestMaximize, this, &MainWindow::on_action_toggle_maximize);
@@ -1007,11 +1006,6 @@ void MainWindow::connect_page_signals() {
         connect(settings_page_, &SettingsPage::cameraSettingsChanged,
                 this, &MainWindow::apply_camera_settings);
     }
-}
-
-void MainWindow::apply_theme() {
-    ThemeManager::apply(is_dark_theme_ ? ThemeManager::Theme::Dark
-                                       : ThemeManager::Theme::Light);
 }
 
 void MainWindow::start_recognition() {
@@ -1572,9 +1566,8 @@ void MainWindow::on_action_about() {
 }
 
 void MainWindow::on_action_toggle_theme() {
-    is_dark_theme_ = !is_dark_theme_;
-    apply_theme();
-    spdlog::info("Theme toggled: {}", is_dark_theme_ ? "dark" : "light");
+    ThemeManager::instance()->toggleTheme();
+    spdlog::info("Theme toggled: {}", ThemeManager::instance()->isDarkMode() ? "dark" : "light");
 }
 
 void MainWindow::on_action_toggle_maximize() {
