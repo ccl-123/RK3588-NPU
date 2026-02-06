@@ -121,6 +121,10 @@ static unsigned char* load_model(const char* filename, int* model_size)
 int create_facenet(char *model_name, rknn_context *ctx, int &width, int &height, int &channel, rknn_input_output_num &io_num, unsigned char*& model_data)
 {
   	int ret;
+  	if (ctx == nullptr) {
+	    printf("create_facenet invalid args: ctx is null\n");
+	    return -1;
+  	}
 
   	/* Create the neural network */
   	printf("Loading facenet model...\n");
@@ -169,6 +173,13 @@ int create_facenet(char *model_name, rknn_context *ctx, int &width, int &height,
         rknn_destroy(*ctx);
         free(model_data);
         model_data = nullptr;
+		return -1;
+  	}
+  	if (io_num.n_input == 0 || io_num.n_output == 0) {
+		printf("invalid facenet io_num: in=%u out=%u\n", io_num.n_input, io_num.n_output);
+		rknn_destroy(*ctx);
+		free(model_data);
+		model_data = nullptr;
 		return -1;
   	}
   	printf("model input num: %d, output num: %d\n", io_num.n_input, io_num.n_output);
@@ -223,6 +234,9 @@ int create_facenet(char *model_name, rknn_context *ctx, int &width, int &height,
 int facenet_inference(rknn_context *ctx, cv::Mat img, rknn_input_output_num io_num, rknn_input *inputs, rknn_output *outputs, float **result){
     int ret;
     if (ctx == nullptr || inputs == nullptr || outputs == nullptr || result == nullptr || img.empty()) {
+        return -1;
+    }
+    if (io_num.n_input == 0 || io_num.n_output == 0) {
         return -1;
     }
 
