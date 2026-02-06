@@ -281,12 +281,10 @@ int facenet_output_release(rknn_context *ctx, rknn_input_output_num io_num, rknn
 
 void release_facenet(rknn_context *ctx, unsigned char *model_data)
 {
-	int ret = 0;
   	// release
-    if (ctx) {
-  	    ret = rknn_destroy(*ctx);
+    if (ctx && *ctx) {
+  	    rknn_destroy(*ctx);
         *ctx = 0;
-        (void)ret;
     }
 
   	if (model_data) {

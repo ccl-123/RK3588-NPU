@@ -348,7 +348,10 @@ int yolov8_face_postprocess(
 
 void release_yolov8_face(rknn_context* ctx, unsigned char* model_data) {
     deinitPostProcess();
-    rknn_destroy(*ctx);
+    if (ctx && *ctx) {
+        rknn_destroy(*ctx);
+        *ctx = 0;
+    }
 
     if (model_data) {
         free(model_data);
