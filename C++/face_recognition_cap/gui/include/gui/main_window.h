@@ -11,7 +11,6 @@
 #pragma once
 
 #include <QMainWindow>
-#include <QLabel>
 #include <QStackedWidget>
 #include <QTimer>
 #include <QDate>
@@ -149,19 +148,6 @@ private:
     HolidayService* holiday_service_;
     NewsService* news_service_;
 
-    QLabel* status_label_;
-    QLabel* fps_label_;
-    QLabel* recognition_label_;
-    QLabel* attendance_status_label_;
-    
-    // 用户信息面板的 label
-    QLabel* user_name_label_;
-    QLabel* user_id_label_;
-    QLabel* user_dept_label_;
-    QLabel* user_similarity_label_;
-    QLabel* check_type_label_;
-    QLabel* avatar_label_;
-    
     // 定时器
     QTimer* status_timer_;
 

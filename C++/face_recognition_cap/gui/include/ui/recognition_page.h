@@ -10,6 +10,7 @@ class QProgressBar;
 class StatusTag;
 class VideoDisplayWidget;
 class QPushButton;
+class QPixmap;
 
 /**
  * @brief RecognitionPage 人脸识别主页面。
@@ -21,18 +22,20 @@ public:
 
     VideoDisplayWidget* videoWidget() const;
     AttendanceListWidget* attendanceList() const;
-    QLabel* statusLabel() const;
-    QLabel* fpsLabel() const;
-    QLabel* recognitionLabel() const;
-    QLabel* attendanceStatusLabel() const;
-    
-    // 用户信息面板的 label
-    QLabel* userNameLabel() const;
-    QLabel* userIdLabel() const;
-    QLabel* userDeptLabel() const;
-    QLabel* userSimilarityLabel() const;
-    QLabel* checkTypeLabel() const;
-    QLabel* avatarLabel() const;
+
+    // 运行状态和识别状态更新
+    void setSystemStatus(const QString& text);
+    void setFpsText(const QString& text);
+    void setRecognitionSummary(const QString& text);
+
+    // 用户信息面板更新
+    void setUserName(const QString& name);
+    void setUserSimilarity(float similarity);
+    void setUserMeta(const QString& employee_id, const QString& department);
+    void setUserAvatar(const QPixmap& avatar);
+    void resetUserMeta();
+    void showAttendanceStatus(const QString& text, bool is_checkout);
+    int avatarDisplaySize() const;
     
     // 状态栏相关
     QLabel* clockLabel() const;
@@ -88,7 +91,6 @@ private:
     QLabel* user_id_label_;
     QLabel* user_dept_label_;
     QLabel* user_similarity_label_;
-    QLabel* check_type_label_;
     
     // 状态栏组件
     QLabel* clock_label_;

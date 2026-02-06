@@ -41,7 +41,6 @@ RecognitionPage::RecognitionPage(QWidget* parent)
     , user_id_label_(nullptr)
     , user_dept_label_(nullptr)
     , user_similarity_label_(nullptr)
-    , check_type_label_(nullptr)
     , clock_label_(nullptr)
     , date_label_(nullptr)
     , face_count_label_(nullptr)
@@ -184,44 +183,87 @@ AttendanceListWidget* RecognitionPage::attendanceList() const {
     return attendance_list_;
 }
 
-QLabel* RecognitionPage::statusLabel() const {
-    return status_label_;
+void RecognitionPage::setSystemStatus(const QString& text) {
+    if (status_label_) {
+        status_label_->setText(text);
+    }
 }
 
-QLabel* RecognitionPage::fpsLabel() const {
-    return fps_label_;
+void RecognitionPage::setFpsText(const QString& text) {
+    if (fps_label_) {
+        fps_label_->setText(text);
+    }
 }
 
-QLabel* RecognitionPage::recognitionLabel() const {
-    return recognition_label_;
+void RecognitionPage::setRecognitionSummary(const QString& text) {
+    if (recognition_label_) {
+        recognition_label_->setText(text);
+    }
 }
 
-QLabel* RecognitionPage::attendanceStatusLabel() const {
-    return attendance_status_label_;
+void RecognitionPage::setUserName(const QString& name) {
+    if (user_name_label_) {
+        user_name_label_->setText(name);
+    }
 }
 
-QLabel* RecognitionPage::userNameLabel() const {
-    return user_name_label_;
+void RecognitionPage::setUserSimilarity(float similarity) {
+    if (user_similarity_label_) {
+        user_similarity_label_->setText(
+            QString("%1%").arg(QString::number(similarity * 100, 'f', 1)));
+    }
 }
 
-QLabel* RecognitionPage::userIdLabel() const {
-    return user_id_label_;
+void RecognitionPage::setUserMeta(const QString& employee_id, const QString& department) {
+    if (user_id_label_) {
+        user_id_label_->setText(employee_id.isEmpty() ? tr("工号: --")
+                                                     : tr("工号: %1").arg(employee_id));
+    }
+    if (user_dept_label_) {
+        user_dept_label_->setText(department.isEmpty() ? tr("部门: --")
+                                                       : tr("部门: %1").arg(department));
+    }
 }
 
-QLabel* RecognitionPage::userDeptLabel() const {
-    return user_dept_label_;
+void RecognitionPage::setUserAvatar(const QPixmap& avatar) {
+    if (!avatar_label_) {
+        return;
+    }
+
+    if (avatar.isNull()) {
+        avatar_label_->setPixmap(QPixmap());
+        avatar_label_->setText("◉");
+    } else {
+        avatar_label_->setPixmap(avatar);
+        avatar_label_->setText("");
+    }
 }
 
-QLabel* RecognitionPage::userSimilarityLabel() const {
-    return user_similarity_label_;
+void RecognitionPage::resetUserMeta() {
+    setUserMeta(QString(), QString());
+    setUserAvatar(QPixmap());
 }
 
-QLabel* RecognitionPage::checkTypeLabel() const {
-    return check_type_label_;
+void RecognitionPage::showAttendanceStatus(const QString& text, bool is_checkout) {
+    if (!attendance_status_label_) {
+        return;
+    }
+
+    attendance_status_label_->setText(text);
+    attendance_status_label_->setProperty("checkType", is_checkout ? "checkout" : "checkin");
+    attendance_status_label_->style()->unpolish(attendance_status_label_);
+    attendance_status_label_->style()->polish(attendance_status_label_);
+    attendance_status_label_->setVisible(true);
+
+    QTimer::singleShot(5000, this, [this]() {
+        if (attendance_status_label_) {
+            attendance_status_label_->setVisible(false);
+        }
+    });
 }
 
-QLabel* RecognitionPage::avatarLabel() const {
-    return avatar_label_;
+int RecognitionPage::avatarDisplaySize() const {
+    return avatar_label_ ? avatar_label_->width() : 0;
 }
 
 QLabel* RecognitionPage::clockLabel() const {
@@ -572,9 +614,6 @@ CardWidget* RecognitionPage::createVideoCard() {
     metrics_layout->addWidget(similarity_card);
     
     info_layout->addWidget(metrics_container);
-    
-    // check_type_label_ 不再显示（已在信息栏的"当前模式"中显示）
-    check_type_label_ = nullptr;
     
     main_layout->addWidget(info_panel, 0);
     
