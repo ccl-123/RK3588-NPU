@@ -19,7 +19,6 @@
 #include <QFutureWatcher>
 #include <memory>
 #include <thread>
-#include <map>
 #include <atomic>
 #include <mutex>
 
@@ -224,27 +223,9 @@ private:
     static constexpr int STRANGER_CONFIRM_DURATION_MS = 2000;   // 陌生人确认时长（2秒）
     static constexpr int STRANGER_DETECTION_TIMEOUT_MS = 500;   // 陌生人检测超时（500ms，帧间隔容差）
     
-    // 音频播放冷却机制（防止重复播放）
-    // 使用 map 为不同音频类型分别管理冷却时间，避免互相干扰
-    std::map<AudioType, std::chrono::steady_clock::time_point> last_audio_play_times_;
-    
     // 不同音频类型的冷却时间（毫秒）
     static constexpr int DUPLICATE_CHECK_COOLDOWN_MS = 10000;   // 重复签到/签退冷却（10秒）
     static constexpr int STRANGER_AUDIO_COOLDOWN_MS = 10000;    // 陌生人提示音冷却（10秒）
-    
-    /**
-     * @brief 检查音频冷却时间
-     * @param audio_type 音频类型
-     * @param cooldown_ms 冷却时间（毫秒）
-     * @return true=可以播放, false=冷却中
-     */
-    bool checkAudioCooldown(AudioType audio_type, int cooldown_ms);
-    
-    /**
-     * @brief 更新音频播放时间
-     * @param audio_type 音频类型
-     */
-    void updateAudioPlayTime(AudioType audio_type);
 
 
     // 配置

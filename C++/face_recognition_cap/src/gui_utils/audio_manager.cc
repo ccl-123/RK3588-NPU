@@ -277,6 +277,41 @@ void AudioManager::refreshDevicesAsync() {
     });
 }
 
+bool AudioManager::playSoundWithCooldown(AudioType type, int cooldown_ms) {
+    const auto now = std::chrono::steady_clock::now();
+    bool should_play = false;
+
+    {
+        QMutexLocker locker(&mutex_);
+        auto it = last_audio_play_times_.find(type);
+        if (it == last_audio_play_times_.end()) {
+            should_play = true;
+        } else {
+            const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - it->second).count();
+            if (elapsed_ms >= cooldown_ms) {
+                should_play = true;
+            } else {
+                spdlog::debug("Audio cooldown active for type {}, {}ms remaining",
+                              static_cast<int>(type), cooldown_ms - elapsed_ms);
+            }
+        }
+
+        if (should_play) {
+            last_audio_play_times_[type] = now;
+        }
+    }
+
+    if (should_play) {
+        playSound(type);
+    }
+    return should_play;
+}
+
+void AudioManager::resetCooldown(AudioType type) {
+    QMutexLocker locker(&mutex_);
+    last_audio_play_times_.erase(type);
+}
+
 void AudioManager::onDevicesDetected(const QStringList& devices) {
     {
         QMutexLocker locker(&mutex_);
