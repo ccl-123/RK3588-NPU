@@ -10,6 +10,19 @@
 #include <QCoreApplication>
 #include <spdlog/spdlog.h>
 
+#define SETTINGS_READ(expr) \
+    do { \
+        std::lock_guard<std::mutex> lock(settings_mutex_); \
+        return (expr); \
+    } while (false)
+
+#define SETTINGS_WRITE(stmt) \
+    do { \
+        std::lock_guard<std::mutex> lock(settings_mutex_); \
+        stmt; \
+        settings_->sync(); \
+    } while (false)
+
 ConfigManager::ConfigManager() {
     // 配置文件存储位置：~/.config/FaceRecognition/settings.ini
     settings_ = new QSettings(
@@ -23,9 +36,11 @@ ConfigManager::ConfigManager() {
 }
 
 ConfigManager::~ConfigManager() {
+    std::lock_guard<std::mutex> lock(settings_mutex_);
     if (settings_) {
         settings_->sync();
         delete settings_;
+        settings_ = nullptr;
     }
 }
 
@@ -36,204 +51,192 @@ ConfigManager* ConfigManager::instance() {
 
 // 识别设置
 float ConfigManager::getRecognitionThreshold() const {
-    return settings_->value("recognition/threshold", Config::Default::RECOGNITION_THRESHOLD).toDouble();
+    SETTINGS_READ(settings_->value("recognition/threshold",
+                                   Config::Default::RECOGNITION_THRESHOLD).toDouble());
 }
 
 void ConfigManager::setRecognitionThreshold(float threshold) {
-    settings_->setValue("recognition/threshold", static_cast<double>(threshold));
-    settings_->sync();
+    SETTINGS_WRITE(settings_->setValue("recognition/threshold",
+                                       static_cast<double>(threshold)));
 }
 
 int ConfigManager::getDuplicateCheckInterval() const {
-    return settings_->value("recognition/duplicate_interval", Config::Default::DUPLICATE_CHECK_INTERVAL).toInt();
+    SETTINGS_READ(settings_->value("recognition/duplicate_interval",
+                                   Config::Default::DUPLICATE_CHECK_INTERVAL).toInt());
 }
 
 void ConfigManager::setDuplicateCheckInterval(int seconds) {
-    settings_->setValue("recognition/duplicate_interval", seconds);
-    settings_->sync();
+    SETTINGS_WRITE(settings_->setValue("recognition/duplicate_interval", seconds));
 }
 
 int ConfigManager::getRecognitionConfirmCount() const {
-    return settings_->value("recognition/confirm_count", Config::Default::RECOGNITION_CONFIRM_COUNT).toInt();
+    SETTINGS_READ(settings_->value("recognition/confirm_count",
+                                   Config::Default::RECOGNITION_CONFIRM_COUNT).toInt());
 }
 
 void ConfigManager::setRecognitionConfirmCount(int count) {
-    settings_->setValue("recognition/confirm_count", count);
-    settings_->sync();
+    SETTINGS_WRITE(settings_->setValue("recognition/confirm_count", count));
 }
 
 int ConfigManager::getUserConfirmDuration() const {
-    return settings_->value("recognition/user_confirm_duration_ms", Config::Default::USER_CONFIRM_DURATION_MS).toInt();
+    SETTINGS_READ(settings_->value("recognition/user_confirm_duration_ms",
+                                   Config::Default::USER_CONFIRM_DURATION_MS).toInt());
 }
 
 void ConfigManager::setUserConfirmDuration(int milliseconds) {
-    settings_->setValue("recognition/user_confirm_duration_ms", milliseconds);
-    settings_->sync();
+    SETTINGS_WRITE(settings_->setValue("recognition/user_confirm_duration_ms", milliseconds));
 }
 
 // 音频设置
 bool ConfigManager::isAudioEnabled() const {
-    return settings_->value("audio/enabled", Config::Default::AUDIO_ENABLED).toBool();
+    SETTINGS_READ(settings_->value("audio/enabled", Config::Default::AUDIO_ENABLED).toBool());
 }
 
 void ConfigManager::setAudioEnabled(bool enabled) {
-    settings_->setValue("audio/enabled", enabled);
-    settings_->sync();
+    SETTINGS_WRITE(settings_->setValue("audio/enabled", enabled));
 }
 
 int ConfigManager::getAudioVolume() const {
-    return settings_->value("audio/volume", Config::Default::AUDIO_VOLUME).toInt();
+    SETTINGS_READ(settings_->value("audio/volume", Config::Default::AUDIO_VOLUME).toInt());
 }
 
 void ConfigManager::setAudioVolume(int volume) {
-    settings_->setValue("audio/volume", volume);
-    settings_->sync();
+    SETTINGS_WRITE(settings_->setValue("audio/volume", volume));
 }
 
 QString ConfigManager::getAudioDevice() const {
-    return settings_->value("audio/device", "").toString();
+    SETTINGS_READ(settings_->value("audio/device", "").toString());
 }
 
 void ConfigManager::setAudioDevice(const QString& device) {
-    settings_->setValue("audio/device", device);
-    settings_->sync();
+    SETTINGS_WRITE(settings_->setValue("audio/device", device));
 }
 
 // 显示设置
 bool ConfigManager::isShowFPS() const {
-    return settings_->value("display/show_fps", true).toBool();
+    SETTINGS_READ(settings_->value("display/show_fps", true).toBool());
 }
 
 void ConfigManager::setShowFPS(bool show) {
-    settings_->setValue("display/show_fps", show);
-    settings_->sync();
+    SETTINGS_WRITE(settings_->setValue("display/show_fps", show));
 }
 
 bool ConfigManager::isShowConfidence() const {
-    return settings_->value("display/show_confidence", true).toBool();
+    SETTINGS_READ(settings_->value("display/show_confidence", true).toBool());
 }
 
 void ConfigManager::setShowConfidence(bool show) {
-    settings_->setValue("display/show_confidence", show);
-    settings_->sync();
+    SETTINGS_WRITE(settings_->setValue("display/show_confidence", show));
 }
 
 bool ConfigManager::isAutoStart() const {
-    return settings_->value("display/auto_start", false).toBool();
+    SETTINGS_READ(settings_->value("display/auto_start", false).toBool());
 }
 
 void ConfigManager::setAutoStart(bool autoStart) {
-    settings_->setValue("display/auto_start", autoStart);
-    settings_->sync();
+    SETTINGS_WRITE(settings_->setValue("display/auto_start", autoStart));
 }
 
 // 考勤设置
 QString ConfigManager::getWorkStartTime() const {
-    return settings_->value("attendance/work_start_time", "09:00").toString();
+    SETTINGS_READ(settings_->value("attendance/work_start_time", "09:00").toString());
 }
 
 void ConfigManager::setWorkStartTime(const QString& time) {
-    settings_->setValue("attendance/work_start_time", time);
-    settings_->sync();
+    SETTINGS_WRITE(settings_->setValue("attendance/work_start_time", time));
 }
 
 QString ConfigManager::getWorkEndTime() const {
-    return settings_->value("attendance/work_end_time", "18:00").toString();
+    SETTINGS_READ(settings_->value("attendance/work_end_time", "18:00").toString());
 }
 
 void ConfigManager::setWorkEndTime(const QString& time) {
-    settings_->setValue("attendance/work_end_time", time);
-    settings_->sync();
+    SETTINGS_WRITE(settings_->setValue("attendance/work_end_time", time));
 }
 
 int ConfigManager::getLateThreshold() const {
-    return settings_->value("attendance/late_threshold", Config::Default::LATE_THRESHOLD).toInt();
+    SETTINGS_READ(settings_->value("attendance/late_threshold",
+                                   Config::Default::LATE_THRESHOLD).toInt());
 }
 
 void ConfigManager::setLateThreshold(int minutes) {
-    settings_->setValue("attendance/late_threshold", minutes);
-    settings_->sync();
+    SETTINGS_WRITE(settings_->setValue("attendance/late_threshold", minutes));
 }
 
 int ConfigManager::getEarlyLeaveThreshold() const {
-    return settings_->value("attendance/early_leave_threshold", Config::Default::EARLY_LEAVE_THRESHOLD).toInt();
+    SETTINGS_READ(settings_->value("attendance/early_leave_threshold",
+                                   Config::Default::EARLY_LEAVE_THRESHOLD).toInt());
 }
 
 void ConfigManager::setEarlyLeaveThreshold(int minutes) {
-    settings_->setValue("attendance/early_leave_threshold", minutes);
-    settings_->sync();
+    SETTINGS_WRITE(settings_->setValue("attendance/early_leave_threshold", minutes));
 }
 
 bool ConfigManager::isAllowMultipleCheckin() const {
-    return settings_->value("attendance/allow_multiple_checkin", false).toBool();
+    SETTINGS_READ(settings_->value("attendance/allow_multiple_checkin", false).toBool());
 }
 
 void ConfigManager::setAllowMultipleCheckin(bool allow) {
-    settings_->setValue("attendance/allow_multiple_checkin", allow);
-    settings_->sync();
+    SETTINGS_WRITE(settings_->setValue("attendance/allow_multiple_checkin", allow));
 }
 
 bool ConfigManager::isCheckinSound() const {
-    return settings_->value("attendance/checkin_sound", true).toBool();
+    SETTINGS_READ(settings_->value("attendance/checkin_sound", true).toBool());
 }
 
 void ConfigManager::setCheckinSound(bool enabled) {
-    settings_->setValue("attendance/checkin_sound", enabled);
-    settings_->sync();
+    SETTINGS_WRITE(settings_->setValue("attendance/checkin_sound", enabled));
 }
 
 bool ConfigManager::isShowCheckinReminder() const {
-    return settings_->value("attendance/show_checkin_reminder", true).toBool();
+    SETTINGS_READ(settings_->value("attendance/show_checkin_reminder", true).toBool());
 }
 
 void ConfigManager::setShowCheckinReminder(bool show) {
-    settings_->setValue("attendance/show_checkin_reminder", show);
-    settings_->sync();
+    SETTINGS_WRITE(settings_->setValue("attendance/show_checkin_reminder", show));
 }
 
 // 摄像头设置（简化：固定 USB + 异步）
 int ConfigManager::getCameraId() const {
-    return settings_->value("camera/id", Config::Default::CAMERA_ID).toInt();
+    SETTINGS_READ(settings_->value("camera/id", Config::Default::CAMERA_ID).toInt());
 }
 
 void ConfigManager::setCameraId(int id) {
-    settings_->setValue("camera/id", id);
-    settings_->sync();
+    SETTINGS_WRITE(settings_->setValue("camera/id", id));
 }
 
 // 天气/城市设置
 bool ConfigManager::isAutoLocationEnabled() const {
-    return settings_->value("weather/auto_location", false).toBool();  // 默认关闭自动定位
+    SETTINGS_READ(settings_->value("weather/auto_location", false).toBool());  // 默认关闭自动定位
 }
 
 void ConfigManager::setAutoLocationEnabled(bool enabled) {
-    settings_->setValue("weather/auto_location", enabled);
-    settings_->sync();
+    SETTINGS_WRITE(settings_->setValue("weather/auto_location", enabled));
 }
 
 QString ConfigManager::getManualCity() const {
-    return settings_->value("weather/manual_city", QString::fromUtf8("佛山")).toString();
+    SETTINGS_READ(settings_->value("weather/manual_city", QString::fromUtf8("佛山")).toString());
 }
 
 void ConfigManager::setManualCity(const QString& city) {
-    settings_->setValue("weather/manual_city", city);
-    settings_->sync();
+    SETTINGS_WRITE(settings_->setValue("weather/manual_city", city));
 }
 
 double ConfigManager::getManualLatitude() const {
-    return settings_->value("weather/manual_lat", 23.0215).toDouble();  // 佛山默认纬度
+    SETTINGS_READ(settings_->value("weather/manual_lat", 23.0215).toDouble());  // 佛山默认纬度
 }
 
 void ConfigManager::setManualLatitude(double lat) {
-    settings_->setValue("weather/manual_lat", lat);
-    settings_->sync();
+    SETTINGS_WRITE(settings_->setValue("weather/manual_lat", lat));
 }
 
 double ConfigManager::getManualLongitude() const {
-    return settings_->value("weather/manual_lon", 113.1214).toDouble();  // 佛山默认经度
+    SETTINGS_READ(settings_->value("weather/manual_lon", 113.1214).toDouble());  // 佛山默认经度
 }
 
 void ConfigManager::setManualLongitude(double lon) {
-    settings_->setValue("weather/manual_lon", lon);
-    settings_->sync();
+    SETTINGS_WRITE(settings_->setValue("weather/manual_lon", lon));
 }
+
+#undef SETTINGS_READ
+#undef SETTINGS_WRITE
