@@ -8,6 +8,7 @@
 #include "app/recognition_thread.h"
 #include "core/facenet.h"
 #include <cstring>
+#include <spdlog/spdlog.h>
 
 RecognitionThread::RecognitionThread(ModelManager* model_manager,
                                      FeatureLibrary* feature_library,
@@ -163,7 +164,7 @@ void RecognitionThread::process_task(RecognitionTask& task) {
         // 2. FaceNet 特征提取
         gettimeofday(&t_facenet_start, NULL);
         float* facenet_result = nullptr;
-        facenet_inference(
+        int facenet_ret = facenet_inference(
             model_manager_->get_facenet_ctx(),
             warp,
             model_manager_->get_facenet_io_num(),
@@ -172,9 +173,13 @@ void RecognitionThread::process_task(RecognitionTask& task) {
             &facenet_result
         );
         gettimeofday(&t_facenet_end, NULL);
+        const bool facenet_ok = (facenet_ret == 0 && facenet_result != nullptr);
+        if (!facenet_ok) {
+            spdlog::warn("FaceNet inference failed, skip face index {}", i);
+        }
         
         std::vector<float> feature;
-        if (registration_callback_ && facenet_result) {
+        if (registration_callback_ && facenet_ok) {
             feature.resize(FACENET_FEATURE_DIM);
             memcpy(feature.data(), facenet_result, FACENET_FEATURE_DIM * sizeof(float));
         }
@@ -184,7 +189,7 @@ void RecognitionThread::process_task(RecognitionTask& task) {
         float max_score = 0.0f;
         int user_id = 0;
         bool is_recognized = false;
-        if (mode == RecognitionMode::Recognition) {
+        if (mode == RecognitionMode::Recognition && facenet_ok) {
             gettimeofday(&t_match_start, NULL);
             bool match_found = feature_library_->match_feature_with_id(facenet_result, threshold,
                                                                        user_id, name, max_score);
@@ -232,11 +237,13 @@ void RecognitionThread::process_task(RecognitionTask& task) {
         }
         
         // 释放输出
-        facenet_output_release(
-            model_manager_->get_facenet_ctx(),
-            model_manager_->get_facenet_io_num(),
-            model_manager_->get_facenet_outputs()
-        );
+        if (facenet_ok) {
+            facenet_output_release(
+                model_manager_->get_facenet_ctx(),
+                model_manager_->get_facenet_io_num(),
+                model_manager_->get_facenet_outputs()
+            );
+        }
         if (mode == RecognitionMode::Recognition && is_recognized) {
             recognized_count++;
         }

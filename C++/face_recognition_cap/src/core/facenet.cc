@@ -108,21 +108,27 @@ static int saveFloat(const char* file_name, float* output, int element_size)
 /*-------------------------------------------
                   Main Functions
 -------------------------------------------*/
-int create_facenet(char *model_name, rknn_context *ctx, int &width, int &height, int &channel, rknn_input_output_num &io_num, unsigned char *model_data)
+int create_facenet(char *model_name, rknn_context *ctx, int &width, int &height, int &channel, rknn_input_output_num &io_num, unsigned char*& model_data)
 {
-  	int            status     = 0;
-  	int            ret;
+  	int ret;
 
   	/* Create the neural network */
   	printf("Loading facenet model...\n");
   	int model_data_size = 0;
+  	model_data = nullptr;
   	model_data          = load_model(model_name, &model_data_size);
+    if (model_data == nullptr || model_data_size <= 0) {
+        printf("load_model failed: %s\n", model_name);
+        model_data = nullptr;
+        return -1;
+    }
   	// 启用高优先级
   	uint32_t flag = RKNN_FLAG_PRIOR_HIGH;
   	ret = rknn_init(ctx, model_data, model_data_size, flag, NULL);
   	if (ret < 0) {
 		printf("rknn_init error ret=%d\n", ret);
         free(model_data);
+        model_data = nullptr;
 		return -1;
   	}
   	
@@ -130,6 +136,9 @@ int create_facenet(char *model_name, rknn_context *ctx, int &width, int &height,
   	ret = rknn_set_core_mask(*ctx, core_mask);
   	if (ret < 0) {
 		printf("rknn_set_core_mask error ret=%d\n", ret);
+        rknn_destroy(*ctx);
+        free(model_data);
+        model_data = nullptr;
 		return -1;
   	}
 
@@ -137,6 +146,9 @@ int create_facenet(char *model_name, rknn_context *ctx, int &width, int &height,
   	ret = rknn_query(*ctx, RKNN_QUERY_SDK_VERSION, &version, sizeof(rknn_sdk_version));
   	if (ret < 0) {
 		printf("rknn_init error ret=%d\n", ret);
+        rknn_destroy(*ctx);
+        free(model_data);
+        model_data = nullptr;
 		return -1;
   	}
   	printf("sdk version: %s driver version: %s\n", version.api_version, version.drv_version);
@@ -144,6 +156,9 @@ int create_facenet(char *model_name, rknn_context *ctx, int &width, int &height,
   	ret = rknn_query(*ctx, RKNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num));
   	if (ret < 0) {
 		printf("rknn_init error ret=%d\n", ret);
+        rknn_destroy(*ctx);
+        free(model_data);
+        model_data = nullptr;
 		return -1;
   	}
   	printf("model input num: %d, output num: %d\n", io_num.n_input, io_num.n_output);
@@ -155,6 +170,9 @@ int create_facenet(char *model_name, rknn_context *ctx, int &width, int &height,
 		ret                  = rknn_query(*ctx, RKNN_QUERY_INPUT_ATTR, &(input_attrs[i]), sizeof(rknn_tensor_attr));
 		if (ret < 0) {
 	  		printf("rknn_init error ret=%d\n", ret);
+            rknn_destroy(*ctx);
+            free(model_data);
+            model_data = nullptr;
 	  		return -1;
 		}
 		dump_tensor_attr(&(input_attrs[i]));
@@ -165,6 +183,13 @@ int create_facenet(char *model_name, rknn_context *ctx, int &width, int &height,
   	for (int i = 0; i < io_num.n_output; i++) {
 		output_attrs[i].index = i;
 		ret                   = rknn_query(*ctx, RKNN_QUERY_OUTPUT_ATTR, &(output_attrs[i]), sizeof(rknn_tensor_attr));
+        if (ret < 0) {
+            printf("rknn_query output attr error ret=%d\n", ret);
+            rknn_destroy(*ctx);
+            free(model_data);
+            model_data = nullptr;
+            return -1;
+        }
 		dump_tensor_attr(&(output_attrs[i]));
   	}
 
@@ -187,25 +212,43 @@ int create_facenet(char *model_name, rknn_context *ctx, int &width, int &height,
 
 int facenet_inference(rknn_context *ctx, cv::Mat img, rknn_input_output_num io_num, rknn_input *inputs, rknn_output *outputs, float **result){
     int ret;
+    if (ctx == nullptr || inputs == nullptr || outputs == nullptr || result == nullptr || img.empty()) {
+        return -1;
+    }
+
+    *result = nullptr;
 
     // 直接使用 uint8 输入，/home/firefly/RK_NPU2_SDK/convert.py转换脚本，RKNN 会按 config 中的 mean/std 做归一化
     inputs[0].buf = (void*)img.data;
     inputs[0].size = img.total() * img.elemSize();  // uint8 尺寸
 
     ret = rknn_inputs_set(*ctx, io_num.n_input, inputs);
+    if (ret < 0) {
+        return ret;
+    }
 
     ret = rknn_run(*ctx, NULL);
+    if (ret < 0) {
+        return ret;
+    }
+
     ret = rknn_outputs_get(*ctx, io_num.n_output, outputs, NULL);
-    result[0] = (float*)outputs[0].buf;
+    if (ret < 0 || outputs[0].buf == nullptr) {
+        return -1;
+    }
+    *result = (float*)outputs[0].buf;
 
-    l2_normalize(result[0]);
+    l2_normalize(*result);
 
-    return ret;
+    return 0;
 }
 
 int facenet_output_release(rknn_context *ctx, rknn_input_output_num io_num, rknn_output *outputs)
 {
 	int ret;
+	if (ctx == nullptr || outputs == nullptr) {
+        return -1;
+    }
 	
 	ret = rknn_outputs_release(*ctx, io_num.n_output, outputs);
 	
@@ -214,9 +257,13 @@ int facenet_output_release(rknn_context *ctx, rknn_input_output_num io_num, rknn
 
 void release_facenet(rknn_context *ctx, unsigned char *model_data)
 {
-	int ret;
+	int ret = 0;
   	// release
-  	ret = rknn_destroy(*ctx);
+    if (ctx) {
+  	    ret = rknn_destroy(*ctx);
+        *ctx = 0;
+        (void)ret;
+    }
 
   	if (model_data) {
 		free(model_data);
