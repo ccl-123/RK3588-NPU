@@ -12,6 +12,7 @@
 #include <functional>
 #include <chrono>
 #include <memory>
+#include <atomic>
 #include <opencv2/opencv.hpp>
 #include "config/config.h"
 #include "core/postprocess.h"
@@ -234,7 +235,7 @@ public:
     /**
      * @brief 检查是否正在运行
      */
-    bool is_running() const { return running_; }
+    bool is_running() const { return running_.load(std::memory_order_acquire); }
 
     // ==================== NPU 资源管理接口 ====================
     // RK3588 的 NPU 被 RKNN (人脸模型) 和 RKLLM (语言模型) 共享
@@ -363,7 +364,7 @@ private:
 
     // 运行状态
     bool initialized_;
-    bool running_;
+    std::atomic<bool> running_;
 
     // 摄像头状态（优雅降级支持）
     bool camera_initialized_;       // 摄像头是否成功初始化

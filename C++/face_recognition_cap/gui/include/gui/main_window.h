@@ -174,7 +174,7 @@ private:
     // 注意：AttendanceQueryWidget 和 UserManagementWidget 每次创建新窗口，不需要成员变量
     
     // 系统状态
-    bool is_running_;
+    std::atomic<bool> is_running_;
     bool recognition_paused_for_llm_;   // 识别是否因 LLM 而暂停（用于恢复）
     double npu_fps_;                    // NPU 帧率（YOLO 检测能力，约 50+ FPS）
     double camera_fps_;                 // 摄像头采集帧率（约 30 FPS）
@@ -210,7 +210,7 @@ private:
     };
     UserDetection user_detection_;
     int last_displayed_user_id_;
-    int user_confirm_duration_ms_;                              // 用户确认时长（可配置，默认1秒）
+    std::atomic<int> user_confirm_duration_ms_;                 // 用户确认时长（可配置，默认1秒）
     static constexpr int USER_DETECTION_TIMEOUT_MS = 500;       // 用户检测超时（500ms，帧间隔容差）
     
     // 陌生人持续检测机制（基于时间而非帧数）
@@ -252,4 +252,3 @@ private:
     std::string camera_source_;
     int camera_id_;
 };
-
