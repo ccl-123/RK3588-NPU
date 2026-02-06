@@ -86,27 +86,41 @@ int create_yolov8_face(char* model_name, rknn_context* ctx,
                        rknn_input_output_num& io_num,
                        rknn_tensor_attr* output_attrs,
                        unsigned char*& model_data) {
-    int ret;
+    int ret = -1;
+    bool rknn_inited = false;
+    std::vector<rknn_tensor_attr> input_attrs;
+
+    if (ctx == nullptr || output_attrs == nullptr) {
+        printf("create_yolov8_face invalid args: null pointer\n");
+        return -1;
+    }
 
     // 加载模型
     printf("Loading YOLOv8-face model...\n");
     int model_data_size = 0;
     model_data = load_model(model_name, &model_data_size);
+    if (model_data == nullptr || model_data_size <= 0) {
+        printf("load_model failed, model=%s size=%d\n", model_name, model_data_size);
+        return -1;
+    }
+
     // 启用高优先级
     uint32_t flag = RKNN_FLAG_PRIOR_HIGH;
     ret = rknn_init(ctx, model_data, model_data_size, flag, NULL);
     if (ret < 0) {
         printf("rknn_init error ret=%d\n", ret);
         free(model_data);
+        model_data = nullptr;
         return -1;
     }
+    rknn_inited = true;
 
     // 设置 NPU 核心 - 使用所有核心提高性能
     rknn_core_mask core_mask = RKNN_NPU_CORE_0_1_2;  // 使用核心0、1、2
     ret = rknn_set_core_mask(*ctx, core_mask);
     if (ret < 0) {
         printf("rknn_set_core_mask error ret=%d\n", ret);
-        return -1;
+        goto create_failed;
     }
 
     // 查询 SDK 版本
@@ -114,7 +128,7 @@ int create_yolov8_face(char* model_name, rknn_context* ctx,
     ret = rknn_query(*ctx, RKNN_QUERY_SDK_VERSION, &version, sizeof(rknn_sdk_version));
     if (ret < 0) {
         printf("rknn_query SDK version error ret=%d\n", ret);
-        return -1;
+        goto create_failed;
     }
     printf("sdk version: %s driver version: %s\n", version.api_version, version.drv_version);
 
@@ -122,25 +136,32 @@ int create_yolov8_face(char* model_name, rknn_context* ctx,
     ret = rknn_query(*ctx, RKNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num));
     if (ret < 0) {
         printf("rknn_query io_num error ret=%d\n", ret);
-        return -1;
+        goto create_failed;
+    }
+    if (io_num.n_input == 0) {
+        printf("invalid model io: n_input=%u\n", io_num.n_input);
+        ret = -1;
+        goto create_failed;
     }
     printf("model input num: %d, output num: %d\n", io_num.n_input, io_num.n_output);
 
     // 验证输出数量
     if (io_num.n_output != YOLOV8_FACE_OUTPUT_NUM) {
-        printf("Warning: Expected %d outputs for YOLOv8-face RKOPT format, got %d\n", 
+        printf("Error: Expected %d outputs for YOLOv8-face RKOPT format, got %d\n",
                YOLOV8_FACE_OUTPUT_NUM, io_num.n_output);
+        ret = -1;
+        goto create_failed;
     }
 
     // 查询输入属性
-    std::vector<rknn_tensor_attr> input_attrs(io_num.n_input);
+    input_attrs.resize(io_num.n_input);
     memset(input_attrs.data(), 0, sizeof(rknn_tensor_attr) * input_attrs.size());
     for (uint32_t i = 0; i < io_num.n_input; ++i) {
         input_attrs[i].index = i;
         ret = rknn_query(*ctx, RKNN_QUERY_INPUT_ATTR, &(input_attrs[i]), sizeof(rknn_tensor_attr));
         if (ret < 0) {
             printf("rknn_query input attr error ret=%d\n", ret);
-            return -1;
+            goto create_failed;
         }
         printf("Input %u:\n", i);
         dump_tensor_attr(&(input_attrs[i]));
@@ -161,14 +182,28 @@ int create_yolov8_face(char* model_name, rknn_context* ctx,
     printf("model input height=%d, width=%d, channel=%d\n", height, width, channel);
 
     // 查询输出属性
-    memset(output_attrs, 0, sizeof(rknn_tensor_attr) * io_num.n_output);
+    memset(output_attrs, 0, sizeof(rknn_tensor_attr) * YOLOV8_FACE_OUTPUT_NUM);
     for (uint32_t i = 0; i < io_num.n_output; ++i) {
         output_attrs[i].index = i;
         ret = rknn_query(*ctx, RKNN_QUERY_OUTPUT_ATTR, &(output_attrs[i]), sizeof(rknn_tensor_attr));
+        if (ret < 0) {
+            printf("rknn_query output attr error ret=%d\n", ret);
+            goto create_failed;
+        }
         printf("Output %u:\n", i);
         dump_tensor_attr(&(output_attrs[i]));
     }
 
+    return 0;
+
+create_failed:
+    if (rknn_inited) {
+        rknn_destroy(*ctx);
+    }
+    if (model_data) {
+        free(model_data);
+        model_data = nullptr;
+    }
     return ret;
 }
 
