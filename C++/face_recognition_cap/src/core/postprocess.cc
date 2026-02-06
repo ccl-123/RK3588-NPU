@@ -13,6 +13,7 @@
 #include <string.h>
 #include <sys/time.h>
 #include <algorithm>
+#include <array>
 #include <set>
 #include <vector>
 
@@ -149,7 +150,8 @@ static int process_i8(int8_t* input, int grid_h, int grid_w, int stride,
                       std::vector<float>& boxes, std::vector<float>& boxScores,
                       std::vector<int>& classId, float threshold,
                       int32_t zp, float scale, int index) {
-    int input_loc_len = 64;  // DFL: 4 * 16
+    constexpr int kInputLocLen = 64;  // DFL: 4 * 16
+    constexpr int kDflBins = 16;
     int validCount = 0;
     const float safe_threshold = std::clamp(threshold, 1e-6f, 1.0f - 1e-6f);
     int8_t thres_i8 = qnt_f32_to_affine(unsigmoid(safe_threshold), zp, scale);
@@ -164,22 +166,22 @@ static int process_i8(int8_t* input, int grid_h, int grid_w, int stride,
                 float box_conf_f32 = sigmoid(deqnt_affine_to_f32(conf_i8, zp, scale));
 
                 // 提取并反量化 DFL 数据
-                std::vector<float> loc(input_loc_len);
-                for (int i = 0; i < input_loc_len; ++i) {
+                std::array<float, kInputLocLen> loc{};
+                for (int i = 0; i < kInputLocLen; ++i) {
                     loc[i] = deqnt_affine_to_f32(input[i * grid_h * grid_w + offset], zp, scale);
   }
   
                 // DFL 解码
                 for (int i = 0; i < 4; ++i) {
-                    softmax(&loc[i * 16], 16);
+                    softmax(loc.data() + i * kDflBins, kDflBins);
                 }
 
                 float xywh_[4] = {0, 0, 0, 0};
-                for (int dfl = 0; dfl < 16; ++dfl) {
-                    xywh_[0] += loc[0 * 16 + dfl] * dfl;
-                    xywh_[1] += loc[1 * 16 + dfl] * dfl;
-                    xywh_[2] += loc[2 * 16 + dfl] * dfl;
-                    xywh_[3] += loc[3 * 16 + dfl] * dfl;
+                for (int dfl = 0; dfl < kDflBins; ++dfl) {
+                    xywh_[0] += loc[0 * kDflBins + dfl] * dfl;
+                    xywh_[1] += loc[1 * kDflBins + dfl] * dfl;
+                    xywh_[2] += loc[2 * kDflBins + dfl] * dfl;
+                    xywh_[3] += loc[3 * kDflBins + dfl] * dfl;
                 }
 
                 float x1_grid = (w + 0.5f) - xywh_[0];
