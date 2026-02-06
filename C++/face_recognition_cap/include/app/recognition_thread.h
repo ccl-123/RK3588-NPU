@@ -126,6 +126,7 @@ private:
     std::mutex mutex_;
     std::condition_variable cv_;           // 条件变量，避免忙等待
     std::queue<RecognitionTask> queue_;
+    std::mutex callback_mutex_;            // 回调读写互斥，避免跨线程竞态
 
     ModelManager* model_manager_;
     FeatureLibrary* feature_library_;

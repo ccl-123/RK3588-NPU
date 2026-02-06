@@ -70,15 +70,18 @@ bool RecognitionThread::submit_task(const RecognitionTask& task) {
 }
 
 void RecognitionThread::set_recognition_callback(RecognitionCallbackFunc callback) {
-    recognition_callback_ = callback;
+    std::lock_guard<std::mutex> lock(callback_mutex_);
+    recognition_callback_ = std::move(callback);
 }
 
 void RecognitionThread::set_frame_callback(FrameCallbackFunc callback) {
-    frame_callback_ = callback;
+    std::lock_guard<std::mutex> lock(callback_mutex_);
+    frame_callback_ = std::move(callback);
 }
 
 void RecognitionThread::set_registration_callback(RegistrationCallbackFunc callback) {
-    registration_callback_ = callback;
+    std::lock_guard<std::mutex> lock(callback_mutex_);
+    registration_callback_ = std::move(callback);
 }
 
 void RecognitionThread::set_mode(RecognitionMode mode) {
@@ -138,6 +141,16 @@ void RecognitionThread::process_task(RecognitionTask& task) {
     cv::Mat render_img = task.orig_img.clone();
     float threshold = facenet_threshold_;
     int recognized_count = 0;
+
+    RecognitionCallbackFunc recognition_callback;
+    FrameCallbackFunc frame_callback;
+    RegistrationCallbackFunc registration_callback;
+    {
+        std::lock_guard<std::mutex> lock(callback_mutex_);
+        recognition_callback = recognition_callback_;
+        frame_callback = frame_callback_;
+        registration_callback = registration_callback_;
+    }
     
     for (int i = 0; i < task.detect_result.count; i++) {
         // 1. 人脸对齐
@@ -179,7 +192,7 @@ void RecognitionThread::process_task(RecognitionTask& task) {
         }
         
         std::vector<float> feature;
-        if (registration_callback_ && facenet_ok) {
+        if (registration_callback && facenet_ok) {
             feature.resize(FACENET_FEATURE_DIM);
             memcpy(feature.data(), facenet_result, FACENET_FEATURE_DIM * sizeof(float));
         }
@@ -206,7 +219,7 @@ void RecognitionThread::process_task(RecognitionTask& task) {
         int y2 = task.detect_result.results[i].box.bottom;
 
         // 组装注册预览数据（每张人脸）
-        if (registration_callback_) {
+        if (registration_callback) {
             RegistrationSample sample;
             sample.face_box = cv::Rect(x1, y1, x2 - x1, y2 - y1);
             sample.landmarks = {
@@ -232,8 +245,8 @@ void RecognitionThread::process_task(RecognitionTask& task) {
         recognition_results.push_back(result);
         
         // 修复：只有识别成功时才触发回调（避免陌生人误触发）
-        if (mode == RecognitionMode::Recognition && recognition_callback_ && is_recognized) {
-            recognition_callback_(result);
+        if (mode == RecognitionMode::Recognition && recognition_callback && is_recognized) {
+            recognition_callback(result);
         }
         
         // 释放输出
@@ -276,9 +289,9 @@ void RecognitionThread::process_task(RecognitionTask& task) {
     
     // 输出 / 渲染
     gettimeofday(&t_render_start, NULL);
-    if (frame_callback_) {
+    if (frame_callback) {
         // GUI 模式：通过回调返回帧
-        frame_callback_(render_img, recognition_results);
+        frame_callback(render_img, recognition_results);
     } else {
         // 命令行模式：直接渲染
         char fps_text[64];
@@ -291,8 +304,8 @@ void RecognitionThread::process_task(RecognitionTask& task) {
     }
     gettimeofday(&t_render_end, NULL);
 
-    if (registration_callback_) {
-        registration_callback_(task.orig_img, registration_samples);
+    if (registration_callback) {
+        registration_callback(task.orig_img, registration_samples);
     }
 
     if (perf_monitor_) {
