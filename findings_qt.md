@@ -1,7 +1,7 @@
 # Qt 前端复审报告
 
 **复审日期**: 2026-02-06
-**复审范围**: `main_window.cc`、`dashboard_page.cc`、`recognition_page.h`、QSS 主题文件
+**复审范围**: `main_window.cc`、`dashboard_page.cc`、`recognition_page.*`、QSS 主题文件
 
 ---
 
@@ -9,10 +9,10 @@
 
 | 问题 | 状态 | 验证说明 |
 |------|------|----------|
-| P1: Dashboard 内联样式残留 | ❌未修复 | `dashboard_page.cc` 仍有 11 处 `setStyleSheet`（行 899, 911, 986, 1112, 1117, 1145, 1152, 1159, 1167, 1222, 1257） |
-| P2: 文件规模过大 | ❌未修复 | `dashboard_page.cc` 1964 行，`main_window.cc` 1724 行，仍未进入拆分阶段 |
-| P3: MainWindow 与页面强耦合 | ❌未修复 | `MainWindow` 仍直接获取并保存 `RecognitionPage` 内部 10 个 `QLabel*`（行 829-838） |
-| P4: 音频冷却逻辑位置不当 | ❌未修复 | `checkAudioCooldown` / `updateAudioPlayTime` 仍在 `MainWindow`（`main_window.cc` 682/703） |
+| P1: Dashboard 内联样式残留 | ✅已修复 | `dashboard_page.cc` 已无 `setStyleSheet(...)`；样式已收敛到 `modern_theme*.qss`（commit: `6a35a67`） |
+| P2: 文件规模过大 | ❌未修复 | `dashboard_page.cc` 1866 行，`main_window.cc` 1688 行，拆分任务仍未开始 |
+| P3: MainWindow 与页面强耦合 | ✅已修复 | `MainWindow` 不再持有 `RecognitionPage` 内部多个 `QLabel*`；改为调用页面状态更新接口（commit: `a6bf3d1`） |
+| P4: 音频冷却逻辑位置不当 | ✅已修复 | 冷却逻辑已下沉到 `AudioManager::playSoundWithCooldown/resetCooldown`，`MainWindow` 不再维护冷却表（commit: `34c1acf`） |
 
 ---
 
@@ -25,17 +25,13 @@
 | `81d9e28` | 移除 AiChatText 内联样式，转 QSS |
 | `358f0db` | 移除 AI Agent 标题内联样式，转 QSS |
 | `1e225f7` | 状态标签（范围/后端/Agent）改为属性 + QSS 驱动 |
+| `6a35a67` | 清理 Dashboard 剩余内联样式并补齐 QSS 选择器 |
+| `34c1acf` | 音频冷却逻辑下沉到 AudioManager |
+| `a6bf3d1` | MainWindow 与 RecognitionPage 状态更新解耦 |
 
 ---
 
-## 更正说明
+## 当前剩余风险
 
-- 旧结论“MainWindow 与页面耦合已明显降低，仅信号槽连接”不准确，已更正。当前仍存在直接暴露控件指针的耦合方式。
-
----
-
-## 建议优先级
-
-1. 先清理 `dashboard_page.cc` 剩余 11 处内联样式，并补齐 QSS 选择器。
-2. 随后执行 Phase 8：移除 `RecognitionPage::*Label()` 暴露接口，改 `updateState(...)`。
-3. 再推进 Phase 9：拆分 Dashboard/MainWindow，控制单文件复杂度。
+1. `main_window.cc`、`dashboard_page.cc` 仍属于大文件，后续修改回归风险偏高。
+2. Phase 9（文件拆分）尚未执行。
