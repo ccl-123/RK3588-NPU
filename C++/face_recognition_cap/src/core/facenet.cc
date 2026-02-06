@@ -20,6 +20,7 @@
 #include <fstream>
 #include <typeinfo>
 #include <vector>
+#include <limits>
 
 #define _BASETSD_H
 
@@ -69,7 +70,12 @@ static unsigned char* load_data(FILE* fp, size_t ofst, size_t sz)
 		printf("buffer malloc failure.\n");
 		return NULL;
   	}
-  	ret = fread(data, 1, sz, fp);
+  	size_t read_size = fread(data, 1, sz, fp);
+  	if (read_size != sz) {
+		printf("blob read failure, expect=%zu actual=%zu.\n", sz, read_size);
+		free(data);
+		return NULL;
+  	}
   	return data;
 }
 
@@ -84,10 +90,24 @@ static unsigned char* load_model(const char* filename, int* model_size)
 		return NULL;
   	}
 
-  	fseek(fp, 0, SEEK_END);
-  	int size = ftell(fp);
+  	if (fseek(fp, 0, SEEK_END) != 0) {
+		printf("Seek file %s failed.\n", filename);
+		fclose(fp);
+		return NULL;
+  	}
+  	long size_long = ftell(fp);
+  	if (size_long <= 0 || size_long > std::numeric_limits<int>::max()) {
+		printf("Invalid model size for %s: %ld\n", filename, size_long);
+		fclose(fp);
+		return NULL;
+  	}
+  	int size = static_cast<int>(size_long);
 
   	data = load_data(fp, 0, size);
+  	if (data == NULL) {
+		fclose(fp);
+		return NULL;
+  	}
 
   	fclose(fp);
 
