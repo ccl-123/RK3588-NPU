@@ -20,6 +20,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFrame>
+#include <QCoreApplication>
 #include <spdlog/spdlog.h>
 
 SettingsPage::SettingsPage(QWidget* parent)
@@ -802,18 +803,22 @@ void SettingsPage::load_settings() {
 void SettingsPage::update_db_size() {
     if (!db_size_label_) return;
 
+    const QString app_dir = QCoreApplication::applicationDirPath();
+    const QString current_dir = QDir::currentPath();
+    const QString db_rel_path = QString::fromUtf8(Config::Path::DATABASE);
+
     QStringList db_prefixes = {
-        "/home/firefly/open_project/edge2-npu/C++/face_recognition_cap/install/face_recognition_cap/",
-        "/home/firefly/open_project/edge2-npu/C++/face_recognition_cap/",
-        "/home/firefly/open_project/edge2-npu/",
-        "./",
-        "../",
-        "../../"
+        app_dir,
+        QDir(app_dir).absoluteFilePath(".."),
+        QDir(app_dir).absoluteFilePath("../.."),
+        current_dir,
+        QDir(current_dir).absoluteFilePath(".."),
+        QDir(current_dir).absoluteFilePath("../..")
     };
 
     bool db_found = false;
     for (const QString& prefix : db_prefixes) {
-        QString db_path = QDir(prefix).filePath(Config::Path::DATABASE);
+        QString db_path = QDir(prefix).filePath(db_rel_path);
 
         QFileInfo db_file(db_path);
         if (!db_file.exists()) continue;
