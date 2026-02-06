@@ -19,6 +19,7 @@
 #include <iostream>
 #include <fstream>
 #include <typeinfo>
+#include <vector>
 
 #define _BASETSD_H
 
@@ -94,17 +95,6 @@ static unsigned char* load_model(const char* filename, int* model_size)
   	return data;
 }
 
-static int saveFloat(const char* file_name, float* output, int element_size)
-{
-  	FILE* fp;
-  	fp = fopen(file_name, "w");
-  	for (int i = 0; i < element_size; i++) {
-		fprintf(fp, "%.6f\n", output[i]);
-  	}
-  	fclose(fp);
-  	return 0;
-}
-
 /*-------------------------------------------
                   Main Functions
 -------------------------------------------*/
@@ -163,9 +153,9 @@ int create_facenet(char *model_name, rknn_context *ctx, int &width, int &height,
   	}
   	printf("model input num: %d, output num: %d\n", io_num.n_input, io_num.n_output);
 
-  	rknn_tensor_attr input_attrs[io_num.n_input];
-  	memset(input_attrs, 0, sizeof(input_attrs));
-  	for (int i = 0; i < io_num.n_input; i++) {
+  	std::vector<rknn_tensor_attr> input_attrs(io_num.n_input);
+  	memset(input_attrs.data(), 0, sizeof(rknn_tensor_attr) * input_attrs.size());
+  	for (uint32_t i = 0; i < io_num.n_input; ++i) {
 		input_attrs[i].index = i;
 		ret                  = rknn_query(*ctx, RKNN_QUERY_INPUT_ATTR, &(input_attrs[i]), sizeof(rknn_tensor_attr));
 		if (ret < 0) {
@@ -178,9 +168,9 @@ int create_facenet(char *model_name, rknn_context *ctx, int &width, int &height,
 		dump_tensor_attr(&(input_attrs[i]));
   	}
 
-  	rknn_tensor_attr output_attrs[io_num.n_output];
-  	memset(output_attrs, 0, sizeof(output_attrs));
-  	for (int i = 0; i < io_num.n_output; i++) {
+  	std::vector<rknn_tensor_attr> output_attrs(io_num.n_output);
+  	memset(output_attrs.data(), 0, sizeof(rknn_tensor_attr) * output_attrs.size());
+  	for (uint32_t i = 0; i < io_num.n_output; ++i) {
 		output_attrs[i].index = i;
 		ret                   = rknn_query(*ctx, RKNN_QUERY_OUTPUT_ATTR, &(output_attrs[i]), sizeof(rknn_tensor_attr));
         if (ret < 0) {

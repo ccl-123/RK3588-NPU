@@ -163,7 +163,7 @@ static int process_i8(int8_t* input, int grid_h, int grid_w, int stride,
                 float box_conf_f32 = sigmoid(deqnt_affine_to_f32(conf_i8, zp, scale));
 
                 // 提取并反量化 DFL 数据
-                float loc[input_loc_len];
+                std::vector<float> loc(input_loc_len);
                 for (int i = 0; i < input_loc_len; ++i) {
                     loc[i] = deqnt_affine_to_f32(input[i * grid_h * grid_w + offset], zp, scale);
   }

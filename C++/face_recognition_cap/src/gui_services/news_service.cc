@@ -122,7 +122,8 @@ void NewsService::handleFinished(QNetworkReply* reply, int source_index) {
     }
 
     auto titles = parseTitles(reply);
-    if (!titles.isEmpty() && source_index >= 0 && source_index < per_source_titles_.size()) {
+    const int source_count = static_cast<int>(per_source_titles_.size());
+    if (!titles.isEmpty() && source_index >= 0 && source_index < source_count) {
         per_source_titles_[source_index] = titles;
     }
 }
@@ -212,5 +213,4 @@ QStringList NewsService::interleave() const {
     }
     return result;
 }
-
 

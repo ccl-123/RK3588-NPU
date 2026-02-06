@@ -133,16 +133,16 @@ int create_yolov8_face(char* model_name, rknn_context* ctx,
     }
 
     // 查询输入属性
-    rknn_tensor_attr input_attrs[io_num.n_input];
-    memset(input_attrs, 0, sizeof(input_attrs));
-    for (int i = 0; i < io_num.n_input; i++) {
+    std::vector<rknn_tensor_attr> input_attrs(io_num.n_input);
+    memset(input_attrs.data(), 0, sizeof(rknn_tensor_attr) * input_attrs.size());
+    for (uint32_t i = 0; i < io_num.n_input; ++i) {
         input_attrs[i].index = i;
         ret = rknn_query(*ctx, RKNN_QUERY_INPUT_ATTR, &(input_attrs[i]), sizeof(rknn_tensor_attr));
         if (ret < 0) {
             printf("rknn_query input attr error ret=%d\n", ret);
             return -1;
         }
-        printf("Input %d:\n", i);
+        printf("Input %u:\n", i);
         dump_tensor_attr(&(input_attrs[i]));
     }
 
@@ -162,10 +162,10 @@ int create_yolov8_face(char* model_name, rknn_context* ctx,
 
     // 查询输出属性
     memset(output_attrs, 0, sizeof(rknn_tensor_attr) * io_num.n_output);
-    for (int i = 0; i < io_num.n_output; i++) {
+    for (uint32_t i = 0; i < io_num.n_output; ++i) {
         output_attrs[i].index = i;
         ret = rknn_query(*ctx, RKNN_QUERY_OUTPUT_ATTR, &(output_attrs[i]), sizeof(rknn_tensor_attr));
-        printf("Output %d:\n", i);
+        printf("Output %u:\n", i);
         dump_tensor_attr(&(output_attrs[i]));
     }
 
@@ -213,10 +213,10 @@ int yolov8_face_run(rknn_context* ctx, const cv::Mat& img,
     }
 
     // 拷贝输出到自管 buffer，便于跨线程传递
-    for (int i = 0; i < io_num.n_output; ++i) {
-        output_buffers[i].resize(outputs[i].size);
-        if (!output_buffers[i].empty() && outputs[i].buf) {
-            memcpy(output_buffers[i].data(), outputs[i].buf, outputs[i].size);
+    for (uint32_t i = 0; i < io_num.n_output; ++i) {
+        output_buffers[static_cast<size_t>(i)].resize(outputs[i].size);
+        if (!output_buffers[static_cast<size_t>(i)].empty() && outputs[i].buf) {
+            memcpy(output_buffers[static_cast<size_t>(i)].data(), outputs[i].buf, outputs[i].size);
         }
     }
     auto t_after_copy = std::chrono::steady_clock::now();
@@ -265,9 +265,7 @@ int yolov8_face_postprocess(
 
 void release_yolov8_face(rknn_context* ctx, unsigned char* model_data) {
     deinitPostProcess();
-
-    int ret;
-    ret = rknn_destroy(*ctx);
+    rknn_destroy(*ctx);
 
     if (model_data) {
         free(model_data);
