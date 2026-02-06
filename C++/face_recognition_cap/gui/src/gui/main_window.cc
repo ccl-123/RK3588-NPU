@@ -388,6 +388,7 @@ bool MainWindow::finish_initialization_after_core() {
                                   Q_ARG(QString, QString::fromStdString(result.user_name)),
                                   Q_ARG(float, result.similarity),  // 使用实时值
                                   Q_ARG(bool, false),
+                                  Q_ARG(int, 1),
                                   Q_ARG(int, 1));
         
         // 只有达到确认时长且未记录过考勤才真正签到

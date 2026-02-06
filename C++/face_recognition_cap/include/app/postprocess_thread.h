@@ -10,6 +10,7 @@
 #include <vector>
 #include <thread>
 #include <mutex>
+#include <condition_variable>
 #include <queue>
 #include <atomic>
 #include <sys/time.h>
@@ -59,6 +60,7 @@ private:
     std::atomic<bool> running_;
 
     mutable std::mutex mutex_;
+    std::condition_variable cv_;
     std::queue<PostprocessTask> queue_;
 
     ModelManager* model_manager_;
@@ -72,4 +74,3 @@ private:
 };
 
 #endif // _POSTPROCESS_THREAD_H_
-

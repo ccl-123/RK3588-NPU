@@ -252,6 +252,7 @@ int FaceRecognitionApp::run() {
         // 1. 从预处理线程获取结果（采集+RGA已在线程1完成）
         PreprocessTask task;
         if (!preprocess_thread_->get_result(task)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
             continue;
         }
 
