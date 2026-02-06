@@ -119,6 +119,11 @@ private:
     void setup_navigation();
     void setup_pages();
     void connect_page_signals();
+    void on_route_changed(const QString& key);
+    void handle_recognition_route();
+    void handle_dashboard_route();
+    void handle_settings_route();
+    void update_route_breadcrumb(const QString& key);
     bool finish_initialization_after_core();
 
     // NPU 模型异步加载/卸载

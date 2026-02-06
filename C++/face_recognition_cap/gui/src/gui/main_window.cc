@@ -802,7 +802,7 @@ void MainWindow::setup_navigation() {
     connect(side_menu_, &SideMenu::routeChanged, this, [this](const QString& key) {
         if (router_) {
             router_->navigateTo(key);
-}
+        }
     });
 
     // ==================== NPU 资源切换逻辑 ====================
@@ -812,81 +812,104 @@ void MainWindow::setup_navigation() {
     //   - 回到 Recognition (实时画面): 释放 RKLLM → 让 RKNN 获得全部 NPU 资源
     // =========================================================
     connect(router_, &UiRouter::routeChanged, this, [this](const QString& key, QWidget*) {
-        QString breadcrumb;
-        if (key == "recognition") {
-            breadcrumb = tr("实时画面");
-            
-            // 进入识别页面时确保摄像头已恢复（不自动启动识别）
-            bool camera_ready = true;
-            if (recognition_app_) {
-                camera_ready = recognition_app_->resume_camera();
-                if (!camera_ready) {
-                    spdlog::error("Failed to resume camera for recognition");
-                }
-            }
-
-            // === 回到实时识别页面：释放 RKLLM → 加载 RKNN ===
-            if (recognition_paused_for_llm_) {
-                // 注意：不在此处重置 recognition_paused_for_llm_，由异步回调完成
-
-                // 步骤1: 异步释放 RKLLM 模型（释放 NPU 给人脸识别）
-                auto local_llm = LocalLLMThread::instance();
-                if (local_llm->isModelReady()) {
-                    local_llm->releaseModelAsync();
-                    spdlog::info("LLM model release requested for face recognition");
-                }
-
-                // 步骤2: 异步重新加载 RKNN 模型（不阻塞 UI）
-                // 加载完成后，on_rknn_models_reloaded 回调会自动启动识别
-                if (rknn_switching_.load()) {
-                    // 正在切换中（用户快速切换页面），标记需要在完成后启动识别
-                    pending_recognition_start_.store(true);
-                    spdlog::info("RKNN switching in progress, will start recognition after completion");
-                } else if (camera_ready && recognition_app_ && !recognition_app_->are_models_loaded()) {
-                    reload_rknn_models_async();
-                } else if (camera_ready && recognition_app_ && recognition_app_->are_models_loaded()) {
-                    // 模型已加载，直接启动识别
-                    recognition_paused_for_llm_ = false;
-                    start_recognition();
-                    spdlog::info("Recognition resumed (models already loaded)");
-                }
-            }
-        } else if (key == "dashboard") {
-            breadcrumb = tr("智能看板");
-            
-            // === 进入智能看板页面：释放 RKNN → 为 RKLLM 腾出 NPU ===
-            if (is_running_.load(std::memory_order_acquire)) {
-                recognition_paused_for_llm_ = true;
-                stop_recognition();
-                spdlog::info("Recognition paused (entering dashboard for LLM)");
-            }
-
-            if (recognition_app_) {
-                if (!recognition_app_->pause_camera()) {
-                    spdlog::warn("Failed to pause camera for LLM");
-                }
-            }
-            
-            // 异步释放 RKNN 模型（包括停止工作线程），彻底释放 NPU 资源
-            // 使用异步方式避免阻塞 UI 线程
-            release_rknn_models_async();
-        } else if (key == "attendance") {
-            breadcrumb = tr("考勤记录");
-        } else if (key == "users") {
-            breadcrumb = tr("用户管理");
-        } else if (key == "settings") {
-            breadcrumb = tr("系统设置");
-            if (settings_page_) {
-                settings_page_->activate();
-            }
-        }
-        if (title_bar_) {
-            title_bar_->setBreadcrumb({breadcrumb});
-        }
+        on_route_changed(key);
     });
 
     router_->navigateTo("recognition");
     side_menu_->setActiveKey("recognition");
+}
+
+void MainWindow::on_route_changed(const QString& key) {
+    if (key == "recognition") {
+        handle_recognition_route();
+    } else if (key == "dashboard") {
+        handle_dashboard_route();
+    } else if (key == "settings") {
+        handle_settings_route();
+    }
+
+    update_route_breadcrumb(key);
+}
+
+void MainWindow::handle_recognition_route() {
+    // 进入识别页面时确保摄像头已恢复（不自动启动识别）
+    bool camera_ready = true;
+    if (recognition_app_) {
+        camera_ready = recognition_app_->resume_camera();
+        if (!camera_ready) {
+            spdlog::error("Failed to resume camera for recognition");
+        }
+    }
+
+    // 回到实时识别页面：释放 RKLLM → 加载 RKNN
+    if (!recognition_paused_for_llm_) {
+        return;
+    }
+
+    // 步骤1: 异步释放 RKLLM 模型（释放 NPU 给人脸识别）
+    auto local_llm = LocalLLMThread::instance();
+    if (local_llm->isModelReady()) {
+        local_llm->releaseModelAsync();
+        spdlog::info("LLM model release requested for face recognition");
+    }
+
+    // 步骤2: 异步重新加载 RKNN 模型（不阻塞 UI）
+    if (rknn_switching_.load()) {
+        pending_recognition_start_.store(true);
+        spdlog::info("RKNN switching in progress, will start recognition after completion");
+    } else if (camera_ready && recognition_app_ && !recognition_app_->are_models_loaded()) {
+        reload_rknn_models_async();
+    } else if (camera_ready && recognition_app_ && recognition_app_->are_models_loaded()) {
+        recognition_paused_for_llm_ = false;
+        start_recognition();
+        spdlog::info("Recognition resumed (models already loaded)");
+    }
+}
+
+void MainWindow::handle_dashboard_route() {
+    // 进入智能看板页面：释放 RKNN → 为 RKLLM 腾出 NPU
+    if (is_running_.load(std::memory_order_acquire)) {
+        recognition_paused_for_llm_ = true;
+        stop_recognition();
+        spdlog::info("Recognition paused (entering dashboard for LLM)");
+    }
+
+    if (recognition_app_) {
+        if (!recognition_app_->pause_camera()) {
+            spdlog::warn("Failed to pause camera for LLM");
+        }
+    }
+
+    // 异步释放 RKNN 模型（包括停止工作线程），彻底释放 NPU 资源
+    // 使用异步方式避免阻塞 UI 线程
+    release_rknn_models_async();
+}
+
+void MainWindow::handle_settings_route() {
+    if (settings_page_) {
+        settings_page_->activate();
+    }
+}
+
+void MainWindow::update_route_breadcrumb(const QString& key) {
+    if (!title_bar_) {
+        return;
+    }
+
+    QString breadcrumb;
+    if (key == "recognition") {
+        breadcrumb = tr("实时画面");
+    } else if (key == "dashboard") {
+        breadcrumb = tr("智能看板");
+    } else if (key == "attendance") {
+        breadcrumb = tr("考勤记录");
+    } else if (key == "users") {
+        breadcrumb = tr("用户管理");
+    } else if (key == "settings") {
+        breadcrumb = tr("系统设置");
+    }
+
+    title_bar_->setBreadcrumb({breadcrumb});
 }
 
 void MainWindow::connect_page_signals() {
