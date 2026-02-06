@@ -8,10 +8,7 @@
 #include "gui_utils/config_manager.h"
 #include "config/config.h"
 #include <QCoreApplication>
-#include <mutex>
 #include <spdlog/spdlog.h>
-
-ConfigManager* ConfigManager::instance_ = nullptr;
 
 ConfigManager::ConfigManager() {
     // 配置文件存储位置：~/.config/FaceRecognition/settings.ini
@@ -33,18 +30,8 @@ ConfigManager::~ConfigManager() {
 }
 
 ConfigManager* ConfigManager::instance() {
-    static std::mutex instance_mutex;
-    std::lock_guard<std::mutex> lock(instance_mutex);
-
-    if (!instance_) {
-        instance_ = new ConfigManager();
-        // 确保单例对象在程序结束时被正确销毁
-        std::atexit([]() {
-            delete instance_;
-            instance_ = nullptr;
-        });
-    }
-    return instance_;
+    static ConfigManager instance;
+    return &instance;
 }
 
 // 识别设置
@@ -250,4 +237,3 @@ void ConfigManager::setManualLongitude(double lon) {
     settings_->setValue("weather/manual_lon", lon);
     settings_->sync();
 }
-

@@ -96,7 +96,5 @@ private:
     ConfigManager(const ConfigManager&) = delete;
     ConfigManager& operator=(const ConfigManager&) = delete;
 
-    static ConfigManager* instance_;
     QSettings* settings_;
 };
-
