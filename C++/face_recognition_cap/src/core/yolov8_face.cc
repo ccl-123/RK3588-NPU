@@ -110,7 +110,7 @@ int create_yolov8_face(char* model_name, rknn_context* ctx,
     bool rknn_inited = false;
     std::vector<rknn_tensor_attr> input_attrs;
 
-    if (ctx == nullptr || output_attrs == nullptr) {
+    if (ctx == nullptr || output_attrs == nullptr || model_name == nullptr) {
         printf("create_yolov8_face invalid args: null pointer\n");
         return -1;
     }
@@ -160,6 +160,11 @@ int create_yolov8_face(char* model_name, rknn_context* ctx,
     }
     if (io_num.n_input == 0) {
         printf("invalid model io: n_input=%u\n", io_num.n_input);
+        ret = -1;
+        goto create_failed;
+    }
+    if (io_num.n_input != 1) {
+        printf("Error: Expected 1 input for YOLOv8-face, got %u\n", io_num.n_input);
         ret = -1;
         goto create_failed;
     }
@@ -242,6 +247,10 @@ int yolov8_face_run(rknn_context* ctx, const cv::Mat& img,
     }
     if (io_num.n_input == 0 || io_num.n_output == 0) {
         printf("yolov8_face_run invalid io_num: in=%u out=%u\n", io_num.n_input, io_num.n_output);
+        return -1;
+    }
+    if (io_num.n_input != 1) {
+        printf("yolov8_face_run unsupported input num: %u\n", io_num.n_input);
         return -1;
     }
     if (io_num.n_output > YOLOV8_FACE_OUTPUT_NUM) {
