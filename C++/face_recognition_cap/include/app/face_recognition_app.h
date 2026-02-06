@@ -62,16 +62,16 @@ struct AppConfig {
     int perf_report_interval;           // 性能报告间隔(帧数)
 
     AppConfig()
-        : camera_width(Config::Camera::WIDTH)
+        : feature_lib_path(Config::Path::FEATURE_LIB)
+        , database_path(Config::Path::DATABASE)
+        , use_database(false)
+        , camera_width(Config::Camera::WIDTH)
         , camera_height(Config::Camera::HEIGHT)
         , box_conf_threshold(Config::Detection::BOX_CONF_THRESHOLD)
         , nms_threshold(Config::Detection::NMS_THRESHOLD)
         , facenet_threshold(Config::Default::RECOGNITION_THRESHOLD)  // UI 可配置
         , use_async_usb(Config::Camera::USE_ASYNC_USB)
         , perf_report_interval(Config::Performance::REPORT_INTERVAL)
-        , feature_lib_path(Config::Path::FEATURE_LIB)
-        , database_path(Config::Path::DATABASE)
-        , use_database(false)
     {}
 };
 

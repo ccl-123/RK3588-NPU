@@ -123,14 +123,14 @@ MainWindow::MainWindow(QWidget* parent)
     , recognition_paused_for_llm_(false)
     , npu_fps_(0.0)
     , camera_fps_(0.0)
-    , camera_id_(0)
+    , rknn_release_watcher_(nullptr)
+    , rknn_reload_watcher_(nullptr)
     , current_date_(QDate::currentDate())  // 初始化当前日期（用于跨日检测）
     , user_detection_{false, 0, "", 0.0f, std::chrono::steady_clock::now(), std::chrono::steady_clock::now(), false}
     , last_displayed_user_id_(-1)
     , user_confirm_duration_ms_(1000)  // 默认1秒，从配置加载
     , stranger_detection_{false, std::chrono::steady_clock::now(), std::chrono::steady_clock::now()}
-    , rknn_release_watcher_(nullptr)
-    , rknn_reload_watcher_(nullptr)
+    , camera_id_(0)
 {
     // 注册 Qt 元类型（必须在使用前注册）
     qRegisterMetaType<cv::Mat>("cv::Mat");

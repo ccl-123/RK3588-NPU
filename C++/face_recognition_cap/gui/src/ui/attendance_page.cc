@@ -39,12 +39,12 @@ AttendancePage::AttendancePage(QWidget* parent)
     , query_btn_(nullptr)
     , export_btn_(nullptr)
     , refresh_btn_(nullptr)
-    , records_table_(nullptr)
     , total_label_(nullptr)
     , check_in_label_(nullptr)
     , check_out_label_(nullptr)
     , late_label_(nullptr)
     , early_leave_label_(nullptr)
+    , records_table_(nullptr)
     , current_mode_(Mode_SingleDay)
     , is_loading_(false) {
     setup_ui();

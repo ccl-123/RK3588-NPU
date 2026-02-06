@@ -54,17 +54,18 @@ RecognitionPage::RecognitionPage(QWidget* parent)
     , late_count_label_(nullptr)
     , check_mode_label_(nullptr)
     , attendance_date_label_(nullptr)
+    , start_stop_btn_(nullptr)
+    , recognition_running_(false)
     , aqi_label_(nullptr)
     , uv_label_(nullptr)
     , sentence_en_label_(nullptr)
     , sentence_cn_label_(nullptr)
+    , weather_service_(WeatherService::instance())
     , current_city_(tr("定位中..."))
     , current_lat_(Config::Default::LATITUDE)
     , current_lon_(Config::Default::LONGITUDE)
     , location_fetched_(false)
-    , weather_service_(WeatherService::instance())
-    , start_stop_btn_(nullptr)
-    , recognition_running_(false) {
+{
     
     setObjectName("RecognitionPage");
     setAttribute(Qt::WA_StyledBackground, true);
