@@ -181,6 +181,10 @@ int yolov8_face_run(rknn_context* ctx, const cv::Mat& img,
                     std::array<std::vector<uint8_t>, YOLOV8_FACE_OUTPUT_NUM>& output_buffers,
                     YoloRunTimings* timings) {
     int ret;
+    if (io_num.n_output > YOLOV8_FACE_OUTPUT_NUM) {
+        printf("rknn output num overflow: %u > %d\n", io_num.n_output, YOLOV8_FACE_OUTPUT_NUM);
+        return -1;
+    }
     (void)channel;
     (void)img_height;
     (void)img_width;
@@ -240,11 +244,27 @@ int yolov8_face_postprocess(
     int img_width, int img_height,
     float box_conf_threshold, float nms_threshold,
     detect_result_group_t* detect_result_group) {
+    if (output_attrs == nullptr || detect_result_group == nullptr) {
+        printf("yolov8_face_postprocess invalid args: null pointer\n");
+        return -1;
+    }
+    if (n_output <= 0 || n_output > YOLOV8_FACE_OUTPUT_NUM) {
+        printf("yolov8_face_postprocess invalid n_output: %d\n", n_output);
+        return -1;
+    }
+    if (model_in_h <= 0 || model_in_w <= 0 || img_width <= 0 || img_height <= 0) {
+        printf("yolov8_face_postprocess invalid image/model size\n");
+        return -1;
+    }
 
     // 构造临时 rknn_output 指向已拷贝的数据
     rknn_output outputs[YOLOV8_FACE_OUTPUT_NUM];
     memset(outputs, 0, sizeof(outputs));
     for (int i = 0; i < n_output; ++i) {
+        if (output_buffers[i].empty()) {
+            printf("yolov8_face_postprocess empty output buffer at index %d\n", i);
+            return -1;
+        }
         outputs[i].is_prealloc = 1;
         outputs[i].want_float = 0;
         outputs[i].buf = const_cast<uint8_t*>(output_buffers[i].data());
