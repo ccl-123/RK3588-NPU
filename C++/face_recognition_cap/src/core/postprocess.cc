@@ -80,7 +80,7 @@ static void softmax(float* input, int size) {
 
 // NMS
 static int nms(int validCount, std::vector<float>& outputLocations,
-               std::vector<int> classIds, std::vector<int>& order,
+               const std::vector<int>& classIds, std::vector<int>& order,
                int filterId, float threshold) {
     for (int i = 0; i < validCount; ++i) {
         int n = order[i];
@@ -269,6 +269,7 @@ int post_process_yolov8_face(rknn_output* outputs, rknn_tensor_attr* output_attr
 
     // 排序
     std::vector<int> indexArray;
+    indexArray.reserve(validCount);
     for (int i = 0; i < validCount; ++i) {
         indexArray.push_back(i);
     }
