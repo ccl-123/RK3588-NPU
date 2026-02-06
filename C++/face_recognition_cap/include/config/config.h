@@ -124,7 +124,12 @@ namespace API {
 // ===== 本地 LLM [固定] =====
 // RKLLM 本地推理配置
 namespace LocalLLM {
-    inline const char* MODEL_PATH = "/home/firefly/open_project/Qwen3-1.7B_W8A8_RK3588.rkllm";
+    constexpr const char* MODEL_ENV = "LOCAL_LLM_MODEL_PATH";
+    constexpr const char* MODEL_PATH = "Qwen3-1.7B_W8A8_RK3588.rkllm";
+    inline const char* getModelPath() {
+        const char* env_path = std::getenv(MODEL_ENV);
+        return (env_path && env_path[0] != '\0') ? env_path : MODEL_PATH;
+    }
     constexpr int MAX_NEW_TOKENS = 1028;        // 单次最大生成长度
     constexpr int MAX_CONTEXT_LEN = 1024 * 6;   // 上下文窗口 (tokens)
 }

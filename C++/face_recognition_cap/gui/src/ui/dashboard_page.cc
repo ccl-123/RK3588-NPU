@@ -14,8 +14,11 @@
 
 #include <spdlog/spdlog.h>
 #include <QComboBox>
+#include <QCoreApplication>
 #include <QDate>
 #include <QDateTime>
+#include <QDir>
+#include <QFileInfo>
 #include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -29,6 +32,7 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QSignalBlocker>
 #include <QShowEvent>
 #include <QSizePolicy>
 #include <QSpacerItem>
@@ -58,6 +62,42 @@ void apply_state_property(QWidget* widget, const char* name, const char* value) 
     widget->style()->unpolish(widget);
     widget->style()->polish(widget);
     widget->update();
+}
+
+QString resolve_local_llm_model_path() {
+    const QString configured = QString::fromUtf8(Config::LocalLLM::getModelPath()).trimmed();
+    if (configured.isEmpty()) {
+        return QString();
+    }
+
+    const QFileInfo configured_info(configured);
+    if (configured_info.isAbsolute()) {
+        return configured_info.absoluteFilePath();
+    }
+
+    const QString app_dir = QCoreApplication::applicationDirPath();
+    const QString current_dir = QDir::currentPath();
+
+    QStringList candidate_paths = {
+        QDir(app_dir).filePath(configured),
+        QDir(app_dir).filePath("data/model/" + configured),
+        QDir(app_dir).filePath("../data/model/" + configured),
+        QDir(app_dir).filePath("../../data/model/" + configured),
+        QDir(current_dir).filePath(configured),
+        QDir(current_dir).filePath("data/model/" + configured),
+        QDir(current_dir).filePath("C++/face_recognition_cap/data/model/" + configured),
+        QDir(current_dir).filePath("install/face_recognition_cap/data/model/" + configured),
+        QDir(current_dir).filePath("C++/face_recognition_cap/install/face_recognition_cap/data/model/" + configured),
+    };
+
+    for (const QString& candidate : candidate_paths) {
+        QFileInfo info(QDir::cleanPath(candidate));
+        if (info.exists()) {
+            return info.absoluteFilePath();
+        }
+    }
+
+    return QDir(app_dir).filePath(configured);
 }
 
 class TrendChartWidget : public QWidget {
@@ -1749,7 +1789,26 @@ void DashboardPage::on_backend_toggled(bool checked) {
             AiAnalysisService::instance()->cancelAnalysis();
         }
         // 如果切换到本地且模型未加载，则初始化
-        QString model_path = Config::LocalLLM::MODEL_PATH;
+        QString model_path = resolve_local_llm_model_path();
+        if (!QFileInfo::exists(model_path)) {
+            spdlog::error("Local LLM model not found: {}", model_path.toStdString());
+            ToastNotification::showMessage(this,
+                tr("AI 模型"),
+                tr("未找到本地模型文件:\n%1\n请设置环境变量 LOCAL_LLM_MODEL_PATH").arg(model_path),
+                ToastNotification::Level::Error);
+            if (backend_status_label_) {
+                backend_status_label_->setText(tr("模型缺失"));
+                apply_state_property(backend_status_label_, "backendState", "idle");
+            }
+            if (backend_toggle_btn_) {
+                const QSignalBlocker blocker(backend_toggle_btn_);
+                backend_toggle_btn_->setChecked(false);
+                backend_toggle_btn_->setText(tr("云端大模型"));
+                backend_toggle_btn_->setToolTip(tr("点击切换到本地大模型"));
+            }
+            is_local_llm_ = false;
+            return;
+        }
         if (!LocalAiAnalysisService::instance()->isLocalLLMReady()) {
             ToastNotification::showMessage(this, tr("AI 模型"), tr("正在加载本地模型..."), ToastNotification::Level::Info);
             LocalAiAnalysisService::instance()->initializeLocalLLM(model_path);
