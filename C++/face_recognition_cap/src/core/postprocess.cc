@@ -289,11 +289,18 @@ int post_process_yolov8_face(rknn_output* outputs, rknn_tensor_attr* output_attr
         return -1;
     }
 
+    constexpr int kKeypointCount = 5;
+    constexpr int kKeypointDims = 3;
     int kpt_anchor_count = 0;
     if (output_attrs[3].n_dims >= 4 && output_attrs[3].dims[3] > 0) {
         kpt_anchor_count = output_attrs[3].dims[3];
     } else if (output_attrs[3].n_elems > 0) {
-        kpt_anchor_count = output_attrs[3].n_elems / (5 * 3);
+        const int kpt_elems_per_anchor = kKeypointCount * kKeypointDims;
+        if (output_attrs[3].n_elems % kpt_elems_per_anchor != 0) {
+            printf("Error: invalid keypoint elems: %d\n", output_attrs[3].n_elems);
+            return -1;
+        }
+        kpt_anchor_count = output_attrs[3].n_elems / kpt_elems_per_anchor;
     }
     if (kpt_anchor_count <= 0) {
         printf("Error: invalid keypoint anchor count\n");
@@ -307,6 +314,16 @@ int post_process_yolov8_face(rknn_output* outputs, rknn_tensor_attr* output_attr
     // 检查关键点是否也是 float (want_float=1 时)
     bool kpt_is_float =
         (outputs[3].size == static_cast<size_t>(output_attrs[3].n_elems) * sizeof(float));
+    size_t kpt_elem_count =
+        static_cast<size_t>(kKeypointCount) * kKeypointDims * static_cast<size_t>(kpt_anchor_count);
+    size_t expected_kpt_bytes = kpt_is_float ? (kpt_elem_count * sizeof(float))
+                                             : (kpt_elem_count * sizeof(int8_t));
+    if (outputs[3].size < expected_kpt_bytes) {
+        printf("Error: keypoint output buffer too small, expected=%zu actual=%u\n",
+               expected_kpt_bytes, outputs[3].size);
+        return -1;
+    }
+    int8_t* kpt_i8 = static_cast<int8_t*>(outputs[3].buf);
 
     // 提取结果
   int last_count = 0;
@@ -328,8 +345,8 @@ int post_process_yolov8_face(rknn_output* outputs, rknn_tensor_attr* output_attr
         }
 
         // 获取 5 个关键点 - 输出格式: [1, 5, 3, 8400]
-        float kpts[5][3];  // 5个点，每个点 (x, y, visibility)
-        for (int j = 0; j < 5; ++j) {
+        float kpts[kKeypointCount][kKeypointDims];  // 5个点，每个点 (x, y, visibility)
+        for (int j = 0; j < kKeypointCount; ++j) {
             if (kpt_is_float) {
                 // want_float=1，数据已经是 float
                 kpts[j][0] = kpt_output[j * 3 * kpt_anchor_count + 0 * kpt_anchor_count + kpt_index];
@@ -337,7 +354,6 @@ int post_process_yolov8_face(rknn_output* outputs, rknn_tensor_attr* output_attr
                 kpts[j][2] = kpt_output[j * 3 * kpt_anchor_count + 2 * kpt_anchor_count + kpt_index];
             } else {
                 // 原始 INT8，需要反量化
-                int8_t* kpt_i8 = (int8_t*)outputs[3].buf;
                 kpts[j][0] = deqnt_affine_to_f32(kpt_i8[j * 3 * kpt_anchor_count + 0 * kpt_anchor_count + kpt_index], kpt_zp, kpt_scale);
                 kpts[j][1] = deqnt_affine_to_f32(kpt_i8[j * 3 * kpt_anchor_count + 1 * kpt_anchor_count + kpt_index], kpt_zp, kpt_scale);
                 kpts[j][2] = deqnt_affine_to_f32(kpt_i8[j * 3 * kpt_anchor_count + 2 * kpt_anchor_count + kpt_index], kpt_zp, kpt_scale);
