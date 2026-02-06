@@ -179,6 +179,11 @@ int create_facenet(char *model_name, rknn_context *ctx, int &width, int &height,
         ret = -1;
         goto create_failed;
     }
+    if (io_num.n_output != 1) {
+        printf("invalid facenet output num: %u\n", io_num.n_output);
+        ret = -1;
+        goto create_failed;
+    }
     printf("model input num: %d, output num: %d\n", io_num.n_input, io_num.n_output);
 
     input_attrs.resize(io_num.n_input);
@@ -241,6 +246,9 @@ int facenet_inference(rknn_context *ctx, cv::Mat img, rknn_input_output_num io_n
         return -1;
     }
     if (io_num.n_input != 1) {
+        return -1;
+    }
+    if (io_num.n_output != 1) {
         return -1;
     }
 

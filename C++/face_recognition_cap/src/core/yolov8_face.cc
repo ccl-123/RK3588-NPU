@@ -253,8 +253,8 @@ int yolov8_face_run(rknn_context* ctx, const cv::Mat& img,
         printf("yolov8_face_run unsupported input num: %u\n", io_num.n_input);
         return -1;
     }
-    if (io_num.n_output > YOLOV8_FACE_OUTPUT_NUM) {
-        printf("rknn output num overflow: %u > %d\n", io_num.n_output, YOLOV8_FACE_OUTPUT_NUM);
+    if (io_num.n_output != YOLOV8_FACE_OUTPUT_NUM) {
+        printf("yolov8_face_run invalid output num: %u\n", io_num.n_output);
         return -1;
     }
     (void)channel;
@@ -320,7 +320,7 @@ int yolov8_face_postprocess(
         printf("yolov8_face_postprocess invalid args: null pointer\n");
         return -1;
     }
-    if (n_output <= 0 || n_output > YOLOV8_FACE_OUTPUT_NUM) {
+    if (n_output != YOLOV8_FACE_OUTPUT_NUM) {
         printf("yolov8_face_postprocess invalid n_output: %d\n", n_output);
         return -1;
     }
