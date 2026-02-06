@@ -122,6 +122,10 @@ int create_facenet(char *model_name, rknn_context *ctx, int &width, int &height,
 {
     int ret = -1;
     bool rknn_inited = false;
+    rknn_core_mask core_mask = RKNN_NPU_CORE_0_1_2;  // 使用核心0、1、2
+    rknn_sdk_version version;
+    std::vector<rknn_tensor_attr> input_attrs;
+    std::vector<rknn_tensor_attr> output_attrs;
     if (ctx == nullptr || model_name == nullptr) {
         printf("create_facenet invalid args\n");
         return -1;
@@ -147,14 +151,12 @@ int create_facenet(char *model_name, rknn_context *ctx, int &width, int &height,
     }
     rknn_inited = true;
 
-    rknn_core_mask core_mask = RKNN_NPU_CORE_0_1_2;  // 使用核心0、1、2
     ret = rknn_set_core_mask(*ctx, core_mask);
     if (ret < 0) {
         printf("rknn_set_core_mask error ret=%d\n", ret);
         goto create_failed;
     }
 
-    rknn_sdk_version version;
     ret = rknn_query(*ctx, RKNN_QUERY_SDK_VERSION, &version, sizeof(rknn_sdk_version));
     if (ret < 0) {
         printf("rknn_query SDK version error ret=%d\n", ret);
@@ -174,7 +176,7 @@ int create_facenet(char *model_name, rknn_context *ctx, int &width, int &height,
     }
     printf("model input num: %d, output num: %d\n", io_num.n_input, io_num.n_output);
 
-    std::vector<rknn_tensor_attr> input_attrs(io_num.n_input);
+    input_attrs.resize(io_num.n_input);
     memset(input_attrs.data(), 0, sizeof(rknn_tensor_attr) * input_attrs.size());
     for (uint32_t i = 0; i < io_num.n_input; ++i) {
         input_attrs[i].index = i;
@@ -186,7 +188,7 @@ int create_facenet(char *model_name, rknn_context *ctx, int &width, int &height,
         dump_tensor_attr(&(input_attrs[i]));
     }
 
-    std::vector<rknn_tensor_attr> output_attrs(io_num.n_output);
+    output_attrs.resize(io_num.n_output);
     memset(output_attrs.data(), 0, sizeof(rknn_tensor_attr) * output_attrs.size());
     for (uint32_t i = 0; i < io_num.n_output; ++i) {
         output_attrs[i].index = i;
