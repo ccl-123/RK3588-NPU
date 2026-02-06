@@ -151,7 +151,8 @@ static int process_i8(int8_t* input, int grid_h, int grid_w, int stride,
                       int32_t zp, float scale, int index) {
     int input_loc_len = 64;  // DFL: 4 * 16
     int validCount = 0;
-    int8_t thres_i8 = qnt_f32_to_affine(unsigmoid(threshold), zp, scale);
+    const float safe_threshold = std::clamp(threshold, 1e-6f, 1.0f - 1e-6f);
+    int8_t thres_i8 = qnt_f32_to_affine(unsigmoid(safe_threshold), zp, scale);
 
     for (int h = 0; h < grid_h; h++) {
         for (int w = 0; w < grid_w; w++) {
@@ -235,6 +236,8 @@ int post_process_yolov8_face(rknn_output* outputs, rknn_tensor_attr* output_attr
     std::vector<int> classId;
     int validCount = 0;
     int index = 0;
+    const float safe_conf_threshold = std::clamp(conf_threshold, 1e-6f, 1.0f - 1e-6f);
+    const float safe_nms_threshold = std::clamp(nms_threshold, 0.0f, 1.0f);
 
     // 处理前3个输出 (bbox + conf)，强制使用 INT8 路径
     for (int i = 0; i < 3; i++) {
@@ -257,7 +260,7 @@ int post_process_yolov8_face(rknn_output* outputs, rknn_tensor_attr* output_attr
         }
 
             validCount += process_i8((int8_t*)outputs[i].buf, grid_h, grid_w, stride,
-                                     filterBoxes, objProbs, classId, conf_threshold,
+                                     filterBoxes, objProbs, classId, safe_conf_threshold,
                                      output_attrs[i].zp, output_attrs[i].scale, index);
         index += grid_h * grid_w;
     }
@@ -278,7 +281,7 @@ int post_process_yolov8_face(rknn_output* outputs, rknn_tensor_attr* output_attr
     // NMS
     std::set<int> class_set(std::begin(classId), std::end(classId));
     for (auto c : class_set) {
-        nms(validCount, filterBoxes, classId, indexArray, c, nms_threshold);
+        nms(validCount, filterBoxes, classId, indexArray, c, safe_nms_threshold);
     }
 
     if (outputs[3].buf == nullptr) {
