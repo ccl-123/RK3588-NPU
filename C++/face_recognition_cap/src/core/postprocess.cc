@@ -299,6 +299,11 @@ int post_process_yolov8_face(rknn_output* outputs, rknn_tensor_attr* output_attr
     constexpr int kKeypointDims = 3;
     int kpt_anchor_count = 0;
     if (output_attrs[3].n_dims >= 4 && output_attrs[3].dims[3] > 0) {
+        if (output_attrs[3].dims[1] != kKeypointCount || output_attrs[3].dims[2] != kKeypointDims) {
+            printf("Error: unexpected keypoint dims: [%d, %d]\n",
+                   output_attrs[3].dims[1], output_attrs[3].dims[2]);
+            return -1;
+        }
         kpt_anchor_count = output_attrs[3].dims[3];
     } else if (output_attrs[3].n_elems > 0) {
         const int kpt_elems_per_anchor = kKeypointCount * kKeypointDims;
@@ -355,14 +360,14 @@ int post_process_yolov8_face(rknn_output* outputs, rknn_tensor_attr* output_attr
         for (int j = 0; j < kKeypointCount; ++j) {
             if (kpt_is_float) {
                 // want_float=1，数据已经是 float
-                kpts[j][0] = kpt_output[j * 3 * kpt_anchor_count + 0 * kpt_anchor_count + kpt_index];
-                kpts[j][1] = kpt_output[j * 3 * kpt_anchor_count + 1 * kpt_anchor_count + kpt_index];
-                kpts[j][2] = kpt_output[j * 3 * kpt_anchor_count + 2 * kpt_anchor_count + kpt_index];
+                kpts[j][0] = kpt_output[j * kKeypointDims * kpt_anchor_count + 0 * kpt_anchor_count + kpt_index];
+                kpts[j][1] = kpt_output[j * kKeypointDims * kpt_anchor_count + 1 * kpt_anchor_count + kpt_index];
+                kpts[j][2] = kpt_output[j * kKeypointDims * kpt_anchor_count + 2 * kpt_anchor_count + kpt_index];
             } else {
                 // 原始 INT8，需要反量化
-                kpts[j][0] = deqnt_affine_to_f32(kpt_i8[j * 3 * kpt_anchor_count + 0 * kpt_anchor_count + kpt_index], kpt_zp, kpt_scale);
-                kpts[j][1] = deqnt_affine_to_f32(kpt_i8[j * 3 * kpt_anchor_count + 1 * kpt_anchor_count + kpt_index], kpt_zp, kpt_scale);
-                kpts[j][2] = deqnt_affine_to_f32(kpt_i8[j * 3 * kpt_anchor_count + 2 * kpt_anchor_count + kpt_index], kpt_zp, kpt_scale);
+                kpts[j][0] = deqnt_affine_to_f32(kpt_i8[j * kKeypointDims * kpt_anchor_count + 0 * kpt_anchor_count + kpt_index], kpt_zp, kpt_scale);
+                kpts[j][1] = deqnt_affine_to_f32(kpt_i8[j * kKeypointDims * kpt_anchor_count + 1 * kpt_anchor_count + kpt_index], kpt_zp, kpt_scale);
+                kpts[j][2] = deqnt_affine_to_f32(kpt_i8[j * kKeypointDims * kpt_anchor_count + 2 * kpt_anchor_count + kpt_index], kpt_zp, kpt_scale);
             }
         }
 
