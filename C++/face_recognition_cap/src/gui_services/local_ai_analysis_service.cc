@@ -429,6 +429,7 @@ std::function<QString(const QString&)> LocalAiAnalysisService::createThreadSafeL
         QString result;
         bool finished = false;
         bool error_occurred = false;
+        bool cancelled = false;
         QString error_msg;
 
         // 在工作线程中创建事件循环
@@ -476,16 +477,36 @@ std::function<QString(const QString&)> LocalAiAnalysisService::createThreadSafeL
         });
         timeout_timer.start(Config::Agent::LLM_TIMEOUT_MS);  // 使用 Agent LLM 超时配置
 
+        // 取消轮询：避免等待到超时才响应停止
+        QTimer cancel_timer;
+        cancel_timer.setInterval(50);
+        connect(&cancel_timer, &QTimer::timeout, &loop,
+                [this, &loop, &cancelled, llm]() {
+            if (!agent_cancel_requested_.load()) {
+                return;
+            }
+            cancelled = true;
+            llm->abortInference();
+            loop.quit();
+        });
+        cancel_timer.start();
+
         // 等待完成
         loop.exec();
 
         // 停止超时计时器（如果正常完成则取消超时）
         timeout_timer.stop();
+        cancel_timer.stop();
 
         // 断开临时连接
         disconnect(conn_chunk);
         disconnect(conn_finished);
         disconnect(conn_error);
+
+        if (cancelled) {
+            spdlog::info("LLM callback cancelled");
+            return QString();
+        }
 
         if (error_occurred) {
             spdlog::error("LLM callback error: {}", error_msg.toStdString());

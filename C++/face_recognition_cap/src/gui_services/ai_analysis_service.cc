@@ -705,6 +705,7 @@ std::function<QString(const QString&)> AiAnalysisService::createSyncCloudLlmCall
 QString AiAnalysisService::doSyncCloudRequest(const QString& prompt) {
     QString result;
     bool error = false;
+    bool cancelled = false;
 
     spdlog::debug("Cloud Agent sync request, prompt length: {}", prompt.length());
 
@@ -741,8 +742,9 @@ QString AiAnalysisService::doSyncCloudRequest(const QString& prompt) {
     QTimer timer;
     timer.setSingleShot(true);
 
-    connect(reply, &QNetworkReply::readyRead, &loop, [this, reply, &loop, &sse_buffer, &result, &timer]() {
+    connect(reply, &QNetworkReply::readyRead, &loop, [this, reply, &loop, &sse_buffer, &result, &timer, &cancelled]() {
         if (agent_cancel_requested_.load()) {
+            cancelled = true;
             reply->abort();
             loop.quit();
             return;
@@ -828,7 +830,28 @@ QString AiAnalysisService::doSyncCloudRequest(const QString& prompt) {
     });
     timer.start(Config::Agent::LLM_TIMEOUT_MS);
 
+    // 取消轮询：避免等待网络超时才响应取消
+    QTimer cancel_timer;
+    cancel_timer.setInterval(50);
+    connect(&cancel_timer, &QTimer::timeout, &loop, [this, reply, &loop, &cancelled]() {
+        if (!agent_cancel_requested_.load()) {
+            return;
+        }
+        cancelled = true;
+        reply->abort();
+        loop.quit();
+    });
+    cancel_timer.start();
+
     loop.exec();
+    cancel_timer.stop();
+    timer.stop();
+
+    if (cancelled) {
+        spdlog::info("Sync Cloud Agent request cancelled");
+        reply->deleteLater();
+        return QString();
+    }
 
     if (!error && reply->error() == QNetworkReply::NoError) {
         if (result.isEmpty()) {
