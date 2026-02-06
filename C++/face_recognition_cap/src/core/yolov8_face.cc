@@ -236,6 +236,14 @@ int yolov8_face_run(rknn_context* ctx, const cv::Mat& img,
                     std::array<std::vector<uint8_t>, YOLOV8_FACE_OUTPUT_NUM>& output_buffers,
                     YoloRunTimings* timings) {
     int ret;
+    if (ctx == nullptr || inputs == nullptr || outputs == nullptr || img.empty()) {
+        printf("yolov8_face_run invalid args\n");
+        return -1;
+    }
+    if (io_num.n_input == 0 || io_num.n_output == 0) {
+        printf("yolov8_face_run invalid io_num: in=%u out=%u\n", io_num.n_input, io_num.n_output);
+        return -1;
+    }
     if (io_num.n_output > YOLOV8_FACE_OUTPUT_NUM) {
         printf("rknn output num overflow: %u > %d\n", io_num.n_output, YOLOV8_FACE_OUTPUT_NUM);
         return -1;
