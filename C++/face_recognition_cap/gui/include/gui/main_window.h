@@ -32,10 +32,11 @@
 #include "gui_services/news_service.h"
 
 // 前向声明
-    class VideoDisplayWidget;
-    class FaceRegistrationDialog;
-    class SideMenu;    class TitleBar;
-    class UiRouter;
+class VideoDisplayWidget;
+class FaceRegistrationDialog;
+class SideMenu;
+class TitleBar;
+class UiRouter;
 class RecognitionPage;
 class DashboardPage;
 class AttendancePage;
