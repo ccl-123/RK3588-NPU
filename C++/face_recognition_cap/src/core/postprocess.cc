@@ -232,6 +232,10 @@ int post_process_yolov8_face(rknn_output* outputs, rknn_tensor_attr* output_attr
         printf("Error: Expected 4 outputs for YOLOv8-face, got %d\n", n_output);
         return -1;
     }
+    if (model_in_h <= 0 || model_in_w <= 0 || scale_w <= 0.0f || scale_h <= 0.0f) {
+        printf("Error: invalid post-process scale/model size\n");
+        return -1;
+    }
 
     std::vector<float> filterBoxes;
     std::vector<float> objProbs;
