@@ -13,6 +13,7 @@ include(CTest)
 
 # 编译告警开关
 option(ENABLE_PROJECT_WARNINGS "Enable common compiler warnings" ON)
+option(ENABLE_STRICT_PEDANTIC "Enable -Wpedantic (may conflict with third-party headers)" OFF)
 
 function(enable_target_warnings target_name)
     if(NOT ENABLE_PROJECT_WARNINGS)
@@ -22,7 +23,10 @@ function(enable_target_warnings target_name)
     if(MSVC)
         target_compile_options(${target_name} PRIVATE /W4)
     else()
-        target_compile_options(${target_name} PRIVATE -Wall -Wextra -Wpedantic)
+        target_compile_options(${target_name} PRIVATE -Wall -Wextra)
+        if(ENABLE_STRICT_PEDANTIC)
+            target_compile_options(${target_name} PRIVATE -Wpedantic)
+        endif()
     endif()
 endfunction()
 
