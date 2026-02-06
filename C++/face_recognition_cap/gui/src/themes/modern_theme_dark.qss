@@ -1820,6 +1820,47 @@ QProgressBar#DashboardRankBar::chunk {
     background-color: #15395b;
 }
 
+#AiDataRangeLabel {
+    color: #73d13d;
+    font-size: 11px;
+    background: transparent;
+}
+
+#AiDataRangeLabel[rangeState="inactive"] {
+    color: #8c8c8c;
+}
+
+#BackendStatusLabel {
+    color: #8c8c8c;
+    font-size: 11px;
+    min-width: 50px;
+    background: transparent;
+}
+
+#BackendStatusLabel[backendState="loading"] {
+    color: #faad14;
+}
+
+#BackendStatusLabel[backendState="ready"] {
+    color: #73d13d;
+}
+
+#AgentStatusLabel {
+    color: #69c0ff;
+    font-size: 11px;
+    font-weight: bold;
+    min-width: 100px;
+    background: transparent;
+}
+
+#AgentStatusLabel[agentState="tool"] {
+    color: #faad14;
+}
+
+#AgentStatusLabel[agentState="success"] {
+    color: #73d13d;
+}
+
 #AiChatInput {
     min-height: 40px;
     padding: 8px 12px;

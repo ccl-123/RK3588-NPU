@@ -50,6 +50,16 @@ struct TrendSeries {
     QStringList labels;
 };
 
+void apply_state_property(QWidget* widget, const char* name, const char* value) {
+    if (!widget) {
+        return;
+    }
+    widget->setProperty(name, value);
+    widget->style()->unpolish(widget);
+    widget->style()->polish(widget);
+    widget->update();
+}
+
 class TrendChartWidget : public QWidget {
 public:
     explicit TrendChartWidget(QWidget* parent = nullptr)
@@ -679,6 +689,7 @@ void DashboardPage::on_ai_analysis_finished() {
 
     // 隐藏 Agent 状态标签
     if (agent_status_label_) {
+        apply_state_property(agent_status_label_, "agentState", "idle");
         agent_status_label_->hide();
     }
 
@@ -704,6 +715,7 @@ void DashboardPage::on_ai_error(const QString& error) {
 
     // 隐藏 Agent 状态标签
     if (agent_status_label_) {
+        apply_state_property(agent_status_label_, "agentState", "idle");
         agent_status_label_->hide();
     }
 
@@ -729,6 +741,7 @@ void DashboardPage::on_ai_analysis_cancelled() {
 
     // 隐藏 Agent 状态标签
     if (agent_status_label_) {
+        apply_state_property(agent_status_label_, "agentState", "idle");
         agent_status_label_->hide();
     }
 
@@ -1136,7 +1149,8 @@ void DashboardPage::setup_ui() {
 
     // 显示当前数据范围的记录数
     ai_data_range_label_ = new QLabel(tr("(今日数据)"), quick_row);
-    ai_data_range_label_->setStyleSheet("color: #52c41a; font-size: 11px;");
+    ai_data_range_label_->setObjectName("AiDataRangeLabel");
+    apply_state_property(ai_data_range_label_, "rangeState", "active");
     quick_layout->addWidget(ai_data_range_label_);
 
     quick_layout->addStretch();
@@ -1236,14 +1250,16 @@ void DashboardPage::setup_ui() {
 
     // Agent 状态标签（显示思考中/调用工具等状态）
     agent_status_label_ = new QLabel(input_row);
-    agent_status_label_->setStyleSheet("color: #1890ff; font-size: 11px; font-weight: bold;");
+    agent_status_label_->setObjectName("AgentStatusLabel");
+    apply_state_property(agent_status_label_, "agentState", "idle");
     agent_status_label_->setMinimumWidth(100);
     agent_status_label_->hide();  // 默认隐藏，有状态时显示
     input_layout->addWidget(agent_status_label_);
 
     // 后端状态标签（显示就绪/加载中）
     backend_status_label_ = new QLabel(input_row);
-    backend_status_label_->setStyleSheet("color: #888; font-size: 11px; min-width: 50px;");
+    backend_status_label_->setObjectName("BackendStatusLabel");
+    apply_state_property(backend_status_label_, "backendState", "idle");
     input_layout->addWidget(backend_status_label_);
 
     ai_send_btn_ = new QPushButton(tr("发送"), input_row);
@@ -1686,7 +1702,7 @@ void DashboardPage::update_data_range_buttons() {
         if (is_qa_mode) {
             // 纯问答模式不显示数据条数
             ai_data_range_label_->setText(tr("(无数据)"));
-            ai_data_range_label_->setStyleSheet("color: #888; font-size: 11px;");
+            apply_state_property(ai_data_range_label_, "rangeState", "inactive");
         } else if (attendance_service_) {
             QDate end_date = QDate::currentDate();
             QDate start_date = end_date.addDays(-(ai_data_range_days_ - 1));
@@ -1701,7 +1717,7 @@ void DashboardPage::update_data_range_buttons() {
                 range_text = tr("(近%1日%2条)").arg(ai_data_range_days_).arg(records.size());
             }
             ai_data_range_label_->setText(range_text);
-            ai_data_range_label_->setStyleSheet("color: #52c41a; font-size: 11px;");
+            apply_state_property(ai_data_range_label_, "rangeState", "active");
         }
     }
 }
@@ -1725,6 +1741,7 @@ void DashboardPage::on_backend_toggled(bool checked) {
 
     if (backend_status_label_) {
         backend_status_label_->setText(checked ? tr("加载中...") : tr(""));
+        apply_state_property(backend_status_label_, "backendState", checked ? "loading" : "idle");
     }
 
     if (checked) {
@@ -1739,7 +1756,7 @@ void DashboardPage::on_backend_toggled(bool checked) {
         } else {
             if (backend_status_label_) {
                 backend_status_label_->setText(tr("就绪"));
-                backend_status_label_->setStyleSheet("color: #52c41a; font-size: 10px; min-width: 40px;");
+                apply_state_property(backend_status_label_, "backendState", "ready");
             }
         }
         // 启用 Agent 按钮（本地 LLM）
@@ -1767,7 +1784,7 @@ void DashboardPage::on_backend_toggled(bool checked) {
 void DashboardPage::on_local_llm_ready() {
     if (is_local_llm_ && backend_status_label_) {
         backend_status_label_->setText(tr("就绪"));
-        backend_status_label_->setStyleSheet("color: #52c41a; font-size: 11px;");
+        apply_state_property(backend_status_label_, "backendState", "ready");
         ToastNotification::showMessage(this, tr("AI 模型"), tr("本地模型加载完成"), ToastNotification::Level::Success);
     }
 
@@ -1782,6 +1799,7 @@ void DashboardPage::on_local_llm_ready() {
 void DashboardPage::on_local_llm_progress(int percent) {
     if (is_local_llm_ && backend_status_label_) {
         backend_status_label_->setText(tr("加载中 %1%").arg(percent));
+        apply_state_property(backend_status_label_, "backendState", "loading");
     }
 }
 
@@ -1801,6 +1819,7 @@ void DashboardPage::on_local_llm_released() {
 
     if (backend_status_label_) {
         backend_status_label_->setText(tr(""));
+        apply_state_property(backend_status_label_, "backendState", "idle");
     }
 
     // 云端支持 Agent 模式，所以保持按钮可用
@@ -1816,7 +1835,7 @@ void DashboardPage::on_local_llm_released() {
 void DashboardPage::on_agent_thinking() {
     if (agent_status_label_) {
         agent_status_label_->setText(tr("🤔 思考中..."));
-        agent_status_label_->setStyleSheet("color: #1890ff; font-weight: bold;");
+        apply_state_property(agent_status_label_, "agentState", "thinking");
         agent_status_label_->show();
     }
     spdlog::debug("Agent: thinking started");
@@ -1825,7 +1844,7 @@ void DashboardPage::on_agent_thinking() {
 void DashboardPage::on_agent_tool_calling(const QString& tool_name) {
     if (agent_status_label_) {
         agent_status_label_->setText(tr("🔧 调用工具: %1").arg(tool_name));
-        agent_status_label_->setStyleSheet("color: #faad14; font-weight: bold;");
+        apply_state_property(agent_status_label_, "agentState", "tool");
         agent_status_label_->show();
     }
     spdlog::debug("Agent: calling tool {}", tool_name.toStdString());
@@ -1834,7 +1853,7 @@ void DashboardPage::on_agent_tool_calling(const QString& tool_name) {
 void DashboardPage::on_agent_tool_completed(const QString& tool_name, const QString& result) {
     if (agent_status_label_) {
         agent_status_label_->setText(tr("✅ %1 完成").arg(tool_name));
-        agent_status_label_->setStyleSheet("color: #52c41a; font-weight: bold;");
+        apply_state_property(agent_status_label_, "agentState", "success");
     }
     spdlog::debug("Agent: tool {} completed, result length: {}",
         tool_name.toStdString(), result.length());
