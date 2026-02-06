@@ -673,5 +673,6 @@ void AttendancePage::on_date_changed() {
 }
 
 void AttendancePage::on_user_combo_changed(int index) {
+    Q_UNUSED(index);
     filter_records();
 }
