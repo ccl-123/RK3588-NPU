@@ -120,115 +120,109 @@ static unsigned char* load_model(const char* filename, int* model_size)
 -------------------------------------------*/
 int create_facenet(char *model_name, rknn_context *ctx, int &width, int &height, int &channel, rknn_input_output_num &io_num, unsigned char*& model_data)
 {
-  	int ret;
-  	if (ctx == nullptr) {
-	    printf("create_facenet invalid args: ctx is null\n");
-	    return -1;
-  	}
+    int ret = -1;
+    bool rknn_inited = false;
+    if (ctx == nullptr || model_name == nullptr) {
+        printf("create_facenet invalid args\n");
+        return -1;
+    }
 
-  	/* Create the neural network */
-  	printf("Loading facenet model...\n");
-  	int model_data_size = 0;
-  	model_data = nullptr;
-  	model_data          = load_model(model_name, &model_data_size);
+    /* Create the neural network */
+    printf("Loading facenet model...\n");
+    int model_data_size = 0;
+    model_data = nullptr;
+    model_data = load_model(model_name, &model_data_size);
     if (model_data == nullptr || model_data_size <= 0) {
         printf("load_model failed: %s\n", model_name);
         model_data = nullptr;
         return -1;
     }
-  	// 启用高优先级
-  	uint32_t flag = RKNN_FLAG_PRIOR_HIGH;
-  	ret = rknn_init(ctx, model_data, model_data_size, flag, NULL);
-  	if (ret < 0) {
-		printf("rknn_init error ret=%d\n", ret);
-        free(model_data);
-        model_data = nullptr;
-		return -1;
-  	}
-  	
-  	rknn_core_mask core_mask = RKNN_NPU_CORE_0_1_2;  // 使用核心0、1、2
-  	ret = rknn_set_core_mask(*ctx, core_mask);
-  	if (ret < 0) {
-		printf("rknn_set_core_mask error ret=%d\n", ret);
-        rknn_destroy(*ctx);
-        free(model_data);
-        model_data = nullptr;
-		return -1;
-  	}
 
-  	rknn_sdk_version version;
-  	ret = rknn_query(*ctx, RKNN_QUERY_SDK_VERSION, &version, sizeof(rknn_sdk_version));
-  	if (ret < 0) {
-		printf("rknn_init error ret=%d\n", ret);
-        rknn_destroy(*ctx);
-        free(model_data);
-        model_data = nullptr;
-		return -1;
-  	}
-  	printf("sdk version: %s driver version: %s\n", version.api_version, version.drv_version);
+    // 启用高优先级
+    uint32_t flag = RKNN_FLAG_PRIOR_HIGH;
+    ret = rknn_init(ctx, model_data, model_data_size, flag, NULL);
+    if (ret < 0) {
+        printf("rknn_init error ret=%d\n", ret);
+        goto create_failed;
+    }
+    rknn_inited = true;
 
-  	ret = rknn_query(*ctx, RKNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num));
-  	if (ret < 0) {
-		printf("rknn_init error ret=%d\n", ret);
-        rknn_destroy(*ctx);
-        free(model_data);
-        model_data = nullptr;
-		return -1;
-  	}
-  	if (io_num.n_input == 0 || io_num.n_output == 0) {
-		printf("invalid facenet io_num: in=%u out=%u\n", io_num.n_input, io_num.n_output);
-		rknn_destroy(*ctx);
-		free(model_data);
-		model_data = nullptr;
-		return -1;
-  	}
-  	printf("model input num: %d, output num: %d\n", io_num.n_input, io_num.n_output);
+    rknn_core_mask core_mask = RKNN_NPU_CORE_0_1_2;  // 使用核心0、1、2
+    ret = rknn_set_core_mask(*ctx, core_mask);
+    if (ret < 0) {
+        printf("rknn_set_core_mask error ret=%d\n", ret);
+        goto create_failed;
+    }
 
-  	std::vector<rknn_tensor_attr> input_attrs(io_num.n_input);
-  	memset(input_attrs.data(), 0, sizeof(rknn_tensor_attr) * input_attrs.size());
-  	for (uint32_t i = 0; i < io_num.n_input; ++i) {
-		input_attrs[i].index = i;
-		ret                  = rknn_query(*ctx, RKNN_QUERY_INPUT_ATTR, &(input_attrs[i]), sizeof(rknn_tensor_attr));
-		if (ret < 0) {
-	  		printf("rknn_init error ret=%d\n", ret);
-            rknn_destroy(*ctx);
-            free(model_data);
-            model_data = nullptr;
-	  		return -1;
-		}
-		dump_tensor_attr(&(input_attrs[i]));
-  	}
+    rknn_sdk_version version;
+    ret = rknn_query(*ctx, RKNN_QUERY_SDK_VERSION, &version, sizeof(rknn_sdk_version));
+    if (ret < 0) {
+        printf("rknn_query SDK version error ret=%d\n", ret);
+        goto create_failed;
+    }
+    printf("sdk version: %s driver version: %s\n", version.api_version, version.drv_version);
 
-  	std::vector<rknn_tensor_attr> output_attrs(io_num.n_output);
-  	memset(output_attrs.data(), 0, sizeof(rknn_tensor_attr) * output_attrs.size());
-  	for (uint32_t i = 0; i < io_num.n_output; ++i) {
-		output_attrs[i].index = i;
-		ret                   = rknn_query(*ctx, RKNN_QUERY_OUTPUT_ATTR, &(output_attrs[i]), sizeof(rknn_tensor_attr));
+    ret = rknn_query(*ctx, RKNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num));
+    if (ret < 0) {
+        printf("rknn_query io_num error ret=%d\n", ret);
+        goto create_failed;
+    }
+    if (io_num.n_input == 0 || io_num.n_output == 0) {
+        printf("invalid facenet io_num: in=%u out=%u\n", io_num.n_input, io_num.n_output);
+        ret = -1;
+        goto create_failed;
+    }
+    printf("model input num: %d, output num: %d\n", io_num.n_input, io_num.n_output);
+
+    std::vector<rknn_tensor_attr> input_attrs(io_num.n_input);
+    memset(input_attrs.data(), 0, sizeof(rknn_tensor_attr) * input_attrs.size());
+    for (uint32_t i = 0; i < io_num.n_input; ++i) {
+        input_attrs[i].index = i;
+        ret = rknn_query(*ctx, RKNN_QUERY_INPUT_ATTR, &(input_attrs[i]), sizeof(rknn_tensor_attr));
+        if (ret < 0) {
+            printf("rknn_query input attr error ret=%d\n", ret);
+            goto create_failed;
+        }
+        dump_tensor_attr(&(input_attrs[i]));
+    }
+
+    std::vector<rknn_tensor_attr> output_attrs(io_num.n_output);
+    memset(output_attrs.data(), 0, sizeof(rknn_tensor_attr) * output_attrs.size());
+    for (uint32_t i = 0; i < io_num.n_output; ++i) {
+        output_attrs[i].index = i;
+        ret = rknn_query(*ctx, RKNN_QUERY_OUTPUT_ATTR, &(output_attrs[i]), sizeof(rknn_tensor_attr));
         if (ret < 0) {
             printf("rknn_query output attr error ret=%d\n", ret);
-            rknn_destroy(*ctx);
-            free(model_data);
-            model_data = nullptr;
-            return -1;
+            goto create_failed;
         }
-		dump_tensor_attr(&(output_attrs[i]));
-  	}
+        dump_tensor_attr(&(output_attrs[i]));
+    }
 
-  	if (input_attrs[0].fmt == RKNN_TENSOR_NCHW) {
-		printf("model is NCHW input fmt\n");
-		channel = input_attrs[0].dims[1];
-		width   = input_attrs[0].dims[3];
-		height  = input_attrs[0].dims[2];
-  	} else {
-		printf("model is NHWC input fmt\n");
-		width   = input_attrs[0].dims[2];
-		height  = input_attrs[0].dims[1];
-		channel = input_attrs[0].dims[3];
-  	}
+    if (input_attrs[0].fmt == RKNN_TENSOR_NCHW) {
+        printf("model is NCHW input fmt\n");
+        channel = input_attrs[0].dims[1];
+        width = input_attrs[0].dims[3];
+        height = input_attrs[0].dims[2];
+    } else {
+        printf("model is NHWC input fmt\n");
+        width = input_attrs[0].dims[2];
+        height = input_attrs[0].dims[1];
+        channel = input_attrs[0].dims[3];
+    }
 
-  	printf("model input height=%d, width=%d, channel=%d\n", height, width, channel);
-  	
-  	return ret;
+    printf("model input height=%d, width=%d, channel=%d\n", height, width, channel);
+    return 0;
+
+create_failed:
+    if (rknn_inited) {
+        rknn_destroy(*ctx);
+        *ctx = 0;
+    }
+    if (model_data) {
+        free(model_data);
+        model_data = nullptr;
+    }
+    return ret;
 }
 
 int facenet_inference(rknn_context *ctx, cv::Mat img, rknn_input_output_num io_num, rknn_input *inputs, rknn_output *outputs, float **result){
