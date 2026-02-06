@@ -604,7 +604,10 @@ void SettingsPage::setup_ui() {
     city_preset_combo_->setObjectName("SettingsCombo");
     city_preset_combo_->setMinimumWidth(200);
     city_preset_combo_->addItem(tr("-- 选择城市 --"), QVariant());
-    city_preset_combo_->addItem(tr("佛山"), QVariant::fromValue(QVector<double>{23.0215, 113.1214}));
+    const QString default_city = QString::fromUtf8(Config::Default::CITY);
+    city_preset_combo_->addItem(
+        tr("%1 (默认)").arg(default_city),
+        QVariant::fromValue(QVector<double>{Config::Default::LATITUDE, Config::Default::LONGITUDE}));
     city_preset_combo_->addItem(tr("广州"), QVariant::fromValue(QVector<double>{23.1291, 113.2644}));
     city_preset_combo_->addItem(tr("深圳"), QVariant::fromValue(QVector<double>{22.5431, 114.0579}));
     city_preset_combo_->addItem(tr("东莞"), QVariant::fromValue(QVector<double>{23.0430, 113.7633}));
