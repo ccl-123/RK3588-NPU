@@ -480,32 +480,34 @@ void AudioManager::playNext() {
 }
 
 QString AudioManager::getAudioBasePath() {
-    // 尝试多个可能的路径
+    const QString appDir = QCoreApplication::applicationDirPath();
+    const QString cwd = QDir::currentPath();
+
+    // 尝试多个可能的路径（安装目录、开发目录、当前工作目录）
     QStringList possiblePaths = {
-        // 相对于可执行文件的路径
-        QCoreApplication::applicationDirPath() + "/data/voice",
-        
-        // 安装目录路径
-        "/home/firefly/open_project/edge2-npu/C++/face_recognition_cap/install/face_recognition_cap/data/voice",
-        "/home/firefly/open_project/edge2-npu/C++/face_recognition_cap/data/voice",
-        
-        // 开发环境路径
-        QCoreApplication::applicationDirPath() + "/../data/voice",
-        QCoreApplication::applicationDirPath() + "/../../data/voice",
-        QCoreApplication::applicationDirPath() + "/../../../data/voice",
+        appDir + "/data/voice",
+        appDir + "/../data/voice",
+        appDir + "/../../data/voice",
+        appDir + "/../../../data/voice",
+        appDir + "/../face_recognition_cap/data/voice",
+        cwd + "/data/voice",
+        cwd + "/install/face_recognition_cap/data/voice",
+        cwd + "/C++/face_recognition_cap/data/voice",
+        cwd + "/C++/face_recognition_cap/install/face_recognition_cap/data/voice",
     };
-    
+
     // 查找第一个存在的路径
     for (const QString& path : possiblePaths) {
-        QDir dir(path);
+        QDir dir(QDir::cleanPath(path));
         if (dir.exists()) {
-            spdlog::debug("AudioManager: Using audio base path: {}", path.toStdString());
-            return path;
+            const QString normalized = dir.absolutePath();
+            spdlog::debug("AudioManager: Using audio base path: {}", normalized.toStdString());
+            return normalized;
         }
     }
-    
+
     // 如果都不存在，返回默认路径（会在播放时报错）
-    QString defaultPath = possiblePaths.first();
+    QString defaultPath = QDir::cleanPath(possiblePaths.first());
     spdlog::warn("AudioManager: Audio directory not found, using default: {}", 
                  defaultPath.toStdString());
     return defaultPath;
