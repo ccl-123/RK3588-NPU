@@ -165,6 +165,7 @@ QString HolidayService::computeCountdownText(const QList<QPair<QDate, QString>>&
 }
 
 void HolidayService::onYearFinished(QNetworkReply* reply, int year) {
+    (void)year;
     QByteArray data = reply->readAll();
     QJsonDocument doc = QJsonDocument::fromJson(data);
     if (!doc.isNull() && doc.isObject()) {

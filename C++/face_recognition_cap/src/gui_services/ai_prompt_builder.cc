@@ -11,6 +11,7 @@ QString AiPromptBuilder::buildPrompt(const service::AttendanceStatistics& stats,
                                      const QString& detail_records,
                                      const QString& user_prompt,
                                      int range_days) {
+    (void)trend_summary;
     QString current_time_str = QDateTime::currentDateTime().toString("MM月dd日 HH:mm");
     QString content;
 
