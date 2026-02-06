@@ -218,7 +218,11 @@ int post_process_yolov8_face(rknn_output* outputs, rknn_tensor_attr* output_attr
                              float conf_threshold, float nms_threshold,
                              float scale_w, float scale_h,
                              detect_result_group_t* group) {
-    
+    if (outputs == nullptr || output_attrs == nullptr || group == nullptr) {
+        printf("Error: invalid post-process arguments (null pointer)\n");
+        return -1;
+    }
+
     memset(group, 0, sizeof(detect_result_group_t));
 
     if (n_output != 4) {
@@ -234,6 +238,15 @@ int post_process_yolov8_face(rknn_output* outputs, rknn_tensor_attr* output_attr
 
     // 处理前3个输出 (bbox + conf)，强制使用 INT8 路径
     for (int i = 0; i < 3; i++) {
+        if (output_attrs[i].n_dims < 4 || output_attrs[i].dims[2] <= 0 || output_attrs[i].dims[3] <= 0) {
+            printf("Error: invalid dims for output %d (n_dims=%d)\n", i, output_attrs[i].n_dims);
+            return -1;
+        }
+        if (outputs[i].buf == nullptr) {
+            printf("Error: YOLO output %d buffer is null\n", i);
+            return -1;
+        }
+
         int grid_h = output_attrs[i].dims[2];
         int grid_w = output_attrs[i].dims[3];
         int stride = model_in_h / grid_h;
@@ -267,12 +280,29 @@ int post_process_yolov8_face(rknn_output* outputs, rknn_tensor_attr* output_attr
         nms(validCount, filterBoxes, classId, indexArray, c, nms_threshold);
     }
 
+    if (outputs[3].buf == nullptr) {
+        printf("Error: YOLO keypoint output buffer is null\n");
+        return -1;
+    }
+
+    int kpt_anchor_count = 0;
+    if (output_attrs[3].n_dims >= 4 && output_attrs[3].dims[3] > 0) {
+        kpt_anchor_count = output_attrs[3].dims[3];
+    } else if (output_attrs[3].n_elems > 0) {
+        kpt_anchor_count = output_attrs[3].n_elems / (5 * 3);
+    }
+    if (kpt_anchor_count <= 0) {
+        printf("Error: invalid keypoint anchor count\n");
+        return -1;
+    }
+
     // 获取关键点输出 - 格式: [1, 5, 3, 8400]
     float* kpt_output = (float*)outputs[3].buf;
     int32_t kpt_zp = output_attrs[3].zp;
     float kpt_scale = output_attrs[3].scale;
     // 检查关键点是否也是 float (want_float=1 时)
-    bool kpt_is_float = (outputs[3].size == output_attrs[3].n_elems * sizeof(float));
+    bool kpt_is_float =
+        (outputs[3].size == static_cast<size_t>(output_attrs[3].n_elems) * sizeof(float));
 
     // 提取结果
   int last_count = 0;
@@ -289,21 +319,24 @@ int post_process_yolov8_face(rknn_output* outputs, rknn_tensor_attr* output_attr
         float w = filterBoxes[n * 5 + 2];
         float h = filterBoxes[n * 5 + 3];
         int kpt_index = (int)filterBoxes[n * 5 + 4];
+        if (kpt_index < 0 || kpt_index >= kpt_anchor_count) {
+            continue;
+        }
 
         // 获取 5 个关键点 - 输出格式: [1, 5, 3, 8400]
         float kpts[5][3];  // 5个点，每个点 (x, y, visibility)
         for (int j = 0; j < 5; ++j) {
             if (kpt_is_float) {
                 // want_float=1，数据已经是 float
-                kpts[j][0] = kpt_output[j * 3 * 8400 + 0 * 8400 + kpt_index];
-                kpts[j][1] = kpt_output[j * 3 * 8400 + 1 * 8400 + kpt_index];
-                kpts[j][2] = kpt_output[j * 3 * 8400 + 2 * 8400 + kpt_index];
+                kpts[j][0] = kpt_output[j * 3 * kpt_anchor_count + 0 * kpt_anchor_count + kpt_index];
+                kpts[j][1] = kpt_output[j * 3 * kpt_anchor_count + 1 * kpt_anchor_count + kpt_index];
+                kpts[j][2] = kpt_output[j * 3 * kpt_anchor_count + 2 * kpt_anchor_count + kpt_index];
             } else {
                 // 原始 INT8，需要反量化
                 int8_t* kpt_i8 = (int8_t*)outputs[3].buf;
-                kpts[j][0] = deqnt_affine_to_f32(kpt_i8[j * 3 * 8400 + 0 * 8400 + kpt_index], kpt_zp, kpt_scale);
-                kpts[j][1] = deqnt_affine_to_f32(kpt_i8[j * 3 * 8400 + 1 * 8400 + kpt_index], kpt_zp, kpt_scale);
-                kpts[j][2] = deqnt_affine_to_f32(kpt_i8[j * 3 * 8400 + 2 * 8400 + kpt_index], kpt_zp, kpt_scale);
+                kpts[j][0] = deqnt_affine_to_f32(kpt_i8[j * 3 * kpt_anchor_count + 0 * kpt_anchor_count + kpt_index], kpt_zp, kpt_scale);
+                kpts[j][1] = deqnt_affine_to_f32(kpt_i8[j * 3 * kpt_anchor_count + 1 * kpt_anchor_count + kpt_index], kpt_zp, kpt_scale);
+                kpts[j][2] = deqnt_affine_to_f32(kpt_i8[j * 3 * kpt_anchor_count + 2 * kpt_anchor_count + kpt_index], kpt_zp, kpt_scale);
             }
         }
 
