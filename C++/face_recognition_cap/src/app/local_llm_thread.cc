@@ -195,7 +195,7 @@ void LocalLLMThread::doInitModel() {
 
     // 设置考勤专家系统提示词和聊天模板（与 face_llm.cpp 保持一致）
     if (SYSTEM_PROMPT) {
-        rkllm_set_chat_template(llm_handle_, (char*)SYSTEM_PROMPT, "<|im_start|>user\n", "<|im_start|>assistant\n");
+        rkllm_set_chat_template(llm_handle_, (char*)SYSTEM_PROMPT, "<|im_start|>user\n", "<|im_start|>assistant\n<think>\n</think>\n");
         spdlog::info("Chat template set with system prompt");
     }
 
