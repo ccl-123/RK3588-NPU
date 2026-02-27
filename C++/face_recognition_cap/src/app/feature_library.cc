@@ -154,10 +154,12 @@ bool FeatureLibrary::match_feature_with_id(const float* feature, float threshold
                                            int& user_id, std::string& matched_name, float& max_score) {
     std::shared_lock<std::shared_mutex> lock(mutex_);  // 读锁
 
-    max_score = -1.0f;  // 修复：使用 -1.0f 表示未计算，确保能捕获所有正相似度
+    max_score = 0.0f;
     matched_name = "stranger";
     user_id = 0;
-    bool found = false;
+    if (feature == nullptr || lib_feature_.empty()) {
+        return false;
+    }
 
     int best_match_idx = -1;
     float best_similarity = -1.0f;
@@ -179,9 +181,9 @@ bool FeatureLibrary::match_feature_with_id(const float* feature, float threshold
     if (best_match_idx >= 0 && best_similarity >= threshold) {
         matched_name = lib_face_name_[best_match_idx];
         user_id = lib_user_ids_[best_match_idx];
-        found = true;
+        return true;
     }
-    return found;
+    return false;
 }
 
 bool FeatureLibrary::add_feature(int user_id, const std::string& name, const float* feature) {

@@ -35,6 +35,7 @@ void PostprocessThread::start() {
 void PostprocessThread::stop() {
     if (running_) {
         running_ = false;
+        cv_.notify_all();
         if (thread_.joinable()) {
             thread_.join();
         }
@@ -42,11 +43,14 @@ void PostprocessThread::stop() {
 }
 
 bool PostprocessThread::submit_task(PostprocessTask&& task) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (queue_.size() >= MAX_QUEUE_SIZE) {
-        queue_.pop();
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (queue_.size() >= MAX_QUEUE_SIZE) {
+            queue_.pop();
+        }
+        queue_.push(std::move(task));
     }
-    queue_.push(std::move(task));
+    cv_.notify_one();
     return true;
 }
 
@@ -56,12 +60,15 @@ size_t PostprocessThread::queue_size() const {
 }
 
 void PostprocessThread::thread_func() {
-    while (running_) {
+    while (running_.load(std::memory_order_acquire)) {
         PostprocessTask task;
         {
-            std::lock_guard<std::mutex> lock(mutex_);
-            if (queue_.empty()) {
-                continue;
+            std::unique_lock<std::mutex> lock(mutex_);
+            cv_.wait(lock, [this] {
+                return !queue_.empty() || !running_.load(std::memory_order_acquire);
+            });
+            if (!running_.load(std::memory_order_acquire) && queue_.empty()) {
+                break;
             }
             task = std::move(queue_.front());
             queue_.pop();
@@ -104,5 +111,4 @@ void PostprocessThread::thread_func() {
         recognition_thread_->submit_task(rec_task);
     }
 }
-
 

@@ -8,8 +8,7 @@
  * 支持人脸框绘制、姓名和相似度标注。
  */
 
-#ifndef VIDEO_DISPLAY_WIDGET_H
-#define VIDEO_DISPLAY_WIDGET_H
+#pragma once
 
 #include <QWidget>
 #include <QImage>
@@ -96,4 +95,3 @@ private:
     std::chrono::steady_clock::time_point last_display_fps_time_;
 };
 
-#endif // VIDEO_DISPLAY_WIDGET_H

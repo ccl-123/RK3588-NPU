@@ -13,6 +13,7 @@
 #include <string.h>
 #include <sys/time.h>
 #include <algorithm>
+#include <array>
 #include <set>
 #include <vector>
 
@@ -80,7 +81,7 @@ static void softmax(float* input, int size) {
 
 // NMS
 static int nms(int validCount, std::vector<float>& outputLocations,
-               std::vector<int> classIds, std::vector<int>& order,
+               const std::vector<int>& classIds, std::vector<int>& order,
                int filterId, float threshold) {
     for (int i = 0; i < validCount; ++i) {
         int n = order[i];
@@ -149,9 +150,11 @@ static int process_i8(int8_t* input, int grid_h, int grid_w, int stride,
                       std::vector<float>& boxes, std::vector<float>& boxScores,
                       std::vector<int>& classId, float threshold,
                       int32_t zp, float scale, int index) {
-    int input_loc_len = 64;  // DFL: 4 * 16
+    constexpr int kInputLocLen = 64;  // DFL: 4 * 16
+    constexpr int kDflBins = 16;
     int validCount = 0;
-    int8_t thres_i8 = qnt_f32_to_affine(unsigmoid(threshold), zp, scale);
+    const float safe_threshold = std::clamp(threshold, 1e-6f, 1.0f - 1e-6f);
+    int8_t thres_i8 = qnt_f32_to_affine(unsigmoid(safe_threshold), zp, scale);
 
     for (int h = 0; h < grid_h; h++) {
         for (int w = 0; w < grid_w; w++) {
@@ -163,22 +166,22 @@ static int process_i8(int8_t* input, int grid_h, int grid_w, int stride,
                 float box_conf_f32 = sigmoid(deqnt_affine_to_f32(conf_i8, zp, scale));
 
                 // 提取并反量化 DFL 数据
-                float loc[input_loc_len];
-                for (int i = 0; i < input_loc_len; ++i) {
+                std::array<float, kInputLocLen> loc{};
+                for (int i = 0; i < kInputLocLen; ++i) {
                     loc[i] = deqnt_affine_to_f32(input[i * grid_h * grid_w + offset], zp, scale);
   }
   
                 // DFL 解码
                 for (int i = 0; i < 4; ++i) {
-                    softmax(&loc[i * 16], 16);
+                    softmax(loc.data() + i * kDflBins, kDflBins);
                 }
 
                 float xywh_[4] = {0, 0, 0, 0};
-                for (int dfl = 0; dfl < 16; ++dfl) {
-                    xywh_[0] += loc[0 * 16 + dfl] * dfl;
-                    xywh_[1] += loc[1 * 16 + dfl] * dfl;
-                    xywh_[2] += loc[2 * 16 + dfl] * dfl;
-                    xywh_[3] += loc[3 * 16 + dfl] * dfl;
+                for (int dfl = 0; dfl < kDflBins; ++dfl) {
+                    xywh_[0] += loc[0 * kDflBins + dfl] * dfl;
+                    xywh_[1] += loc[1 * kDflBins + dfl] * dfl;
+                    xywh_[2] += loc[2 * kDflBins + dfl] * dfl;
+                    xywh_[3] += loc[3 * kDflBins + dfl] * dfl;
                 }
 
                 float x1_grid = (w + 0.5f) - xywh_[0];
@@ -218,11 +221,19 @@ int post_process_yolov8_face(rknn_output* outputs, rknn_tensor_attr* output_attr
                              float conf_threshold, float nms_threshold,
                              float scale_w, float scale_h,
                              detect_result_group_t* group) {
-    
+    if (outputs == nullptr || output_attrs == nullptr || group == nullptr) {
+        printf("Error: invalid post-process arguments (null pointer)\n");
+        return -1;
+    }
+
     memset(group, 0, sizeof(detect_result_group_t));
 
     if (n_output != 4) {
         printf("Error: Expected 4 outputs for YOLOv8-face, got %d\n", n_output);
+        return -1;
+    }
+    if (model_in_h <= 0 || model_in_w <= 0 || scale_w <= 0.0f || scale_h <= 0.0f) {
+        printf("Error: invalid post-process scale/model size\n");
         return -1;
     }
 
@@ -231,9 +242,20 @@ int post_process_yolov8_face(rknn_output* outputs, rknn_tensor_attr* output_attr
     std::vector<int> classId;
     int validCount = 0;
     int index = 0;
+    const float safe_conf_threshold = std::clamp(conf_threshold, 1e-6f, 1.0f - 1e-6f);
+    const float safe_nms_threshold = std::clamp(nms_threshold, 0.0f, 1.0f);
 
     // 处理前3个输出 (bbox + conf)，强制使用 INT8 路径
     for (int i = 0; i < 3; i++) {
+        if (output_attrs[i].n_dims < 4 || output_attrs[i].dims[2] <= 0 || output_attrs[i].dims[3] <= 0) {
+            printf("Error: invalid dims for output %d (n_dims=%d)\n", i, output_attrs[i].n_dims);
+            return -1;
+        }
+        if (outputs[i].buf == nullptr) {
+            printf("Error: YOLO output %d buffer is null\n", i);
+            return -1;
+        }
+
         int grid_h = output_attrs[i].dims[2];
         int grid_w = output_attrs[i].dims[3];
         int stride = model_in_h / grid_h;
@@ -244,7 +266,7 @@ int post_process_yolov8_face(rknn_output* outputs, rknn_tensor_attr* output_attr
         }
 
             validCount += process_i8((int8_t*)outputs[i].buf, grid_h, grid_w, stride,
-                                     filterBoxes, objProbs, classId, conf_threshold,
+                                     filterBoxes, objProbs, classId, safe_conf_threshold,
                                      output_attrs[i].zp, output_attrs[i].scale, index);
         index += grid_h * grid_w;
     }
@@ -256,6 +278,7 @@ int post_process_yolov8_face(rknn_output* outputs, rknn_tensor_attr* output_attr
 
     // 排序
     std::vector<int> indexArray;
+    indexArray.reserve(validCount);
     for (int i = 0; i < validCount; ++i) {
         indexArray.push_back(i);
     }
@@ -264,7 +287,35 @@ int post_process_yolov8_face(rknn_output* outputs, rknn_tensor_attr* output_attr
     // NMS
     std::set<int> class_set(std::begin(classId), std::end(classId));
     for (auto c : class_set) {
-        nms(validCount, filterBoxes, classId, indexArray, c, nms_threshold);
+        nms(validCount, filterBoxes, classId, indexArray, c, safe_nms_threshold);
+    }
+
+    if (outputs[3].buf == nullptr) {
+        printf("Error: YOLO keypoint output buffer is null\n");
+        return -1;
+    }
+
+    constexpr int kKeypointCount = 5;
+    constexpr int kKeypointDims = 3;
+    int kpt_anchor_count = 0;
+    if (output_attrs[3].n_dims >= 4 && output_attrs[3].dims[3] > 0) {
+        if (output_attrs[3].dims[1] != kKeypointCount || output_attrs[3].dims[2] != kKeypointDims) {
+            printf("Error: unexpected keypoint dims: [%d, %d]\n",
+                   output_attrs[3].dims[1], output_attrs[3].dims[2]);
+            return -1;
+        }
+        kpt_anchor_count = output_attrs[3].dims[3];
+    } else if (output_attrs[3].n_elems > 0) {
+        const int kpt_elems_per_anchor = kKeypointCount * kKeypointDims;
+        if (output_attrs[3].n_elems % kpt_elems_per_anchor != 0) {
+            printf("Error: invalid keypoint elems: %d\n", output_attrs[3].n_elems);
+            return -1;
+        }
+        kpt_anchor_count = output_attrs[3].n_elems / kpt_elems_per_anchor;
+    }
+    if (kpt_anchor_count <= 0) {
+        printf("Error: invalid keypoint anchor count\n");
+        return -1;
     }
 
     // 获取关键点输出 - 格式: [1, 5, 3, 8400]
@@ -272,7 +323,18 @@ int post_process_yolov8_face(rknn_output* outputs, rknn_tensor_attr* output_attr
     int32_t kpt_zp = output_attrs[3].zp;
     float kpt_scale = output_attrs[3].scale;
     // 检查关键点是否也是 float (want_float=1 时)
-    bool kpt_is_float = (outputs[3].size == output_attrs[3].n_elems * sizeof(float));
+    bool kpt_is_float =
+        (outputs[3].size == static_cast<size_t>(output_attrs[3].n_elems) * sizeof(float));
+    size_t kpt_elem_count =
+        static_cast<size_t>(kKeypointCount) * kKeypointDims * static_cast<size_t>(kpt_anchor_count);
+    size_t expected_kpt_bytes = kpt_is_float ? (kpt_elem_count * sizeof(float))
+                                             : (kpt_elem_count * sizeof(int8_t));
+    if (outputs[3].size < expected_kpt_bytes) {
+        printf("Error: keypoint output buffer too small, expected=%zu actual=%u\n",
+               expected_kpt_bytes, outputs[3].size);
+        return -1;
+    }
+    int8_t* kpt_i8 = static_cast<int8_t*>(outputs[3].buf);
 
     // 提取结果
   int last_count = 0;
@@ -289,21 +351,23 @@ int post_process_yolov8_face(rknn_output* outputs, rknn_tensor_attr* output_attr
         float w = filterBoxes[n * 5 + 2];
         float h = filterBoxes[n * 5 + 3];
         int kpt_index = (int)filterBoxes[n * 5 + 4];
+        if (kpt_index < 0 || kpt_index >= kpt_anchor_count) {
+            continue;
+        }
 
         // 获取 5 个关键点 - 输出格式: [1, 5, 3, 8400]
-        float kpts[5][3];  // 5个点，每个点 (x, y, visibility)
-        for (int j = 0; j < 5; ++j) {
+        float kpts[kKeypointCount][kKeypointDims];  // 5个点，每个点 (x, y, visibility)
+        for (int j = 0; j < kKeypointCount; ++j) {
             if (kpt_is_float) {
                 // want_float=1，数据已经是 float
-                kpts[j][0] = kpt_output[j * 3 * 8400 + 0 * 8400 + kpt_index];
-                kpts[j][1] = kpt_output[j * 3 * 8400 + 1 * 8400 + kpt_index];
-                kpts[j][2] = kpt_output[j * 3 * 8400 + 2 * 8400 + kpt_index];
+                kpts[j][0] = kpt_output[j * kKeypointDims * kpt_anchor_count + 0 * kpt_anchor_count + kpt_index];
+                kpts[j][1] = kpt_output[j * kKeypointDims * kpt_anchor_count + 1 * kpt_anchor_count + kpt_index];
+                kpts[j][2] = kpt_output[j * kKeypointDims * kpt_anchor_count + 2 * kpt_anchor_count + kpt_index];
             } else {
                 // 原始 INT8，需要反量化
-                int8_t* kpt_i8 = (int8_t*)outputs[3].buf;
-                kpts[j][0] = deqnt_affine_to_f32(kpt_i8[j * 3 * 8400 + 0 * 8400 + kpt_index], kpt_zp, kpt_scale);
-                kpts[j][1] = deqnt_affine_to_f32(kpt_i8[j * 3 * 8400 + 1 * 8400 + kpt_index], kpt_zp, kpt_scale);
-                kpts[j][2] = deqnt_affine_to_f32(kpt_i8[j * 3 * 8400 + 2 * 8400 + kpt_index], kpt_zp, kpt_scale);
+                kpts[j][0] = deqnt_affine_to_f32(kpt_i8[j * kKeypointDims * kpt_anchor_count + 0 * kpt_anchor_count + kpt_index], kpt_zp, kpt_scale);
+                kpts[j][1] = deqnt_affine_to_f32(kpt_i8[j * kKeypointDims * kpt_anchor_count + 1 * kpt_anchor_count + kpt_index], kpt_zp, kpt_scale);
+                kpts[j][2] = deqnt_affine_to_f32(kpt_i8[j * kKeypointDims * kpt_anchor_count + 2 * kpt_anchor_count + kpt_index], kpt_zp, kpt_scale);
             }
         }
 

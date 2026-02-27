@@ -1,5 +1,6 @@
 #include "ui/settings_page.h"
 
+#include "config/config.h"
 #include "widgets/card_widget.h"
 #include "gui_utils/audio_manager.h"
 #include "gui_utils/config_manager.h"
@@ -19,17 +20,18 @@
 #include <QDir>
 #include <QFile>
 #include <QFrame>
+#include <QCoreApplication>
 #include <spdlog/spdlog.h>
 
 SettingsPage::SettingsPage(QWidget* parent)
     : QWidget(parent)
     , version_label_(nullptr)
     , db_size_label_(nullptr)
-    , auto_start_check_(nullptr)
     , show_fps_check_(nullptr)
     , show_confidence_check_(nullptr)
-    , duplicate_check_interval_spin_(nullptr)
+    , auto_start_check_(nullptr)
     , recognition_threshold_spin_(nullptr)
+    , duplicate_check_interval_spin_(nullptr)
     , user_confirm_duration_spin_(nullptr)
     , work_start_time_edit_(nullptr)
     , work_end_time_edit_(nullptr)
@@ -119,71 +121,6 @@ QFrame* createSeparator() {
     line->setFrameShape(QFrame::HLine);
     line->setObjectName("SettingsSeparator");
     return line;
-}
-
-// ============================================================================
-// 辅助函数：创建表单行（标签 + 控件）
-// ============================================================================
-QHBoxLayout* createFormRow(const QString& labelText, QWidget* widget, const QString& hint = QString()) {
-    auto row = new QHBoxLayout();
-    row->setSpacing(12);
-    
-    auto label = new QLabel(labelText);
-    label->setObjectName("SettingsLabel");
-    label->setMinimumWidth(100);
-    label->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    row->addWidget(label);
-    
-    widget->setMinimumWidth(180);
-    row->addWidget(widget);
-    
-    if (!hint.isEmpty()) {
-        auto hintLabel = new QLabel(hint);
-        hintLabel->setObjectName("SettingsHint");
-        row->addWidget(hintLabel);
-    }
-    
-    row->addStretch();
-    return row;
-}
-
-// ============================================================================
-// 辅助函数：创建带图标的区块标题
-// ============================================================================
-QWidget* createSectionHeader(const QString& icon, const QString& title, const QString& subtitle) {
-    auto container = new QWidget();
-    container->setObjectName("SectionHeader");
-    auto layout = new QHBoxLayout(container);
-    layout->setContentsMargins(0, 0, 0, 8);
-    layout->setSpacing(12);
-    
-    // 图标
-    auto iconLabel = new QLabel(icon);
-    iconLabel->setObjectName("SectionIcon");
-    iconLabel->setFixedSize(32, 32);
-    iconLabel->setAlignment(Qt::AlignCenter);
-    layout->addWidget(iconLabel);
-    
-    // 标题和副标题
-    auto textContainer = new QWidget();
-    auto textLayout = new QVBoxLayout(textContainer);
-    textLayout->setContentsMargins(0, 0, 0, 0);
-    textLayout->setSpacing(2);
-    
-    auto titleLabel = new QLabel(title);
-    titleLabel->setObjectName("SectionTitle");
-    textLayout->addWidget(titleLabel);
-    
-    if (!subtitle.isEmpty()) {
-        auto subtitleLabel = new QLabel(subtitle);
-        subtitleLabel->setObjectName("SectionSubtitle");
-        textLayout->addWidget(subtitleLabel);
-    }
-    
-    layout->addWidget(textContainer);
-    layout->addStretch();
-    
-    return container;
 }
 
 void SettingsPage::setup_ui() {
@@ -667,7 +604,10 @@ void SettingsPage::setup_ui() {
     city_preset_combo_->setObjectName("SettingsCombo");
     city_preset_combo_->setMinimumWidth(200);
     city_preset_combo_->addItem(tr("-- 选择城市 --"), QVariant());
-    city_preset_combo_->addItem(tr("佛山"), QVariant::fromValue(QVector<double>{23.0215, 113.1214}));
+    const QString default_city = QString::fromUtf8(Config::Default::CITY);
+    city_preset_combo_->addItem(
+        tr("%1 (默认)").arg(default_city),
+        QVariant::fromValue(QVector<double>{Config::Default::LATITUDE, Config::Default::LONGITUDE}));
     city_preset_combo_->addItem(tr("广州"), QVariant::fromValue(QVector<double>{23.1291, 113.2644}));
     city_preset_combo_->addItem(tr("深圳"), QVariant::fromValue(QVector<double>{22.5431, 114.0579}));
     city_preset_combo_->addItem(tr("东莞"), QVariant::fromValue(QVector<double>{23.0430, 113.7633}));
@@ -771,10 +711,10 @@ void SettingsPage::setup_ui() {
 
 void SettingsPage::load_settings() {
     ConfigManager* config = ConfigManager::instance();
-    
+
     // 更新数据库大小信息
     update_db_size();
-    
+
     // 加载识别设置
     if (recognition_threshold_spin_) {
         recognition_threshold_spin_->setValue(config->getRecognitionThreshold());
@@ -785,7 +725,7 @@ void SettingsPage::load_settings() {
     if (user_confirm_duration_spin_) {
         user_confirm_duration_spin_->setValue(config->getUserConfirmDuration() / 1000.0);
     }
-    
+
     // 加载考勤设置
     if (work_start_time_edit_) {
         work_start_time_edit_->setTime(QTime::fromString(config->getWorkStartTime(), "HH:mm"));
@@ -798,23 +738,25 @@ void SettingsPage::load_settings() {
     if (allow_multiple_checkin_check_) allow_multiple_checkin_check_->setChecked(config->isAllowMultipleCheckin());
     if (checkin_sound_check_) checkin_sound_check_->setChecked(config->isCheckinSound());
     if (show_checkin_reminder_check_) show_checkin_reminder_check_->setChecked(config->isShowCheckinReminder());
-    
+
     // 加载显示设置
     if (show_fps_check_) show_fps_check_->setChecked(config->isShowFPS());
     if (show_confidence_check_) show_confidence_check_->setChecked(config->isShowConfidence());
     if (auto_start_check_) auto_start_check_->setChecked(config->isAutoStart());
-    
-    // 加载音频设置
+
+    // 加载音频设置 - 使用 QSignalBlocker 阻止触发 AudioManager 副作用
     if (audio_enabled_check_) {
         audio_enabled_check_->setChecked(config->isAudioEnabled());
     }
     if (audio_volume_slider_) {
+        const QSignalBlocker blocker(audio_volume_slider_);
         audio_volume_slider_->setValue(config->getAudioVolume());
     }
     if (audio_volume_label_) {
         audio_volume_label_->setText(QString("%1%").arg(config->getAudioVolume()));
     }
     if (audio_device_combo_) {
+        const QSignalBlocker blocker(audio_device_combo_);
         QString savedDevice = config->getAudioDevice();
         if (!savedDevice.isEmpty()) {
             int deviceIndex = audio_device_combo_->findText(savedDevice);
@@ -831,7 +773,7 @@ void SettingsPage::load_settings() {
             }
         }
     }
-    
+
     // 加载摄像头设置
     if (camera_device_combo_) {
         int cameraId = config->getCameraId();
@@ -842,7 +784,7 @@ void SettingsPage::load_settings() {
             }
         }
     }
-    
+
     // 加载天气/城市设置
     if (auto_location_check_) {
         auto_location_check_->setChecked(config->isAutoLocationEnabled());
@@ -864,18 +806,22 @@ void SettingsPage::load_settings() {
 void SettingsPage::update_db_size() {
     if (!db_size_label_) return;
 
+    const QString app_dir = QCoreApplication::applicationDirPath();
+    const QString current_dir = QDir::currentPath();
+    const QString db_rel_path = QString::fromUtf8(Config::Path::DATABASE);
+
     QStringList db_prefixes = {
-        "/home/firefly/open_project/edge2-npu/C++/face_recognition_cap/install/face_recognition_cap/",
-        "/home/firefly/open_project/edge2-npu/C++/face_recognition_cap/",
-        "/home/firefly/open_project/edge2-npu/",
-        "./",
-        "../",
-        "../../"
+        app_dir,
+        QDir(app_dir).absoluteFilePath(".."),
+        QDir(app_dir).absoluteFilePath("../.."),
+        current_dir,
+        QDir(current_dir).absoluteFilePath(".."),
+        QDir(current_dir).absoluteFilePath("../..")
     };
 
     bool db_found = false;
     for (const QString& prefix : db_prefixes) {
-        QString db_path = QDir(prefix).filePath(Config::Path::DATABASE);
+        QString db_path = QDir(prefix).filePath(db_rel_path);
 
         QFileInfo db_file(db_path);
         if (!db_file.exists()) continue;
@@ -1106,44 +1052,44 @@ void SettingsPage::on_reset_clicked() {
     
     if (reply == QMessageBox::Yes) {
         // 识别设置
-        if (recognition_threshold_spin_) recognition_threshold_spin_->setValue(0.60);
-        if (duplicate_check_interval_spin_) duplicate_check_interval_spin_->setValue(300);
-        if (user_confirm_duration_spin_) user_confirm_duration_spin_->setValue(1.0);
-        
+        if (recognition_threshold_spin_) recognition_threshold_spin_->setValue(Config::Default::RECOGNITION_THRESHOLD);
+        if (duplicate_check_interval_spin_) duplicate_check_interval_spin_->setValue(Config::Default::DUPLICATE_CHECK_INTERVAL);
+        if (user_confirm_duration_spin_) user_confirm_duration_spin_->setValue(Config::Default::USER_CONFIRM_DURATION_MS / 1000.0);
+
         // 考勤设置
-        if (work_start_time_edit_) work_start_time_edit_->setTime(QTime(9, 0));
-        if (work_end_time_edit_) work_end_time_edit_->setTime(QTime(18, 0));
-        if (late_threshold_spin_) late_threshold_spin_->setValue(30);
-        if (early_leave_threshold_spin_) early_leave_threshold_spin_->setValue(30);
+        if (work_start_time_edit_) work_start_time_edit_->setTime(QTime(Config::Default::WORK_START_HOUR, Config::Default::WORK_START_MINUTE));
+        if (work_end_time_edit_) work_end_time_edit_->setTime(QTime(Config::Default::WORK_END_HOUR, Config::Default::WORK_END_MINUTE));
+        if (late_threshold_spin_) late_threshold_spin_->setValue(Config::Default::LATE_THRESHOLD);
+        if (early_leave_threshold_spin_) early_leave_threshold_spin_->setValue(Config::Default::EARLY_LEAVE_THRESHOLD);
         if (allow_multiple_checkin_check_) allow_multiple_checkin_check_->setChecked(false);
-        if (checkin_sound_check_) checkin_sound_check_->setChecked(true);
+        if (checkin_sound_check_) checkin_sound_check_->setChecked(Config::Default::AUDIO_ENABLED);
         if (show_checkin_reminder_check_) show_checkin_reminder_check_->setChecked(true);
-        
+
         // 显示设置
         if (show_fps_check_) show_fps_check_->setChecked(true);
         if (show_confidence_check_) show_confidence_check_->setChecked(true);
         if (auto_start_check_) auto_start_check_->setChecked(false);
-        
+
         // 音频设置
-        if (audio_enabled_check_) audio_enabled_check_->setChecked(true);
-        if (audio_volume_slider_) audio_volume_slider_->setValue(70);
-        if (audio_volume_label_) audio_volume_label_->setText("70%");
-        
+        if (audio_enabled_check_) audio_enabled_check_->setChecked(Config::Default::AUDIO_ENABLED);
+        if (audio_volume_slider_) audio_volume_slider_->setValue(Config::Default::AUDIO_VOLUME);
+        if (audio_volume_label_) audio_volume_label_->setText(QString::number(Config::Default::AUDIO_VOLUME) + "%");
+
         // 摄像头设置
         if (camera_device_combo_) {
             for (int i = 0; i < camera_device_combo_->count(); i++) {
-                if (camera_device_combo_->itemData(i).toInt() == 21) {
+                if (camera_device_combo_->itemData(i).toInt() == Config::Default::CAMERA_ID) {
                     camera_device_combo_->setCurrentIndex(i);
                     break;
                 }
             }
         }
-        
+
         // 天气/城市设置
         if (auto_location_check_) auto_location_check_->setChecked(false);
-        if (manual_city_edit_) manual_city_edit_->setText(QString::fromUtf8("佛山"));
-        if (manual_lat_spin_) manual_lat_spin_->setValue(23.0215);
-        if (manual_lon_spin_) manual_lon_spin_->setValue(113.1214);
+        if (manual_city_edit_) manual_city_edit_->setText(QString::fromUtf8(Config::Default::CITY));
+        if (manual_lat_spin_) manual_lat_spin_->setValue(Config::Default::LATITUDE);
+        if (manual_lon_spin_) manual_lon_spin_->setValue(Config::Default::LONGITUDE);
         on_auto_location_changed(false);
         
         QMessageBox::information(this, tr("成功"), tr("已恢复默认设置"));

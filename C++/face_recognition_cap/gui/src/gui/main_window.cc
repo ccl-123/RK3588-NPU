@@ -40,7 +40,6 @@
 #include <QStackedWidget>
 #include <QDateTime>
 #include <QDate>
-#include <QCoreApplication>
 #include <QTableWidgetItem>
 #include <QMenu>
 #include <QtConcurrent>
@@ -118,36 +117,21 @@ MainWindow::MainWindow(QWidget* parent)
     , settings_page_(nullptr)
     , holiday_service_(nullptr)
     , news_service_(nullptr)
-    , status_label_(nullptr)
-    , fps_label_(nullptr)
-    , recognition_label_(nullptr)
-    , attendance_status_label_(nullptr)
-    , user_name_label_(nullptr)
-    , user_id_label_(nullptr)
-    , user_dept_label_(nullptr)
-    , user_similarity_label_(nullptr)
-    , check_type_label_(nullptr)
     , status_timer_(nullptr)
     , registration_dialog_(nullptr)
     , is_running_(false)
     , recognition_paused_for_llm_(false)
     , npu_fps_(0.0)
     , camera_fps_(0.0)
-    , camera_id_(0)
-    , is_dark_theme_(false)  // 默认使用浅色主题
+    , rknn_release_watcher_(nullptr)
+    , rknn_reload_watcher_(nullptr)
     , current_date_(QDate::currentDate())  // 初始化当前日期（用于跨日检测）
     , user_detection_{false, 0, "", 0.0f, std::chrono::steady_clock::now(), std::chrono::steady_clock::now(), false}
     , last_displayed_user_id_(-1)
     , user_confirm_duration_ms_(1000)  // 默认1秒，从配置加载
     , stranger_detection_{false, std::chrono::steady_clock::now(), std::chrono::steady_clock::now()}
-    , rknn_release_watcher_(nullptr)
-    , rknn_reload_watcher_(nullptr)
+    , camera_id_(0)
 {
-    // 初始化音频冷却时间（设置为10秒前，确保首次播放不会被阻止）
-    auto init_time = std::chrono::steady_clock::now() - std::chrono::seconds(10);
-    last_audio_play_times_[AudioType::AlreadyCheckedIn] = init_time;
-    last_audio_play_times_[AudioType::AlreadyCheckedOut] = init_time;
-    last_audio_play_times_[AudioType::StrangerDetected] = init_time;
     // 注册 Qt 元类型（必须在使用前注册）
     qRegisterMetaType<cv::Mat>("cv::Mat");
     qRegisterMetaType<std::vector<RecognitionResult>>("std::vector<RecognitionResult>");
@@ -300,9 +284,8 @@ bool MainWindow::finish_initialization_after_core() {
             
                     if (duration >= STRANGER_CONFIRM_DURATION_MS) {
                         // 持续检测到陌生人超过 2 秒，播放提示音
-                        if (checkAudioCooldown(AudioType::StrangerDetected, STRANGER_AUDIO_COOLDOWN_MS)) {
-                            AudioManager::instance()->playSound(AudioType::StrangerDetected);
-                            updateAudioPlayTime(AudioType::StrangerDetected);
+                        if (AudioManager::instance()->playSoundWithCooldown(
+                                AudioType::StrangerDetected, STRANGER_AUDIO_COOLDOWN_MS)) {
                             spdlog::info("Stranger confirmed after {}ms, played audio", duration);
                         }
                 
@@ -324,8 +307,7 @@ bool MainWindow::finish_initialization_after_core() {
         // 识别到已注册用户，重置陌生人检测状态
         if (stranger_detection_.is_detecting) {
             stranger_detection_.is_detecting = false;
-            last_audio_play_times_[AudioType::StrangerDetected] =
-                std::chrono::steady_clock::now() - std::chrono::seconds(20);
+            AudioManager::instance()->resetCooldown(AudioType::StrangerDetected);
             spdlog::trace("Switched from stranger to user, reset stranger detection");
         }
             
@@ -380,8 +362,9 @@ bool MainWindow::finish_initialization_after_core() {
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
             now - user_detection_.first_seen).count();
         
+        const int confirm_duration_ms = user_confirm_duration_ms_.load(std::memory_order_acquire);
         spdlog::trace("User detection continued: {} (duration: {}ms / {}ms)", 
-                      result.user_name, duration, user_confirm_duration_ms_);
+                      result.user_name, duration, confirm_duration_ms);
         
         // 更新显示（使用实时相似度，不触发签到）
         QMetaObject::invokeMethod(this, "on_recognition_result", Qt::QueuedConnection,
@@ -389,10 +372,11 @@ bool MainWindow::finish_initialization_after_core() {
                                   Q_ARG(QString, QString::fromStdString(result.user_name)),
                                   Q_ARG(float, result.similarity),  // 使用实时值
                                   Q_ARG(bool, false),
+                                  Q_ARG(int, 1),
                                   Q_ARG(int, 1));
         
         // 只有达到确认时长且未记录过考勤才真正签到
-        if (duration >= user_confirm_duration_ms_ && !user_detection_.attendance_recorded) {
+        if (duration >= confirm_duration_ms && !user_detection_.attendance_recorded) {
             bool is_new_attendance = false;
             
             // 重要：在 record_attendance 之前确定 check_type
@@ -446,10 +430,8 @@ bool MainWindow::finish_initialization_after_core() {
                     AudioType::AlreadyCheckedOut : AudioType::AlreadyCheckedIn;
                 
                 // 检查该类型音频的独立冷却时间
-                if (checkAudioCooldown(audio_type, DUPLICATE_CHECK_COOLDOWN_MS)) {
-                    AudioManager::instance()->playSound(audio_type);
-                    updateAudioPlayTime(audio_type);
-                    
+                if (AudioManager::instance()->playSoundWithCooldown(
+                        audio_type, DUPLICATE_CHECK_COOLDOWN_MS)) {
                     spdlog::debug("Played duplicate {} audio", type_str);
                 }
             }
@@ -514,8 +496,8 @@ void MainWindow::initialize_async(const std::string& retinaface_model,
     camera_source_ = camera_source;
     camera_id_ = camera_id;
 
-    if (status_label_) {
-        status_label_->setText(tr("初始化中..."));
+    if (recognition_page_) {
+        recognition_page_->setSystemStatus(tr("初始化中..."));
     }
 
     const float recognition_threshold = ConfigManager::instance()->getRecognitionThreshold();
@@ -573,8 +555,8 @@ void MainWindow::initialize_async(const std::string& retinaface_model,
                 }
 
                 if (!ok) {
-                    if (status_label_) {
-                        status_label_->setText(tr("初始化失败"));
+                    if (recognition_page_) {
+                        recognition_page_->setSystemStatus(tr("初始化失败"));
                     }
                     QMessageBox::critical(this, tr("错误"), error_message);
                     spdlog::error("System initialization failed: {}", error_message.toStdString());
@@ -598,8 +580,8 @@ void MainWindow::initialize_async(const std::string& retinaface_model,
                     QString camera_error = QString::fromStdString(recognition_app_->get_camera_error());
                     spdlog::warn("Camera not initialized: {}", camera_error.toStdString());
 
-                    if (status_label_) {
-                        status_label_->setText(tr("就绪 (摄像头未连接)"));
+                    if (recognition_page_) {
+                        recognition_page_->setSystemStatus(tr("就绪 (摄像头未连接)"));
                     }
 
                     // 显示友好提示，但不阻止应用启动
@@ -612,8 +594,8 @@ void MainWindow::initialize_async(const std::string& retinaface_model,
                     return;
                 }
 
-                if (status_label_) {
-                    status_label_->setText(tr("就绪"));
+                if (recognition_page_) {
+                    recognition_page_->setSystemStatus(tr("就绪"));
                 }
 
                 // 自动启动识别（初始化完成后，且摄像头可用）
@@ -672,37 +654,12 @@ void MainWindow::apply_recognition_settings(float threshold) {
 
 void MainWindow::apply_user_confirm_duration(int duration_ms) {
     // 限制范围 100-2000 ms
-    user_confirm_duration_ms_ = std::max(100, std::min(2000, duration_ms));
+    const int clamped = std::max(100, std::min(2000, duration_ms));
+    user_confirm_duration_ms_.store(clamped, std::memory_order_release);
+    const int current = user_confirm_duration_ms_.load(std::memory_order_acquire);
     spdlog::info("Applied user confirm duration: {}ms ({:.1f}s)", 
-                 user_confirm_duration_ms_, user_confirm_duration_ms_ / 1000.0);
+                 current, current / 1000.0);
 }
-
-bool MainWindow::checkAudioCooldown(AudioType audio_type, int cooldown_ms) {
-    auto now = std::chrono::steady_clock::now();
-    
-    // 如果该音频类型从未播放过，可以播放
-    if (last_audio_play_times_.find(audio_type) == last_audio_play_times_.end()) {
-        return true;
-    }
-    
-    // 检查距离上次播放的时间
-    auto time_since_last = std::chrono::duration_cast<std::chrono::milliseconds>(
-        now - last_audio_play_times_[audio_type]).count();
-    
-    if (time_since_last >= cooldown_ms) {
-        return true;  // 冷却时间已过，可以播放
-    } else {
-        spdlog::debug("Audio cooldown active for type {}, {}ms remaining",
-                     static_cast<int>(audio_type), cooldown_ms - time_since_last);
-        return false;  // 还在冷却中
-    }
-}
-
-void MainWindow::updateAudioPlayTime(AudioType audio_type) {
-    last_audio_play_times_[audio_type] = std::chrono::steady_clock::now();
-    spdlog::debug("Updated audio play time for type {}", static_cast<int>(audio_type));
-}
-
 
 void MainWindow::load_today_attendance() {
     if (!attendance_service_ || !attendance_list_) {
@@ -795,7 +752,7 @@ void MainWindow::setup_ui() {
     setup_pages();
     setup_navigation();
     connect_page_signals();
-    apply_theme();
+    // 主题由 ThemeManager 在 main_gui.cc 中初始化，不再在此调用 apply_theme()
 
     connect(title_bar_, &TitleBar::requestMinimize, this, &MainWindow::showMinimized);
     connect(title_bar_, &TitleBar::requestMaximize, this, &MainWindow::on_action_toggle_maximize);
@@ -824,16 +781,6 @@ void MainWindow::setup_pages() {
 
     video_widget_ = recognition_page_->videoWidget();
     attendance_list_ = recognition_page_->attendanceList();
-    status_label_ = recognition_page_->statusLabel();
-    fps_label_ = recognition_page_->fpsLabel();
-    recognition_label_ = recognition_page_->recognitionLabel();
-    attendance_status_label_ = recognition_page_->attendanceStatusLabel();
-    user_name_label_ = recognition_page_->userNameLabel();
-    user_id_label_ = recognition_page_->userIdLabel();
-    user_dept_label_ = recognition_page_->userDeptLabel();
-    user_similarity_label_ = recognition_page_->userSimilarityLabel();
-    check_type_label_ = recognition_page_->checkTypeLabel();
-    avatar_label_ = recognition_page_->avatarLabel();
     user_table_ = user_page_->table();
 }
 
@@ -855,7 +802,7 @@ void MainWindow::setup_navigation() {
     connect(side_menu_, &SideMenu::routeChanged, this, [this](const QString& key) {
         if (router_) {
             router_->navigateTo(key);
-}
+        }
     });
 
     // ==================== NPU 资源切换逻辑 ====================
@@ -865,81 +812,104 @@ void MainWindow::setup_navigation() {
     //   - 回到 Recognition (实时画面): 释放 RKLLM → 让 RKNN 获得全部 NPU 资源
     // =========================================================
     connect(router_, &UiRouter::routeChanged, this, [this](const QString& key, QWidget*) {
-        QString breadcrumb;
-        if (key == "recognition") {
-            breadcrumb = tr("实时画面");
-            
-            // 进入识别页面时确保摄像头已恢复（不自动启动识别）
-            bool camera_ready = true;
-            if (recognition_app_) {
-                camera_ready = recognition_app_->resume_camera();
-                if (!camera_ready) {
-                    spdlog::error("Failed to resume camera for recognition");
-                }
-            }
-
-            // === 回到实时识别页面：释放 RKLLM → 加载 RKNN ===
-            if (recognition_paused_for_llm_) {
-                // 注意：不在此处重置 recognition_paused_for_llm_，由异步回调完成
-
-                // 步骤1: 异步释放 RKLLM 模型（释放 NPU 给人脸识别）
-                auto local_llm = LocalLLMThread::instance();
-                if (local_llm->isModelReady()) {
-                    local_llm->releaseModelAsync();
-                    spdlog::info("LLM model release requested for face recognition");
-                }
-
-                // 步骤2: 异步重新加载 RKNN 模型（不阻塞 UI）
-                // 加载完成后，on_rknn_models_reloaded 回调会自动启动识别
-                if (rknn_switching_.load()) {
-                    // 正在切换中（用户快速切换页面），标记需要在完成后启动识别
-                    pending_recognition_start_.store(true);
-                    spdlog::info("RKNN switching in progress, will start recognition after completion");
-                } else if (camera_ready && recognition_app_ && !recognition_app_->are_models_loaded()) {
-                    reload_rknn_models_async();
-                } else if (camera_ready && recognition_app_ && recognition_app_->are_models_loaded()) {
-                    // 模型已加载，直接启动识别
-                    recognition_paused_for_llm_ = false;
-                    start_recognition();
-                    spdlog::info("Recognition resumed (models already loaded)");
-                }
-            }
-        } else if (key == "dashboard") {
-            breadcrumb = tr("智能看板");
-            
-            // === 进入智能看板页面：释放 RKNN → 为 RKLLM 腾出 NPU ===
-            if (is_running_) {
-                recognition_paused_for_llm_ = true;
-                stop_recognition();
-                spdlog::info("Recognition paused (entering dashboard for LLM)");
-            }
-
-            if (recognition_app_) {
-                if (!recognition_app_->pause_camera()) {
-                    spdlog::warn("Failed to pause camera for LLM");
-                }
-            }
-            
-            // 异步释放 RKNN 模型（包括停止工作线程），彻底释放 NPU 资源
-            // 使用异步方式避免阻塞 UI 线程
-            release_rknn_models_async();
-        } else if (key == "attendance") {
-            breadcrumb = tr("考勤记录");
-        } else if (key == "users") {
-            breadcrumb = tr("用户管理");
-        } else if (key == "settings") {
-            breadcrumb = tr("系统设置");
-            if (settings_page_) {
-                settings_page_->activate();
-            }
-        }
-        if (title_bar_) {
-            title_bar_->setBreadcrumb({breadcrumb});
-        }
+        on_route_changed(key);
     });
 
     router_->navigateTo("recognition");
     side_menu_->setActiveKey("recognition");
+}
+
+void MainWindow::on_route_changed(const QString& key) {
+    if (key == "recognition") {
+        handle_recognition_route();
+    } else if (key == "dashboard") {
+        handle_dashboard_route();
+    } else if (key == "settings") {
+        handle_settings_route();
+    }
+
+    update_route_breadcrumb(key);
+}
+
+void MainWindow::handle_recognition_route() {
+    // 进入识别页面时确保摄像头已恢复（不自动启动识别）
+    bool camera_ready = true;
+    if (recognition_app_) {
+        camera_ready = recognition_app_->resume_camera();
+        if (!camera_ready) {
+            spdlog::error("Failed to resume camera for recognition");
+        }
+    }
+
+    // 回到实时识别页面：释放 RKLLM → 加载 RKNN
+    if (!recognition_paused_for_llm_) {
+        return;
+    }
+
+    // 步骤1: 异步释放 RKLLM 模型（释放 NPU 给人脸识别）
+    auto local_llm = LocalLLMThread::instance();
+    if (local_llm->isModelReady()) {
+        local_llm->releaseModelAsync();
+        spdlog::info("LLM model release requested for face recognition");
+    }
+
+    // 步骤2: 异步重新加载 RKNN 模型（不阻塞 UI）
+    if (rknn_switching_.load()) {
+        pending_recognition_start_.store(true);
+        spdlog::info("RKNN switching in progress, will start recognition after completion");
+    } else if (camera_ready && recognition_app_ && !recognition_app_->are_models_loaded()) {
+        reload_rknn_models_async();
+    } else if (camera_ready && recognition_app_ && recognition_app_->are_models_loaded()) {
+        recognition_paused_for_llm_ = false;
+        start_recognition();
+        spdlog::info("Recognition resumed (models already loaded)");
+    }
+}
+
+void MainWindow::handle_dashboard_route() {
+    // 进入智能看板页面：释放 RKNN → 为 RKLLM 腾出 NPU
+    if (is_running_.load(std::memory_order_acquire)) {
+        recognition_paused_for_llm_ = true;
+        stop_recognition();
+        spdlog::info("Recognition paused (entering dashboard for LLM)");
+    }
+
+    if (recognition_app_) {
+        if (!recognition_app_->pause_camera()) {
+            spdlog::warn("Failed to pause camera for LLM");
+        }
+    }
+
+    // 异步释放 RKNN 模型（包括停止工作线程），彻底释放 NPU 资源
+    // 使用异步方式避免阻塞 UI 线程
+    release_rknn_models_async();
+}
+
+void MainWindow::handle_settings_route() {
+    if (settings_page_) {
+        settings_page_->activate();
+    }
+}
+
+void MainWindow::update_route_breadcrumb(const QString& key) {
+    if (!title_bar_) {
+        return;
+    }
+
+    QString breadcrumb;
+    if (key == "recognition") {
+        breadcrumb = tr("实时画面");
+    } else if (key == "dashboard") {
+        breadcrumb = tr("智能看板");
+    } else if (key == "attendance") {
+        breadcrumb = tr("考勤记录");
+    } else if (key == "users") {
+        breadcrumb = tr("用户管理");
+    } else if (key == "settings") {
+        breadcrumb = tr("系统设置");
+    }
+
+    title_bar_->setBreadcrumb({breadcrumb});
 }
 
 void MainWindow::connect_page_signals() {
@@ -1009,48 +979,39 @@ void MainWindow::connect_page_signals() {
     }
 }
 
-void MainWindow::apply_theme() {
-    ThemeManager::apply(is_dark_theme_ ? ThemeManager::Theme::Dark
-                                       : ThemeManager::Theme::Light);
-}
-
 void MainWindow::start_recognition() {
     if (!recognition_app_) {
         return;
     }
     if (!recognition_app_->are_models_loaded()) {
         spdlog::warn("Cannot start recognition: models not loaded");
-        if (status_label_) {
-            status_label_->setText(tr("模型未加载"));
-        }
         if (recognition_page_) {
+            recognition_page_->setSystemStatus(tr("模型未加载"));
             recognition_page_->setRecognitionRunning(false);
             recognition_page_->updateDetectionStatus(tr("模型未加载"), -1);
         }
         return;
     }
-    if (is_running_) {
+    if (is_running_.load(std::memory_order_acquire)) {
         if (recognition_page_) {
             recognition_page_->setRecognitionRunning(true);
-        }
-        if (status_label_) {
-            status_label_->setText(tr("运行中"));
+            recognition_page_->setSystemStatus(tr("运行中"));
         }
         return;
     }
 
-    is_running_ = true;
-    if (status_label_) {
-        status_label_->setText("运行中");
-    }
+    user_detection_ = {false, 0, "", 0.0f, std::chrono::steady_clock::now(), std::chrono::steady_clock::now(), false};
+    stranger_detection_ = {false, std::chrono::steady_clock::now(), std::chrono::steady_clock::now()};
+    is_running_.store(true, std::memory_order_release);
     if (recognition_page_) {
+        recognition_page_->setSystemStatus(tr("运行中"));
         recognition_page_->setRecognitionRunning(true);
         recognition_page_->updateDetectionStatus(tr("等待识别"), 0);
     }
 
     // 设置帧回调（使用 Qt 信号槽机制确保线程安全）
     recognition_app_->set_frame_callback([this](const cv::Mat& frame, const std::vector<RecognitionResult>& results) {
-        if (closing_.load(std::memory_order_acquire) || !is_running_) {
+        if (closing_.load(std::memory_order_acquire) || !is_running_.load(std::memory_order_acquire)) {
             return;
         }
 
@@ -1078,7 +1039,7 @@ void MainWindow::start_recognition() {
 }
 
 void MainWindow::drain_latest_frame() {
-    if (closing_.load(std::memory_order_acquire) || !is_running_) {
+    if (closing_.load(std::memory_order_acquire) || !is_running_.load(std::memory_order_acquire)) {
         ui_update_scheduled_.store(false, std::memory_order_release);
         return;
     }
@@ -1099,7 +1060,7 @@ void MainWindow::drain_latest_frame() {
 
     ui_update_scheduled_.store(false, std::memory_order_release);
 
-    if (closing_.load(std::memory_order_acquire) || !is_running_) {
+    if (closing_.load(std::memory_order_acquire) || !is_running_.load(std::memory_order_acquire)) {
         return;
     }
 
@@ -1112,22 +1073,18 @@ void MainWindow::drain_latest_frame() {
 }
 
 void MainWindow::stop_recognition() {
-    if (!is_running_) {
+    if (!is_running_.load(std::memory_order_acquire)) {
         if (recognition_page_) {
+            recognition_page_->setSystemStatus(tr("已停止"));
             recognition_page_->setRecognitionRunning(false);
             recognition_page_->updateDetectionStatus(tr("已停止"), -1);
-        }
-        if (status_label_) {
-            status_label_->setText(tr("已停止"));
         }
         return;
     }
 
-    is_running_ = false;
-    if (status_label_) {
-        status_label_->setText("已停止");
-    }
+    is_running_.store(false, std::memory_order_release);
     if (recognition_page_) {
+        recognition_page_->setSystemStatus(tr("已停止"));
         recognition_page_->setRecognitionRunning(false);
     }
 
@@ -1141,12 +1098,6 @@ void MainWindow::stop_recognition() {
         recognition_thread_.join();
     }
     
-    // 重置用户检测状态
-    user_detection_ = {false, 0, "", 0.0f, std::chrono::steady_clock::now(), std::chrono::steady_clock::now(), false};
-    
-    // 重置陌生人检测状态
-    stranger_detection_ = {false, std::chrono::steady_clock::now(), std::chrono::steady_clock::now()};
-    
     // 重置状态栏
     if (recognition_page_) {
         recognition_page_->updateFaceCount(0);
@@ -1158,7 +1109,7 @@ void MainWindow::stop_recognition() {
 }
 
 void MainWindow::on_frame_ready(const cv::Mat& frame, const std::vector<RecognitionResult>& results) {
-    if (!is_running_) {
+    if (!is_running_.load(std::memory_order_acquire)) {
         return;
     }
 
@@ -1223,8 +1174,8 @@ void MainWindow::on_frame_ready(const cv::Mat& frame, const std::vector<Recognit
 }
 
 void MainWindow::update_status() {
-    if (fps_label_) {
-    fps_label_->setText(QString("FPS: %1").arg(camera_fps_, 0, 'f', 1));
+    if (recognition_page_) {
+        recognition_page_->setFpsText(QString("FPS: %1").arg(camera_fps_, 0, 'f', 1));
     }
 
     // 更新状态栏的时钟和日期
@@ -1319,14 +1270,15 @@ void MainWindow::update_status() {
 }
 
 void MainWindow::on_recognition_result(int user_id, const QString& name, float similarity, bool is_new_attendance, int check_type, int status) {
-    if (!is_running_) {
+    if (!is_running_.load(std::memory_order_acquire)) {
         return;
     }
     spdlog::trace("on_recognition_result called: user_id={}, name={}, is_new={}, check_type={}, status={}", 
                   user_id, name.toStdString(), is_new_attendance, check_type, status);
     
-    if (recognition_label_) {
-        recognition_label_->setText(QString("识别: %1 (%2)").arg(name).arg(similarity, 0, 'f', 2));
+    if (recognition_page_) {
+        recognition_page_->setRecognitionSummary(
+            QString("识别: %1 (%2)").arg(name).arg(similarity, 0, 'f', 2));
     }
 
     // 更新状态栏的识别状态
@@ -1337,35 +1289,14 @@ void MainWindow::on_recognition_result(int user_id, const QString& name, float s
             recognition_page_->updateDetectionStatus(status_text, -1);  // -1 隐藏进度条
         } else if (user_id > 0) {
             // 正在识别用户中
-            if (user_detection_.is_detecting && user_detection_.user_id == user_id) {
-                auto now = std::chrono::steady_clock::now();
-                auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    now - user_detection_.first_seen).count();
-                int progress = std::min(100, static_cast<int>(duration * 100 / user_confirm_duration_ms_));
-                recognition_page_->updateDetectionStatus(tr("识别中: %1").arg(name), progress);
-            }
+            recognition_page_->updateDetectionStatus(tr("识别中: %1").arg(name), -1);
         }
     }
 
     // 更新用户信息面板（现代化卡片布局）- 轻量更新，只更新文字
-    if (user_name_label_) {
-        user_name_label_->setText(name);
-    }
-    
-    if (user_similarity_label_) {
-        user_similarity_label_->setText(QString("%1%").arg(QString::number(similarity * 100, 'f', 1)));
-    }
-    
-    // 更新打卡类型标签 - 使用传入的 check_type，避免每次查询数据库
-    if (check_type_label_) {
-        QString type_text = (check_type == 2) ? tr("签退") : tr("签到");
-        check_type_label_->setText(type_text);
-        
-        if (is_new_attendance) {
-            check_type_label_->setStyleSheet("color: #52c41a; font-size: 18px; font-weight: bold; background: transparent;");
-        } else {
-            check_type_label_->setStyleSheet("color: #8c8c8c; font-size: 18px; font-weight: 500; background: transparent;");
-        }
+    if (recognition_page_) {
+        recognition_page_->setUserName(name);
+        recognition_page_->setUserSimilarity(similarity);
     }
     
     // 只在用户ID变化时获取用户详细信息（减少数据库查询）
@@ -1375,37 +1306,26 @@ void MainWindow::on_recognition_result(int user_id, const QString& name, float s
         if (user_service_) {
             db::UserInfo user_info;
             if (user_service_->get_user(user_id, user_info)) {
-                if (user_id_label_) {
-                    user_id_label_->setText(QString("工号: %1").arg(QString::fromStdString(user_info.employee_id)));
-                }
-                if (user_dept_label_) {
-                    user_dept_label_->setText(QString("部门: %1").arg(QString::fromStdString(user_info.department)));
-                }
-                if (avatar_label_) {
+                if (recognition_page_) {
+                    recognition_page_->setUserMeta(
+                        QString::fromStdString(user_info.employee_id),
+                        QString::fromStdString(user_info.department));
+
                     QString photo_path = resolve_photo_path(user_info.photo_path);
                     if (!photo_path.isEmpty() && QFileInfo::exists(photo_path)) {
                         QPixmap avatar(photo_path);
-                        QPixmap rounded = make_circular_pixmap(avatar, avatar_label_->width());
-                        avatar_label_->setPixmap(rounded);
-                        avatar_label_->setText("");
+                        int avatar_size = recognition_page_->avatarDisplaySize();
+                        recognition_page_->setUserAvatar(make_circular_pixmap(avatar, avatar_size));
                     } else {
-                        avatar_label_->setPixmap(QPixmap());
-                        avatar_label_->setText("◉");
+                        recognition_page_->setUserAvatar(QPixmap());
                     }
                 }
             }
         }
     } else if (user_id <= 0) {
         last_displayed_user_id_ = -1;
-        if (user_id_label_) {
-            user_id_label_->setText(tr("工号: --"));
-        }
-        if (user_dept_label_) {
-            user_dept_label_->setText(tr("部门: --"));
-        }
-        if (avatar_label_) {
-            avatar_label_->setPixmap(QPixmap());
-            avatar_label_->setText("◉");
+        if (recognition_page_) {
+            recognition_page_->resetUserMeta();
         }
     }
 
@@ -1415,23 +1335,9 @@ void MainWindow::on_recognition_result(int user_id, const QString& name, float s
                      user_id, name.toStdString(), check_type, status);
         
         // 更新状态标签（签到绿色/签退蓝色，5秒后隐藏）
-        if (attendance_status_label_) {
+        if (recognition_page_) {
             QString msg = (check_type == 2) ? tr("✓ 签退成功") : tr("✓ 签到成功");
-            attendance_status_label_->setText(msg);
-            
-            // 设置样式属性，区分签到/签退颜色
-            attendance_status_label_->setProperty("checkType", (check_type == 2) ? "checkout" : "checkin");
-            attendance_status_label_->style()->unpolish(attendance_status_label_);
-            attendance_status_label_->style()->polish(attendance_status_label_);
-            
-            attendance_status_label_->setVisible(true);
-
-            // 5秒后隐藏提示（容器固定宽度，不会导致布局抖动）
-            QTimer::singleShot(5000, this, [this]() {
-                if (attendance_status_label_) {
-                    attendance_status_label_->setVisible(false);
-                }
-            });
+            recognition_page_->showAttendanceStatus(msg, check_type == 2);
         }
         
         // 更新今日签到列表（最新的在上面）
@@ -1491,7 +1397,7 @@ void MainWindow::apply_camera_settings(int deviceId) {
     spdlog::info("Applying camera settings: device ID = {}", deviceId);
 
     // 如果识别正在运行，先停止
-    bool was_running = is_running_;
+    bool was_running = is_running_.load(std::memory_order_acquire);
     if (was_running) {
         spdlog::info("Stopping recognition to reinitialize camera");
         stop_recognition();
@@ -1524,7 +1430,7 @@ void MainWindow::apply_camera_settings(int deviceId) {
 
 void MainWindow::on_action_register_face() {
     // 记录识别线程是否正在运行
-    bool was_running = is_running_;
+    bool was_running = is_running_.load(std::memory_order_acquire);
 
     // 确保检测流水线在运行（注册复用检测结果）
     if (!was_running) {
@@ -1572,9 +1478,8 @@ void MainWindow::on_action_about() {
 }
 
 void MainWindow::on_action_toggle_theme() {
-    is_dark_theme_ = !is_dark_theme_;
-    apply_theme();
-    spdlog::info("Theme toggled: {}", is_dark_theme_ ? "dark" : "light");
+    ThemeManager::instance()->toggleTheme();
+    spdlog::info("Theme toggled: {}", ThemeManager::instance()->isDarkMode() ? "dark" : "light");
 }
 
 void MainWindow::on_action_toggle_maximize() {
@@ -1636,7 +1541,7 @@ void MainWindow::release_rknn_models_async() {
         return;
     }
 
-    if (is_running_) {
+    if (is_running_.load(std::memory_order_acquire)) {
         spdlog::info("Stopping recognition before RKNN model release");
         stop_recognition();
     }
@@ -1671,7 +1576,7 @@ void MainWindow::reload_rknn_models_async() {
         return;
     }
 
-    if (is_running_) {
+    if (is_running_.load(std::memory_order_acquire)) {
         spdlog::info("Stopping recognition before RKNN model reload");
         stop_recognition();
     }

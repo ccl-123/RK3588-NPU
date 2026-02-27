@@ -13,6 +13,7 @@
 #include <vector>
 #include <array>
 #include <cstring>
+#include <limits>
 
 #define _BASETSD_H
 
@@ -56,7 +57,12 @@ static unsigned char* load_data(FILE* fp, size_t ofst, size_t sz) {
         printf("buffer malloc failure.\n");
         return NULL;
     }
-    ret = fread(data, 1, sz, fp);
+    size_t read_size = fread(data, 1, sz, fp);
+    if (read_size != sz) {
+        printf("blob read failure, expect=%zu actual=%zu.\n", sz, read_size);
+        free(data);
+        return NULL;
+    }
     return data;
 }
 
@@ -70,10 +76,24 @@ static unsigned char* load_model(const char* filename, int* model_size) {
         return NULL;
     }
 
-    fseek(fp, 0, SEEK_END);
-    int size = ftell(fp);
+    if (fseek(fp, 0, SEEK_END) != 0) {
+        printf("Seek file %s failed.\n", filename);
+        fclose(fp);
+        return NULL;
+    }
+    long size_long = ftell(fp);
+    if (size_long <= 0 || size_long > std::numeric_limits<int>::max()) {
+        printf("Invalid model size for %s: %ld\n", filename, size_long);
+        fclose(fp);
+        return NULL;
+    }
+    int size = static_cast<int>(size_long);
 
     data = load_data(fp, 0, size);
+    if (data == NULL) {
+        fclose(fp);
+        return NULL;
+    }
 
     fclose(fp);
 
@@ -86,27 +106,41 @@ int create_yolov8_face(char* model_name, rknn_context* ctx,
                        rknn_input_output_num& io_num,
                        rknn_tensor_attr* output_attrs,
                        unsigned char*& model_data) {
-    int ret;
+    int ret = -1;
+    bool rknn_inited = false;
+    std::vector<rknn_tensor_attr> input_attrs;
+
+    if (ctx == nullptr || output_attrs == nullptr || model_name == nullptr) {
+        printf("create_yolov8_face invalid args: null pointer\n");
+        return -1;
+    }
 
     // 加载模型
     printf("Loading YOLOv8-face model...\n");
     int model_data_size = 0;
     model_data = load_model(model_name, &model_data_size);
+    if (model_data == nullptr || model_data_size <= 0) {
+        printf("load_model failed, model=%s size=%d\n", model_name, model_data_size);
+        return -1;
+    }
+
     // 启用高优先级
     uint32_t flag = RKNN_FLAG_PRIOR_HIGH;
     ret = rknn_init(ctx, model_data, model_data_size, flag, NULL);
     if (ret < 0) {
         printf("rknn_init error ret=%d\n", ret);
         free(model_data);
+        model_data = nullptr;
         return -1;
     }
+    rknn_inited = true;
 
     // 设置 NPU 核心 - 使用所有核心提高性能
     rknn_core_mask core_mask = RKNN_NPU_CORE_0_1_2;  // 使用核心0、1、2
     ret = rknn_set_core_mask(*ctx, core_mask);
     if (ret < 0) {
         printf("rknn_set_core_mask error ret=%d\n", ret);
-        return -1;
+        goto create_failed;
     }
 
     // 查询 SDK 版本
@@ -114,7 +148,7 @@ int create_yolov8_face(char* model_name, rknn_context* ctx,
     ret = rknn_query(*ctx, RKNN_QUERY_SDK_VERSION, &version, sizeof(rknn_sdk_version));
     if (ret < 0) {
         printf("rknn_query SDK version error ret=%d\n", ret);
-        return -1;
+        goto create_failed;
     }
     printf("sdk version: %s driver version: %s\n", version.api_version, version.drv_version);
 
@@ -122,27 +156,39 @@ int create_yolov8_face(char* model_name, rknn_context* ctx,
     ret = rknn_query(*ctx, RKNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num));
     if (ret < 0) {
         printf("rknn_query io_num error ret=%d\n", ret);
-        return -1;
+        goto create_failed;
+    }
+    if (io_num.n_input == 0) {
+        printf("invalid model io: n_input=%u\n", io_num.n_input);
+        ret = -1;
+        goto create_failed;
+    }
+    if (io_num.n_input != 1) {
+        printf("Error: Expected 1 input for YOLOv8-face, got %u\n", io_num.n_input);
+        ret = -1;
+        goto create_failed;
     }
     printf("model input num: %d, output num: %d\n", io_num.n_input, io_num.n_output);
 
     // 验证输出数量
     if (io_num.n_output != YOLOV8_FACE_OUTPUT_NUM) {
-        printf("Warning: Expected %d outputs for YOLOv8-face RKOPT format, got %d\n", 
+        printf("Error: Expected %d outputs for YOLOv8-face RKOPT format, got %d\n",
                YOLOV8_FACE_OUTPUT_NUM, io_num.n_output);
+        ret = -1;
+        goto create_failed;
     }
 
     // 查询输入属性
-    rknn_tensor_attr input_attrs[io_num.n_input];
-    memset(input_attrs, 0, sizeof(input_attrs));
-    for (int i = 0; i < io_num.n_input; i++) {
+    input_attrs.resize(io_num.n_input);
+    memset(input_attrs.data(), 0, sizeof(rknn_tensor_attr) * input_attrs.size());
+    for (uint32_t i = 0; i < io_num.n_input; ++i) {
         input_attrs[i].index = i;
         ret = rknn_query(*ctx, RKNN_QUERY_INPUT_ATTR, &(input_attrs[i]), sizeof(rknn_tensor_attr));
         if (ret < 0) {
             printf("rknn_query input attr error ret=%d\n", ret);
-            return -1;
+            goto create_failed;
         }
-        printf("Input %d:\n", i);
+        printf("Input %u:\n", i);
         dump_tensor_attr(&(input_attrs[i]));
     }
 
@@ -161,14 +207,28 @@ int create_yolov8_face(char* model_name, rknn_context* ctx,
     printf("model input height=%d, width=%d, channel=%d\n", height, width, channel);
 
     // 查询输出属性
-    memset(output_attrs, 0, sizeof(rknn_tensor_attr) * io_num.n_output);
-    for (int i = 0; i < io_num.n_output; i++) {
+    memset(output_attrs, 0, sizeof(rknn_tensor_attr) * YOLOV8_FACE_OUTPUT_NUM);
+    for (uint32_t i = 0; i < io_num.n_output; ++i) {
         output_attrs[i].index = i;
         ret = rknn_query(*ctx, RKNN_QUERY_OUTPUT_ATTR, &(output_attrs[i]), sizeof(rknn_tensor_attr));
-        printf("Output %d:\n", i);
+        if (ret < 0) {
+            printf("rknn_query output attr error ret=%d\n", ret);
+            goto create_failed;
+        }
+        printf("Output %u:\n", i);
         dump_tensor_attr(&(output_attrs[i]));
     }
 
+    return 0;
+
+create_failed:
+    if (rknn_inited) {
+        rknn_destroy(*ctx);
+    }
+    if (model_data) {
+        free(model_data);
+        model_data = nullptr;
+    }
     return ret;
 }
 
@@ -181,6 +241,22 @@ int yolov8_face_run(rknn_context* ctx, const cv::Mat& img,
                     std::array<std::vector<uint8_t>, YOLOV8_FACE_OUTPUT_NUM>& output_buffers,
                     YoloRunTimings* timings) {
     int ret;
+    if (ctx == nullptr || inputs == nullptr || outputs == nullptr || img.empty()) {
+        printf("yolov8_face_run invalid args\n");
+        return -1;
+    }
+    if (io_num.n_input == 0 || io_num.n_output == 0) {
+        printf("yolov8_face_run invalid io_num: in=%u out=%u\n", io_num.n_input, io_num.n_output);
+        return -1;
+    }
+    if (io_num.n_input != 1) {
+        printf("yolov8_face_run unsupported input num: %u\n", io_num.n_input);
+        return -1;
+    }
+    if (io_num.n_output != YOLOV8_FACE_OUTPUT_NUM) {
+        printf("yolov8_face_run invalid output num: %u\n", io_num.n_output);
+        return -1;
+    }
     (void)channel;
     (void)img_height;
     (void)img_width;
@@ -213,10 +289,10 @@ int yolov8_face_run(rknn_context* ctx, const cv::Mat& img,
     }
 
     // 拷贝输出到自管 buffer，便于跨线程传递
-    for (int i = 0; i < io_num.n_output; ++i) {
-        output_buffers[i].resize(outputs[i].size);
-        if (!output_buffers[i].empty() && outputs[i].buf) {
-            memcpy(output_buffers[i].data(), outputs[i].buf, outputs[i].size);
+    for (uint32_t i = 0; i < io_num.n_output; ++i) {
+        output_buffers[static_cast<size_t>(i)].resize(outputs[i].size);
+        if (!output_buffers[static_cast<size_t>(i)].empty() && outputs[i].buf) {
+            memcpy(output_buffers[static_cast<size_t>(i)].data(), outputs[i].buf, outputs[i].size);
         }
     }
     auto t_after_copy = std::chrono::steady_clock::now();
@@ -240,11 +316,27 @@ int yolov8_face_postprocess(
     int img_width, int img_height,
     float box_conf_threshold, float nms_threshold,
     detect_result_group_t* detect_result_group) {
+    if (output_attrs == nullptr || detect_result_group == nullptr) {
+        printf("yolov8_face_postprocess invalid args: null pointer\n");
+        return -1;
+    }
+    if (n_output != YOLOV8_FACE_OUTPUT_NUM) {
+        printf("yolov8_face_postprocess invalid n_output: %d\n", n_output);
+        return -1;
+    }
+    if (model_in_h <= 0 || model_in_w <= 0 || img_width <= 0 || img_height <= 0) {
+        printf("yolov8_face_postprocess invalid image/model size\n");
+        return -1;
+    }
 
     // 构造临时 rknn_output 指向已拷贝的数据
     rknn_output outputs[YOLOV8_FACE_OUTPUT_NUM];
     memset(outputs, 0, sizeof(outputs));
     for (int i = 0; i < n_output; ++i) {
+        if (output_buffers[i].empty()) {
+            printf("yolov8_face_postprocess empty output buffer at index %d\n", i);
+            return -1;
+        }
         outputs[i].is_prealloc = 1;
         outputs[i].want_float = 0;
         outputs[i].buf = const_cast<uint8_t*>(output_buffers[i].data());
@@ -265,9 +357,10 @@ int yolov8_face_postprocess(
 
 void release_yolov8_face(rknn_context* ctx, unsigned char* model_data) {
     deinitPostProcess();
-
-    int ret;
-    ret = rknn_destroy(*ctx);
+    if (ctx && *ctx) {
+        rknn_destroy(*ctx);
+        *ctx = 0;
+    }
 
     if (model_data) {
         free(model_data);

@@ -22,8 +22,13 @@
 
 FaceRecognitionApp::FaceRecognitionApp()
     : preprocess_thread_(nullptr)
+    , postprocess_thread_(nullptr)
     , recognition_thread_(nullptr)
     , perf_monitor_(10)
+    , recognition_callback_(nullptr)
+    , frame_callback_(nullptr)
+    , registration_callback_(nullptr)
+    , attendance_service_(nullptr)
     , scale_w_(0)
     , scale_h_(0)
     , resize_w_(0)
@@ -31,10 +36,6 @@ FaceRecognitionApp::FaceRecognitionApp()
     , padding_(0)
     , initialized_(false)
     , running_(false)
-    , recognition_callback_(nullptr)
-    , frame_callback_(nullptr)
-    , registration_callback_(nullptr)
-    , attendance_service_(nullptr)
     , camera_initialized_(false)
     , camera_error_("")
     , models_loaded_(false)
@@ -238,7 +239,7 @@ int FaceRecognitionApp::run() {
         return -1;
     }
 
-    running_ = true;
+    running_.store(true, std::memory_order_release);
     spdlog::info("Starting pipeline mode...");
     spdlog::info("  Thread 1: Camera + RGA preprocess");
     spdlog::info("  Thread 2: YOLO detection (main loop)");
@@ -248,10 +249,11 @@ int FaceRecognitionApp::run() {
     int detector_width, detector_height, detector_channel;
     model_manager_.get_face_detector_size(detector_width, detector_height, detector_channel);
 
-    while (running_) {
+    while (running_.load(std::memory_order_acquire)) {
         // 1. 从预处理线程获取结果（采集+RGA已在线程1完成）
         PreprocessTask task;
         if (!preprocess_thread_->get_result(task)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
             continue;
         }
 
@@ -375,7 +377,7 @@ void FaceRecognitionApp::detect_faces(const cv::Mat& img, detect_result_group_t&
 }
 
 void FaceRecognitionApp::stop() {
-    running_ = false;
+    running_.store(false, std::memory_order_release);
 }
 
 void FaceRecognitionApp::cleanup() {
@@ -441,7 +443,7 @@ bool FaceRecognitionApp::release_models() {
         return false;
     }
 
-    if (running_) {
+    if (running_.load(std::memory_order_acquire)) {
         spdlog::error("Cannot release models while app is running. Please stop first.");
         return false;
     }
@@ -486,7 +488,7 @@ bool FaceRecognitionApp::reload_models() {
         return false;
     }
 
-    if (running_) {
+    if (running_.load(std::memory_order_acquire)) {
         spdlog::error("Cannot reload models while app is running.");
         return false;
     }
@@ -566,7 +568,7 @@ bool FaceRecognitionApp::reinitialize_camera(const std::string& device_number) {
         return false;
     }
 
-    if (running_) {
+    if (running_.load(std::memory_order_acquire)) {
         spdlog::error("Cannot reinitialize camera while app is running. Please stop the app first.");
         return false;
     }
@@ -618,7 +620,7 @@ bool FaceRecognitionApp::pause_camera() {
         return false;
     }
 
-    if (running_) {
+    if (running_.load(std::memory_order_acquire)) {
         spdlog::error("Cannot pause camera while app is running. Please stop the app first.");
         return false;
     }
@@ -651,7 +653,7 @@ bool FaceRecognitionApp::resume_camera() {
         return false;
     }
 
-    if (running_) {
+    if (running_.load(std::memory_order_acquire)) {
         spdlog::error("Cannot resume camera while app is running. Please stop the app first.");
         return false;
     }

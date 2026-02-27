@@ -165,7 +165,7 @@ void FaceRegistrationDialog::setup_ui() {
 
     delete_btn_ = new QPushButton(tr("删除选中"), capture_card);
     delete_btn_->setEnabled(false);
-    delete_btn_->setProperty("danger", QVariant(true));
+    delete_btn_->setProperty("buttonType", "danger");
     connect(delete_btn_, &QPushButton::clicked, this, &FaceRegistrationDialog::on_delete_clicked);
 
     side_panel->addWidget(collected_label);

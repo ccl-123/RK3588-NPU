@@ -9,6 +9,7 @@
 
 #include <QSettings>
 #include <QString>
+#include <mutex>
 
 /**
  * @brief 配置管理器类（单例）
@@ -96,7 +97,6 @@ private:
     ConfigManager(const ConfigManager&) = delete;
     ConfigManager& operator=(const ConfigManager&) = delete;
 
-    static ConfigManager* instance_;
+    mutable std::mutex settings_mutex_;
     QSettings* settings_;
 };
-

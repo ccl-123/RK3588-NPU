@@ -8,11 +8,9 @@
  * 用户列表和考勤记录等组件。
  */
 
-#ifndef MAIN_WINDOW_H
-#define MAIN_WINDOW_H
+#pragma once
 
 #include <QMainWindow>
-#include <QLabel>
 #include <QStackedWidget>
 #include <QTimer>
 #include <QDate>
@@ -20,7 +18,6 @@
 #include <QFutureWatcher>
 #include <memory>
 #include <thread>
-#include <map>
 #include <atomic>
 #include <mutex>
 
@@ -33,10 +30,11 @@
 #include "gui_services/news_service.h"
 
 // 前向声明
-    class VideoDisplayWidget;
-    class FaceRegistrationDialog;
-    class SideMenu;    class TitleBar;
-    class UiRouter;
+class VideoDisplayWidget;
+class FaceRegistrationDialog;
+class SideMenu;
+class TitleBar;
+class UiRouter;
 class RecognitionPage;
 class DashboardPage;
 class AttendancePage;
@@ -121,7 +119,11 @@ private:
     void setup_navigation();
     void setup_pages();
     void connect_page_signals();
-    void apply_theme();
+    void on_route_changed(const QString& key);
+    void handle_recognition_route();
+    void handle_dashboard_route();
+    void handle_settings_route();
+    void update_route_breadcrumb(const QString& key);
     bool finish_initialization_after_core();
 
     // NPU 模型异步加载/卸载
@@ -151,19 +153,6 @@ private:
     HolidayService* holiday_service_;
     NewsService* news_service_;
 
-    QLabel* status_label_;
-    QLabel* fps_label_;
-    QLabel* recognition_label_;
-    QLabel* attendance_status_label_;
-    
-    // 用户信息面板的 label
-    QLabel* user_name_label_;
-    QLabel* user_id_label_;
-    QLabel* user_dept_label_;
-    QLabel* user_similarity_label_;
-    QLabel* check_type_label_;
-    QLabel* avatar_label_;
-    
     // 定时器
     QTimer* status_timer_;
 
@@ -176,7 +165,7 @@ private:
     // 注意：AttendanceQueryWidget 和 UserManagementWidget 每次创建新窗口，不需要成员变量
     
     // 系统状态
-    bool is_running_;
+    std::atomic<bool> is_running_;
     bool recognition_paused_for_llm_;   // 识别是否因 LLM 而暂停（用于恢复）
     double npu_fps_;                    // NPU 帧率（YOLO 检测能力，约 50+ FPS）
     double camera_fps_;                 // 摄像头采集帧率（约 30 FPS）
@@ -197,10 +186,6 @@ private:
     std::atomic<bool> ui_update_scheduled_{false};
     std::atomic<uint64_t> latest_frame_seq_{0};
 
-
-    // 主题状态
-    bool is_dark_theme_;
-    
     // 当前日期（用于跨日检测）
     QDate current_date_;
     
@@ -216,7 +201,7 @@ private:
     };
     UserDetection user_detection_;
     int last_displayed_user_id_;
-    int user_confirm_duration_ms_;                              // 用户确认时长（可配置，默认1秒）
+    std::atomic<int> user_confirm_duration_ms_;                 // 用户确认时长（可配置，默认1秒）
     static constexpr int USER_DETECTION_TIMEOUT_MS = 500;       // 用户检测超时（500ms，帧间隔容差）
     
     // 陌生人持续检测机制（基于时间而非帧数）
@@ -229,27 +214,9 @@ private:
     static constexpr int STRANGER_CONFIRM_DURATION_MS = 2000;   // 陌生人确认时长（2秒）
     static constexpr int STRANGER_DETECTION_TIMEOUT_MS = 500;   // 陌生人检测超时（500ms，帧间隔容差）
     
-    // 音频播放冷却机制（防止重复播放）
-    // 使用 map 为不同音频类型分别管理冷却时间，避免互相干扰
-    std::map<AudioType, std::chrono::steady_clock::time_point> last_audio_play_times_;
-    
     // 不同音频类型的冷却时间（毫秒）
     static constexpr int DUPLICATE_CHECK_COOLDOWN_MS = 10000;   // 重复签到/签退冷却（10秒）
     static constexpr int STRANGER_AUDIO_COOLDOWN_MS = 10000;    // 陌生人提示音冷却（10秒）
-    
-    /**
-     * @brief 检查音频冷却时间
-     * @param audio_type 音频类型
-     * @param cooldown_ms 冷却时间（毫秒）
-     * @return true=可以播放, false=冷却中
-     */
-    bool checkAudioCooldown(AudioType audio_type, int cooldown_ms);
-    
-    /**
-     * @brief 更新音频播放时间
-     * @param audio_type 音频类型
-     */
-    void updateAudioPlayTime(AudioType audio_type);
 
 
     // 配置
@@ -258,5 +225,3 @@ private:
     std::string camera_source_;
     int camera_id_;
 };
-
-#endif // MAIN_WINDOW_H

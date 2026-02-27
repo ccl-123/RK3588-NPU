@@ -12,6 +12,7 @@
 #include <functional>
 #include <chrono>
 #include <memory>
+#include <atomic>
 #include <opencv2/opencv.hpp>
 #include "config/config.h"
 #include "core/postprocess.h"
@@ -61,16 +62,16 @@ struct AppConfig {
     int perf_report_interval;           // 性能报告间隔(帧数)
 
     AppConfig()
-        : camera_width(Config::Camera::WIDTH)
+        : feature_lib_path(Config::Path::FEATURE_LIB)
+        , database_path(Config::Path::DATABASE)
+        , use_database(false)
+        , camera_width(Config::Camera::WIDTH)
         , camera_height(Config::Camera::HEIGHT)
         , box_conf_threshold(Config::Detection::BOX_CONF_THRESHOLD)
         , nms_threshold(Config::Detection::NMS_THRESHOLD)
         , facenet_threshold(Config::Default::RECOGNITION_THRESHOLD)  // UI 可配置
         , use_async_usb(Config::Camera::USE_ASYNC_USB)
         , perf_report_interval(Config::Performance::REPORT_INTERVAL)
-        , feature_lib_path(Config::Path::FEATURE_LIB)
-        , database_path(Config::Path::DATABASE)
-        , use_database(false)
     {}
 };
 
@@ -234,7 +235,7 @@ public:
     /**
      * @brief 检查是否正在运行
      */
-    bool is_running() const { return running_; }
+    bool is_running() const { return running_.load(std::memory_order_acquire); }
 
     // ==================== NPU 资源管理接口 ====================
     // RK3588 的 NPU 被 RKNN (人脸模型) 和 RKLLM (语言模型) 共享
@@ -363,7 +364,7 @@ private:
 
     // 运行状态
     bool initialized_;
-    bool running_;
+    std::atomic<bool> running_;
 
     // 摄像头状态（优雅降级支持）
     bool camera_initialized_;       // 摄像头是否成功初始化

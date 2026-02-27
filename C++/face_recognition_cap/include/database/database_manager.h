@@ -5,8 +5,7 @@
  * @date 2025-11-20
  */
 
-#ifndef _DATABASE_MANAGER_H_
-#define _DATABASE_MANAGER_H_
+#pragma once
 
 #include <string>
 #include <memory>
@@ -116,6 +115,4 @@ private:
 };
 
 } // namespace db
-
-#endif // _DATABASE_MANAGER_H_
 

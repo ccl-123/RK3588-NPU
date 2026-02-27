@@ -79,6 +79,7 @@ void VideoDisplayWidget::set_camera_fps(double fps) {
 }
 
 void VideoDisplayWidget::paintEvent(QPaintEvent* event) {
+    Q_UNUSED(event);
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
     
@@ -157,7 +158,6 @@ void VideoDisplayWidget::draw_face_results(QPainter& painter, double scale, int 
         int x = offset_x + static_cast<int>(result.box.x * scale);
         int y = offset_y + static_cast<int>(result.box.y * scale);
         int w = static_cast<int>(result.box.width * scale);
-        int h = static_cast<int>(result.box.height * scale);
 
         // 绘制名称和相似度（使用 Qt 绘制以支持中文）
         QString name_text = QString::fromStdString(result.name);

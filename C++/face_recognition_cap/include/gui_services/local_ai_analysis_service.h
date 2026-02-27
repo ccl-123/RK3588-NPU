@@ -1,5 +1,4 @@
-#ifndef LOCAL_AI_ANALYSIS_SERVICE_H
-#define LOCAL_AI_ANALYSIS_SERVICE_H
+#pragma once
 
 #include <QObject>
 #include <QThread>
@@ -90,5 +89,3 @@ private:
     QThread* current_thread_ = nullptr;
     agent::AgentWorker* current_worker_ = nullptr;
 };
-
-#endif  // LOCAL_AI_ANALYSIS_SERVICE_H

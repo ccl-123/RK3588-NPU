@@ -106,7 +106,7 @@ void UserManagementPage::setup_ui() {
     connect(edit_btn_, &QPushButton::clicked, this, &UserManagementPage::on_edit_clicked);
     
     delete_btn_ = new QPushButton(tr("删除"), card);
-    delete_btn_->setProperty("danger", QVariant(true));
+    delete_btn_->setProperty("buttonType", "danger");
     connect(delete_btn_, &QPushButton::clicked, this, &UserManagementPage::on_delete_clicked);
     
     enable_btn_ = new QPushButton(tr("启用"), card);

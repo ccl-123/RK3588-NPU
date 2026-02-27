@@ -54,6 +54,9 @@ QString ReactAgent::run(const QString& user_input,
 
         // 解析输出类型
         StepType step = parseStepType(llm_output);
+        spdlog::info("ReAct: LLM output length={}, step={}, first 200 chars: {}",
+            llm_output.length(), static_cast<int>(step),
+            llm_output.left(200).toStdString());
 
         switch (step) {
             case StepType::Answer: {
@@ -160,59 +163,106 @@ void ReactAgent::setSystemPrompt(const QString& prompt) {
 }
 
 ReactAgent::StepType ReactAgent::parseStepType(const QString& output) {
+    // 查找各标签最后出现的位置，优先使用最后出现的标签
+    // 这样可以正确处理包含历史内容的输出
+    int answer_pos = -1;
+    int tool_call_pos = -1;
+    int thought_pos = -1;
+
     // 检测答案标签
-    if (output.contains(QRegularExpression(R"(<\|?answer\|?>)"))) {
-        return StepType::Answer;
+    QRegularExpression re_answer(R"(<\|?answer\|?>)");
+    auto match = re_answer.match(output);
+    while (match.hasMatch()) {
+        answer_pos = match.capturedStart();
+        match = re_answer.match(output, match.capturedEnd());
     }
 
     // 检测工具调用标签
-    if (output.contains(QRegularExpression(R"(<\|?tool_call\|?>)"))) {
-        return StepType::ToolCall;
+    QRegularExpression re_tool(R"(<\|?tool_call\|?>)");
+    match = re_tool.match(output);
+    while (match.hasMatch()) {
+        tool_call_pos = match.capturedStart();
+        match = re_tool.match(output, match.capturedEnd());
     }
 
     // 检测思考标签
-    if (output.contains(QRegularExpression(R"(<\|?thought\|?>)"))) {
-        return StepType::Thought;
+    QRegularExpression re_thought(R"(<\|?thought\|?>)");
+    match = re_thought.match(output);
+    while (match.hasMatch()) {
+        thought_pos = match.capturedStart();
+        match = re_thought.match(output, match.capturedEnd());
     }
 
-    // 检测 JSON 格式的工具调用
-    if (output.contains("\"name\"") && output.contains("\"arguments\"")) {
-        return StepType::ToolCall;
+    // 返回最后出现的标签类型
+    int max_pos = -1;
+    StepType result = StepType::Unknown;
+
+    if (answer_pos > max_pos) {
+        max_pos = answer_pos;
+        result = StepType::Answer;
+    }
+    if (tool_call_pos > max_pos) {
+        max_pos = tool_call_pos;
+        result = StepType::ToolCall;
+    }
+    if (thought_pos > max_pos) {
+        max_pos = thought_pos;
+        result = StepType::Thought;
     }
 
-    return StepType::Unknown;
+    // 如果没有找到标签，检测 JSON 格式的工具调用
+    if (result == StepType::Unknown) {
+        if (output.contains("\"name\"") && output.contains("\"arguments\"")) {
+            result = StepType::ToolCall;
+        }
+    }
+
+    return result;
 }
 
 QString ReactAgent::extractContent(const QString& output, const QString& tag) {
-    // 匹配 <tag>...</tag> 或 <|tag|>...<|/tag|>
+    // 匹配 <tag>...</tag> 或 <|tag|>...</|tag|>
+    // 提取最后一个匹配的内容（处理包含历史内容的输出）
     QRegularExpression re(
         QString(R"(<\|?%1\|?>(.*?)<\|?/?%1\|?>)").arg(tag),
         QRegularExpression::DotMatchesEverythingOption
     );
 
-    auto match = re.match(output);
-    if (match.hasMatch()) {
-        return match.captured(1).trimmed();
+    QString last_content;
+    auto it = re.globalMatch(output);
+    while (it.hasNext()) {
+        auto match = it.next();
+        last_content = match.captured(1).trimmed();
     }
 
-    // 尝试匹配只有开始标签的情况
-    QRegularExpression re2(QString(R"(<\|?%1\|?>(.*)$)").arg(tag),
+    if (!last_content.isEmpty()) {
+        return last_content;
+    }
+
+    // 尝试匹配只有开始标签的情况（提取最后一个）
+    QRegularExpression re2(QString(R"(<\|?%1\|?>([^<]*))").arg(tag),
         QRegularExpression::DotMatchesEverythingOption);
-    match = re2.match(output);
-    if (match.hasMatch()) {
-        return match.captured(1).trimmed();
+    it = re2.globalMatch(output);
+    while (it.hasNext()) {
+        auto match = it.next();
+        last_content = match.captured(1).trimmed();
     }
 
-    return QString();
+    return last_content;
 }
 
 QString ReactAgent::buildPrompt(const QString& user_input, const QString& context) {
-    QString prompt = getSystemPrompt() + "\n\n";
+    QString prompt;
 
-    // 添加工具定义
-    if (tools_ && tools_->size() > 0) {
-        prompt += "## 可用工具\n";
-        prompt += tools_->getToolsJson() + "\n\n";
+    // 云端 LLM 已在服务端预设系统提示，跳过
+    if (!config_.skip_system_prompt) {
+        prompt = getSystemPrompt() + "\n\n";
+
+        // 添加工具定义
+        if (tools_ && tools_->size() > 0) {
+            prompt += "## 可用工具\n";
+            prompt += tools_->getToolsJson() + "\n\n";
+        }
     }
 
     // 添加上下文
@@ -221,53 +271,73 @@ QString ReactAgent::buildPrompt(const QString& user_input, const QString& contex
     }
 
     // 添加当前问题
-    prompt += "## 当前问题\n用户: " + user_input + "\n\n";
-    prompt += "请分析问题并选择合适的行动：\n";
-    prompt += "- 如果需要查询数据，使用 <tool_call>{...}</tool_call> 调用工具\n";
-    prompt += "- 如果可以直接回答，使用 <answer>...</answer> 给出答案\n";
+    if (config_.skip_system_prompt) {
+        // 云端模式：只发送用户问题
+        prompt += user_input;
+    } else {
+        prompt += "## 当前问题\n用户: " + user_input + "\n\n";
+    }
 
     return prompt;
 }
 
 QString ReactAgent::getDefaultSystemPrompt() const {
-    return R"(你是一个智能考勤助手 (Attendance Agent)，部署在人脸识别考勤终端上。
+    return R"(你是一个智能考勤助手，运行在人脸识别考勤终端上。
 
 ## 核心能力
-1. **考勤查询**: 查询今日、本周、本月的考勤统计和详细记录
-2. **用户管理**: 查询员工信息、搜索用户、统计人数
-3. **系统信息**: 获取当前时间、系统状态、考勤规则配置
-4. **数学计算**: 进行简单的数学运算（出勤率、平均值等）
+1. 考勤查询：查询今日、本周、本月的考勤统计，支持日期范围查询
+2. 用户管理：查询员工信息、搜索用户
+3. 系统信息：获取当前时间、考勤规则
 
-## 可用工具
-- `query_attendance`: 查询考勤数据 (period: today/week/month)
-- `query_user`: 查询用户信息 (query_type: list/search/count, keyword: 搜索关键词)
-- `system_info`: 获取系统信息 (query_type: datetime/status/config/all)
-- `calculator`: 数学计算 (expression: 数学表达式)
-- `help`: 获取帮助信息
+## 工具调用规范
+当需要查询数据时，你必须使用以下格式调用工具：
+
+<tool_call>{"name":"工具名","arguments":{"参数名":"参数值"}}</tool_call>
+
+可用工具：
+1. query_attendance - 查询考勤数据
+   参数:
+   - query_type: stats(统计)、records(详细记录)、late(迟到名单)、early_leave(早退名单)
+   - date_range: today/week/month (预设范围)
+   - date: YYYY-MM-DD (指定单日)
+   - start_date: YYYY-MM-DD (开始日期，与end_date配合使用)
+   - end_date: YYYY-MM-DD (结束日期，与start_date配合使用)
+   - filter: all(全部记录)、anomaly(仅异常:迟到+早退)，默认all
+   示例:
+   - 查今日统计: {"name":"query_attendance","arguments":{"date_range":"today"}}
+   - 查今日迟到名单: {"name":"query_attendance","arguments":{"query_type":"late","date_range":"today"}}
+   - 查某天详细记录: {"name":"query_attendance","arguments":{"query_type":"records","date":"2026-01-10"}}
+   - 查日期范围统计: {"name":"query_attendance","arguments":{"start_date":"2026-01-01","end_date":"2026-01-10"}}
+   - 查日期范围异常记录: {"name":"query_attendance","arguments":{"query_type":"records","start_date":"2026-01-01","end_date":"2026-01-10","filter":"anomaly"}}
+
+2. query_user - 查询用户信息
+   参数: action (get_by_id/get_by_name/list_all/stats), user_id, name
+
+3. get_system_info - 获取系统信息
+   参数: info_type (time/config/status)
 
 ## 回答格式
-1. 需要查询数据时:
-   <tool_call>{"name":"工具名","arguments":{"参数名":"参数值"}}</tool_call>
+- 需要数据时：<tool_call>{"name":"query_attendance","arguments":{"date_range":"today"}}</tool_call>
+- 给出答案时：<answer>最终回答内容</answer>
 
-2. 给出最终答案时:
-   <answer>答案内容</answer>
+## 示例
+用户：今天有多少人打卡？
+助手：<tool_call>{"name":"query_attendance","arguments":{"date_range":"today"}}</tool_call>
 
-3. 需要思考时:
-   <thought>思考过程</thought>
+用户：今天谁迟到了？
+助手：<tool_call>{"name":"query_attendance","arguments":{"query_type":"late","date_range":"today"}}</tool_call>
 
-## 工作流程
-1. 理解用户问题
-2. 判断是否需要调用工具获取数据
-3. 如需数据，调用相应工具
-4. 根据工具返回结果生成答案
-5. 用 <answer> 标签包裹最终回答
+用户：查询上周所有异常考勤
+助手：<tool_call>{"name":"query_attendance","arguments":{"query_type":"records","start_date":"2026-01-06","end_date":"2026-01-10","filter":"anomaly"}}</tool_call>
 
-## 注意事项
-- 优先使用工具获取准确数据，不要猜测
-- 回答简洁明了，使用中文
-- 数字和统计结果要准确
-- 如果工具返回错误，告知用户并建议解决方案
-- 对于无法处理的请求，礼貌地说明限制)";
+用户：系统里有几个人？
+助手：<tool_call>{"name":"query_user","arguments":{"action":"stats"}}</tool_call>
+
+## 重要规则
+1. 必须先调用工具获取数据，不要猜测
+2. 每次只调用一个工具
+3. 收到工具结果后，用 <answer>...</answer> 给出最终回答
+4. 回答简洁，使用中文)";
 }
 
 } // namespace agent

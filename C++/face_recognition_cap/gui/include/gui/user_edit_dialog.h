@@ -5,8 +5,7 @@
  * @date 2025-11-24
  */
 
-#ifndef USER_EDIT_DIALOG_H
-#define USER_EDIT_DIALOG_H
+#pragma once
 
 #include <QDialog>
 #include <QLineEdit>
@@ -56,5 +55,4 @@ private:
     QPushButton* cancel_btn_;
 };
 
-#endif // USER_EDIT_DIALOG_H
 

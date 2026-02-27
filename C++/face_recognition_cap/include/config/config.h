@@ -77,6 +77,11 @@ namespace Default {
     // 设备标识
     constexpr const char* DEVICE_ID = "device_001";
     constexpr const char* LOCATION = "Main Entrance";
+
+    // 天气/位置 (默认佛山)
+    constexpr const char* CITY = "佛山";
+    constexpr double LATITUDE = 23.0215;
+    constexpr double LONGITUDE = 113.1214;
 }
 
 // ===== UI 定时任务 [固定] =====
@@ -119,7 +124,12 @@ namespace API {
 // ===== 本地 LLM [固定] =====
 // RKLLM 本地推理配置
 namespace LocalLLM {
-    inline const char* MODEL_PATH = "/home/firefly/open_project/Qwen3-1.7B_W8A8_RK3588.rkllm";
+    constexpr const char* MODEL_ENV = "LOCAL_LLM_MODEL_PATH";
+    constexpr const char* MODEL_PATH = "/home/firefly/open_project/Qwen3-1.7B_W8A8_RK3588.rkllm";
+    inline const char* getModelPath() {
+        const char* env_path = std::getenv(MODEL_ENV);
+        return (env_path && env_path[0] != '\0') ? env_path : MODEL_PATH;
+    }
     constexpr int MAX_NEW_TOKENS = 1028;        // 单次最大生成长度
     constexpr int MAX_CONTEXT_LEN = 1024 * 6;   // 上下文窗口 (tokens)
 }
@@ -129,8 +139,13 @@ namespace LocalLLM {
 namespace Agent {
     constexpr int MAX_ITERATIONS = 5;           // ReAct 最大循环次数
     constexpr int CONVERSATION_HISTORY = 10;    // 对话历史保留轮数
-    constexpr int LLM_TIMEOUT_MS = 60000;       // LLM 推理超时 (毫秒)
+    constexpr int LLM_TIMEOUT_MS = 200000;       // LLM 推理超时 (毫秒，200秒)
     constexpr bool STREAM_OUTPUT = true;        // 流式输出模式
+
+    // 云端 Agent 配置
+    namespace Cloud {
+        constexpr bool PRESET_SYSTEM_PROMPT = true;  // 云端已预设系统提示词（在 LKE 控制台配置）
+    }
 
     // 工具调用配置
     namespace Tools {

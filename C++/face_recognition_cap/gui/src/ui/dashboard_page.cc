@@ -14,8 +14,11 @@
 
 #include <spdlog/spdlog.h>
 #include <QComboBox>
+#include <QCoreApplication>
 #include <QDate>
 #include <QDateTime>
+#include <QDir>
+#include <QFileInfo>
 #include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -29,6 +32,7 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QSignalBlocker>
 #include <QShowEvent>
 #include <QSizePolicy>
 #include <QSpacerItem>
@@ -49,6 +53,52 @@ struct TrendSeries {
     std::vector<double> secondary;
     QStringList labels;
 };
+
+void apply_state_property(QWidget* widget, const char* name, const char* value) {
+    if (!widget) {
+        return;
+    }
+    widget->setProperty(name, value);
+    widget->style()->unpolish(widget);
+    widget->style()->polish(widget);
+    widget->update();
+}
+
+QString resolve_local_llm_model_path() {
+    const QString configured = QString::fromUtf8(Config::LocalLLM::getModelPath()).trimmed();
+    if (configured.isEmpty()) {
+        return QString();
+    }
+
+    const QFileInfo configured_info(configured);
+    if (configured_info.isAbsolute()) {
+        return configured_info.absoluteFilePath();
+    }
+
+    const QString app_dir = QCoreApplication::applicationDirPath();
+    const QString current_dir = QDir::currentPath();
+
+    QStringList candidate_paths = {
+        QDir(app_dir).filePath(configured),
+        QDir(app_dir).filePath("data/model/" + configured),
+        QDir(app_dir).filePath("../data/model/" + configured),
+        QDir(app_dir).filePath("../../data/model/" + configured),
+        QDir(current_dir).filePath(configured),
+        QDir(current_dir).filePath("data/model/" + configured),
+        QDir(current_dir).filePath("C++/face_recognition_cap/data/model/" + configured),
+        QDir(current_dir).filePath("install/face_recognition_cap/data/model/" + configured),
+        QDir(current_dir).filePath("C++/face_recognition_cap/install/face_recognition_cap/data/model/" + configured),
+    };
+
+    for (const QString& candidate : candidate_paths) {
+        QFileInfo info(QDir::cleanPath(candidate));
+        if (info.exists()) {
+            return info.absoluteFilePath();
+        }
+    }
+
+    return QDir(app_dir).filePath(configured);
+}
 
 class TrendChartWidget : public QWidget {
 public:
@@ -305,6 +355,10 @@ DashboardPage::DashboardPage(QWidget* parent)
     connect(local_service, &LocalAiAnalysisService::agentThinking, this, &DashboardPage::on_agent_thinking);
     connect(local_service, &LocalAiAnalysisService::agentToolCalling, this, &DashboardPage::on_agent_tool_calling);
     connect(local_service, &LocalAiAnalysisService::agentToolCompleted, this, &DashboardPage::on_agent_tool_completed);
+
+    connect(cloud_service, &AiAnalysisService::agentThinking, this, &DashboardPage::on_agent_thinking);
+    connect(cloud_service, &AiAnalysisService::agentToolCalling, this, &DashboardPage::on_agent_tool_calling);
+    connect(cloud_service, &AiAnalysisService::agentToolCompleted, this, &DashboardPage::on_agent_tool_completed);
 }
 
 void DashboardPage::setAttendanceService(service::AttendanceService* service) {
@@ -318,7 +372,10 @@ void DashboardPage::setUserService(service::UserService* service) {
 
     // 初始化 Agent（当两个服务都设置后）
     if (attendance_service_ && user_service_) {
+        // 初始化本地 Agent
         LocalAiAnalysisService::instance()->initializeAgent(attendance_service_, user_service_);
+        // 初始化云端 Agent
+        AiAnalysisService::instance()->initializeAgent(attendance_service_, user_service_);
     }
 }
 
@@ -361,7 +418,7 @@ void DashboardPage::appendChatMessage(const QString& role, const QString& text) 
 
     auto label = new QLabel(text, bubble);
     label->setObjectName("AiChatText");
-    label->setStyleSheet("font-size: 18px;");
+    // 样式由 QSS #AiChatText 定义
     label->setWordWrap(true);
     label->setTextInteractionFlags(Qt::TextSelectableByMouse);
     bubble_layout->addWidget(label);
@@ -510,16 +567,20 @@ void DashboardPage::on_ai_analysis_clicked() {
     }
 
     // Agent 模式：跳过数据收集，直接调用 Agent（Agent 会通过工具自主查询数据）
-    if (is_local_llm_ && is_agent_mode_) {
+    if (is_agent_mode_) {
         if (!user_prompt.isEmpty()) {
             appendChatMessage("user", user_prompt);
         }
         ai_skip_prefix_.clear();
         appendChatMessage("assistant", tr("正在思考中，请稍候..."));
-        spdlog::info("Agent mode: skipping data collection, sending user prompt directly");
+        spdlog::info("Agent mode: skipping data collection, sending user prompt directly (local={})", is_local_llm_);
 
-        auto empty_stats = make_empty_stats();
-        LocalAiAnalysisService::instance()->requestAnalysis(empty_stats, QString(), QString(), user_prompt, 0);
+        if (is_local_llm_) {
+            auto empty_stats = make_empty_stats();
+            LocalAiAnalysisService::instance()->requestAnalysis(empty_stats, QString(), QString(), user_prompt, 0);
+        } else {
+            AiAnalysisService::instance()->requestAgentChat(user_prompt);
+        }
         return;
     }
 
@@ -668,6 +729,7 @@ void DashboardPage::on_ai_analysis_finished() {
 
     // 隐藏 Agent 状态标签
     if (agent_status_label_) {
+        apply_state_property(agent_status_label_, "agentState", "idle");
         agent_status_label_->hide();
     }
 
@@ -693,6 +755,7 @@ void DashboardPage::on_ai_error(const QString& error) {
 
     // 隐藏 Agent 状态标签
     if (agent_status_label_) {
+        apply_state_property(agent_status_label_, "agentState", "idle");
         agent_status_label_->hide();
     }
 
@@ -718,6 +781,7 @@ void DashboardPage::on_ai_analysis_cancelled() {
 
     // 隐藏 Agent 状态标签
     if (agent_status_label_) {
+        apply_state_property(agent_status_label_, "agentState", "idle");
         agent_status_label_->hide();
     }
 
@@ -817,6 +881,7 @@ void DashboardPage::setup_ui() {
     auto make_kpi = [kpi_container](const QString& title,
                                     const QString& icon_path,
                                     const QColor& color,
+                                    const char* tone,
                                     QLabel** value_label,
                                     QLabel** sub_label,
                                     const QString& subtitle) {
@@ -831,8 +896,7 @@ void DashboardPage::setup_ui() {
         auto icon = new QLabel(card);
         icon->setObjectName("DashboardKpiIcon");
         icon->setPixmap(SvgIconManager::icon(icon_path, QSize(20, 20), color).pixmap(20, 20));
-        QColor icon_bg = color.lighter(190);
-        icon->setStyleSheet(QString("background-color: %1; border-radius: 10px;").arg(icon_bg.name()));
+        icon->setProperty("tone", QVariant(tone));
         icon->setFixedSize(36, 36);
         card_layout->addWidget(icon);
 
@@ -844,7 +908,7 @@ void DashboardPage::setup_ui() {
         title_label->setObjectName("DashboardKpiTitle");
         *value_label = new QLabel("--", card);
         (*value_label)->setObjectName("DashboardKpiValue");
-        (*value_label)->setStyleSheet(QString("color: %1;").arg(color.name()));
+        (*value_label)->setProperty("tone", QVariant(tone));
         auto sub_value = new QLabel(subtitle, card);
         sub_value->setObjectName("DashboardKpiSub");
         if (sub_label) {
@@ -858,29 +922,29 @@ void DashboardPage::setup_ui() {
     };
 
     kpi_layout->addWidget(make_kpi(tr("到岗率"), ":/icons/status/check-circle.svg",
-                                   QColor("#1677ff"), &attendance_rate_label_,
+                                   QColor("#1677ff"), "blue", &attendance_rate_label_,
                                    &attendance_detail_label_, tr("实到 0 / 应到 0")), 0, 0);
     kpi_layout->addWidget(make_kpi(tr("签到人数"), ":/icons/status/user-check.svg",
-                                   QColor("#52c41a"), &checkin_label_,
+                                   QColor("#52c41a"), "green", &checkin_label_,
                                    &checkin_sub_label_, tr("今日")), 0, 1);
     kpi_layout->addWidget(make_kpi(tr("迟到人数"), ":/icons/status/alert-circle.svg",
-                                   QColor("#fa8c16"), &late_label_,
+                                   QColor("#fa8c16"), "orange", &late_label_,
                                    &late_sub_label_, tr("今日")), 0, 2);
     kpi_layout->addWidget(make_kpi(tr("早退人数"), ":/icons/status/x-circle.svg",
-                                   QColor("#f5222d"), &early_label_,
+                                   QColor("#f5222d"), "red", &early_label_,
                                    &early_sub_label_, tr("今日")), 0, 3);
     kpi_layout->addWidget(make_kpi(tr("未打卡"), ":/icons/status/user-x.svg",
-                                   QColor("#722ed1"), &missing_label_,
+                                   QColor("#722ed1"), "purple", &missing_label_,
                                    &missing_sub_label_, tr("今日")), 1, 0);
     kpi_layout->addWidget(make_kpi(tr("平均相似度"), ":/icons/status/info.svg",
-                                   QColor("#13c2c2"), &similarity_label_,
+                                   QColor("#13c2c2"), "cyan", &similarity_label_,
                                    &similarity_sub_label_, tr("今日")), 1, 1);
     // 将“异常识别率”替换为“异常记录数”，统计迟到/早退的记录条数
     kpi_layout->addWidget(make_kpi(tr("异常记录数"), ":/icons/status/alert-circle.svg",
-                                   QColor("#d46b08"), &abnormal_rate_label_,
+                                   QColor("#d46b08"), "brown", &abnormal_rate_label_,
                                    &abnormal_rate_sub_label_, tr("迟到+早退条数")), 1, 2);
     kpi_layout->addWidget(make_kpi(tr("签退人数"), ":/icons/status/user-check.svg",
-                                   QColor("#9254de"), &checkout_label_,
+                                   QColor("#9254de"), "violet", &checkout_label_,
                                    &checkout_sub_label_, tr("今日")), 1, 3);
 
     layout->addWidget(kpi_container);
@@ -906,7 +970,7 @@ void DashboardPage::setup_ui() {
 
     auto insight_title = new QLabel(tr("智能考勤助手 AI Agent"), insight_header);
     insight_title->setObjectName("CardTitle");
-    insight_title->setStyleSheet("font-size: 18px; font-weight: bold; color: #1f1f1f;");
+    // 样式由 QSS #CardTitle 定义
     ai_title_layout->addWidget(insight_title);
     
     insight_header_layout->addLayout(ai_title_layout);
@@ -919,26 +983,6 @@ void DashboardPage::setup_ui() {
     ai_analysis_btn_->setCursor(Qt::PointingHandCursor);
     ai_analysis_btn_->setIcon(SvgIconManager::icon(":/icons/status/info.svg", QSize(16, 16), QColor("#ffffff")));
     ai_analysis_btn_->setIconSize(QSize(16, 16));
-    ai_analysis_btn_->setStyleSheet(R"(
-        QPushButton {
-            background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #722ed1, stop:1 #eb2f96);
-            color: white;
-            border: none;
-            border-radius: 16px;
-            padding: 6px 16px;
-            font-weight: bold;
-        }
-        QPushButton:hover {
-            background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #854eca, stop:1 #f759ab);
-        }
-        QPushButton:pressed {
-            background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #531dab, stop:1 #c41d7f);
-        }
-        QPushButton:disabled {
-            background-color: #444;
-            color: #888;
-        }
-    )");
     connect(ai_analysis_btn_, &QPushButton::clicked, this, &DashboardPage::on_ai_analysis_clicked);
     insight_header_layout->addWidget(ai_analysis_btn_);
 
@@ -1044,55 +1088,31 @@ void DashboardPage::setup_ui() {
 
     // 分隔符
     auto separator = new QFrame(quick_row);
+    separator->setObjectName("AiQuickSeparator");
     separator->setFrameShape(QFrame::VLine);
-    separator->setStyleSheet("color: #444;");
     quick_layout->addWidget(separator);
 
     // 数据范围标签
     auto range_label = new QLabel(tr("数据范围:"), quick_row);
-    range_label->setStyleSheet("color: #888; font-size: 12px;");
+    range_label->setObjectName("AiRangeLabel");
     quick_layout->addWidget(range_label);
-
-    // 数据范围按钮组
-    QString range_btn_style = R"(
-        QPushButton {
-            background-color: #2a2a2a;
-            color: #888;
-            border: 1px solid #444;
-            border-radius: 12px;
-            padding: 4px 12px;
-            font-size: 12px;
-        }
-        QPushButton:hover {
-            background-color: #3a3a3a;
-            color: #fff;
-        }
-        QPushButton:checked {
-            background-color: #1890ff;
-            color: white;
-            border-color: #1890ff;
-        }
-    )";
 
     ai_data_today_btn_ = new QPushButton(tr("今日"), quick_row);
     ai_data_today_btn_->setObjectName("AiDataRangeButton");
     ai_data_today_btn_->setCheckable(true);
     ai_data_today_btn_->setChecked(true);
-    ai_data_today_btn_->setStyleSheet(range_btn_style);
     connect(ai_data_today_btn_, &QPushButton::clicked, this, [this]() { on_data_range_changed(1); });
     quick_layout->addWidget(ai_data_today_btn_);
 
     ai_data_7day_btn_ = new QPushButton(tr("近7日"), quick_row);
     ai_data_7day_btn_->setObjectName("AiDataRangeButton");
     ai_data_7day_btn_->setCheckable(true);
-    ai_data_7day_btn_->setStyleSheet(range_btn_style);
     connect(ai_data_7day_btn_, &QPushButton::clicked, this, [this]() { on_data_range_changed(7); });
     quick_layout->addWidget(ai_data_7day_btn_);
 
     ai_data_30day_btn_ = new QPushButton(tr("近30日"), quick_row);
     ai_data_30day_btn_->setObjectName("AiDataRangeButton");
     ai_data_30day_btn_->setCheckable(true);
-    ai_data_30day_btn_->setStyleSheet(range_btn_style);
     connect(ai_data_30day_btn_, &QPushButton::clicked, this, [this]() { on_data_range_changed(30); });
     quick_layout->addWidget(ai_data_30day_btn_);
 
@@ -1100,7 +1120,6 @@ void DashboardPage::setup_ui() {
     ai_data_qa_btn_ = new QPushButton(tr("纯问答"), quick_row);
     ai_data_qa_btn_->setObjectName("AiDataRangeButton");
     ai_data_qa_btn_->setCheckable(true);
-    ai_data_qa_btn_->setStyleSheet(range_btn_style);
     ai_data_qa_btn_->setToolTip(tr("仅发送问题给AI，不附带考勤数据"));
     connect(ai_data_qa_btn_, &QPushButton::clicked, this, [this]() { on_data_range_changed(0); });  // 0 表示纯问答模式
     quick_layout->addWidget(ai_data_qa_btn_);
@@ -1125,7 +1144,8 @@ void DashboardPage::setup_ui() {
 
     // 显示当前数据范围的记录数
     ai_data_range_label_ = new QLabel(tr("(今日数据)"), quick_row);
-    ai_data_range_label_->setStyleSheet("color: #52c41a; font-size: 11px;");
+    ai_data_range_label_->setObjectName("AiDataRangeLabel");
+    apply_state_property(ai_data_range_label_, "rangeState", "active");
     quick_layout->addWidget(ai_data_range_label_);
 
     quick_layout->addStretch();
@@ -1154,30 +1174,6 @@ void DashboardPage::setup_ui() {
     backend_toggle_btn_->setMinimumWidth(90);
     backend_toggle_btn_->setCursor(Qt::PointingHandCursor);
     backend_toggle_btn_->setToolTip(tr("点击切换到本地大模型"));
-    backend_toggle_btn_->setStyleSheet(R"(
-        QPushButton {
-            background-color: #e6f7ff;
-            color: #1890ff;
-            border: 1px solid #91d5ff;
-            border-radius: 4px;
-            padding: 4px 12px;
-            font-size: 12px;
-            font-weight: 500;
-        }
-        QPushButton:hover {
-            background-color: #bae7ff;
-            border-color: #1890ff;
-        }
-        QPushButton:checked {
-            background-color: #f6ffed;
-            color: #52c41a;
-            border-color: #b7eb8f;
-        }
-        QPushButton:checked:hover {
-            background-color: #d9f7be;
-            border-color: #52c41a;
-        }
-    )");
     connect(backend_toggle_btn_, &QPushButton::toggled, this, &DashboardPage::on_backend_toggled);
     input_layout->addWidget(backend_toggle_btn_);
 
@@ -1189,49 +1185,23 @@ void DashboardPage::setup_ui() {
     agent_mode_btn_->setMinimumWidth(70);
     agent_mode_btn_->setCursor(Qt::PointingHandCursor);
     agent_mode_btn_->setToolTip(tr("Agent 模式：支持工具调用，自动查询数据"));
-    agent_mode_btn_->setStyleSheet(R"(
-        QPushButton {
-            background-color: #fff7e6;
-            color: #fa8c16;
-            border: 1px solid #ffd591;
-            border-radius: 4px;
-            padding: 4px 10px;
-            font-size: 12px;
-            font-weight: 500;
-        }
-        QPushButton:hover {
-            background-color: #ffe7ba;
-            border-color: #fa8c16;
-        }
-        QPushButton:checked {
-            background-color: #f6ffed;
-            color: #52c41a;
-            border-color: #b7eb8f;
-        }
-        QPushButton:checked:hover {
-            background-color: #d9f7be;
-            border-color: #52c41a;
-        }
-        QPushButton:disabled {
-            background-color: #f5f5f5;
-            color: #bfbfbf;
-            border-color: #d9d9d9;
-        }
-    )");
-    agent_mode_btn_->setEnabled(false);  // 默认禁用，等待本地 LLM 加载
+    // 云端模式下支持 Agent，默认启用
+    agent_mode_btn_->setEnabled(true);
     connect(agent_mode_btn_, &QPushButton::toggled, this, &DashboardPage::on_agent_mode_toggled);
     input_layout->addWidget(agent_mode_btn_);
 
     // Agent 状态标签（显示思考中/调用工具等状态）
     agent_status_label_ = new QLabel(input_row);
-    agent_status_label_->setStyleSheet("color: #1890ff; font-size: 11px; font-weight: bold;");
+    agent_status_label_->setObjectName("AgentStatusLabel");
+    apply_state_property(agent_status_label_, "agentState", "idle");
     agent_status_label_->setMinimumWidth(100);
     agent_status_label_->hide();  // 默认隐藏，有状态时显示
     input_layout->addWidget(agent_status_label_);
 
     // 后端状态标签（显示就绪/加载中）
     backend_status_label_ = new QLabel(input_row);
-    backend_status_label_->setStyleSheet("color: #888; font-size: 11px; min-width: 50px;");
+    backend_status_label_->setObjectName("BackendStatusLabel");
+    apply_state_property(backend_status_label_, "backendState", "idle");
     input_layout->addWidget(backend_status_label_);
 
     ai_send_btn_ = new QPushButton(tr("发送"), input_row);
@@ -1674,7 +1644,7 @@ void DashboardPage::update_data_range_buttons() {
         if (is_qa_mode) {
             // 纯问答模式不显示数据条数
             ai_data_range_label_->setText(tr("(无数据)"));
-            ai_data_range_label_->setStyleSheet("color: #888; font-size: 11px;");
+            apply_state_property(ai_data_range_label_, "rangeState", "inactive");
         } else if (attendance_service_) {
             QDate end_date = QDate::currentDate();
             QDate start_date = end_date.addDays(-(ai_data_range_days_ - 1));
@@ -1689,7 +1659,7 @@ void DashboardPage::update_data_range_buttons() {
                 range_text = tr("(近%1日%2条)").arg(ai_data_range_days_).arg(records.size());
             }
             ai_data_range_label_->setText(range_text);
-            ai_data_range_label_->setStyleSheet("color: #52c41a; font-size: 11px;");
+            apply_state_property(ai_data_range_label_, "rangeState", "active");
         }
     }
 }
@@ -1702,46 +1672,80 @@ void DashboardPage::on_data_range_changed(int days) {
 
 void DashboardPage::on_backend_toggled(bool checked) {
     is_local_llm_ = checked;
-    
+
     // 更新按钮文字和提示
     if (backend_toggle_btn_) {
         backend_toggle_btn_->setText(checked ? tr("本地大模型") : tr("云端大模型"));
-        backend_toggle_btn_->setToolTip(checked 
-            ? tr("点击切换到云端大模型") 
+        backend_toggle_btn_->setToolTip(checked
+            ? tr("点击切换到云端大模型")
             : tr("点击切换到本地大模型"));
     }
-    
+
     if (backend_status_label_) {
         backend_status_label_->setText(checked ? tr("加载中...") : tr(""));
+        apply_state_property(backend_status_label_, "backendState", checked ? "loading" : "idle");
     }
-    
+
     if (checked) {
         if (AiAnalysisService::instance()->isAnalyzing()) {
             AiAnalysisService::instance()->cancelAnalysis();
         }
         // 如果切换到本地且模型未加载，则初始化
-        QString model_path = Config::LocalLLM::MODEL_PATH;
+        QString model_path = resolve_local_llm_model_path();
+        if (!QFileInfo::exists(model_path)) {
+            spdlog::error("Local LLM model not found: {}", model_path.toStdString());
+            ToastNotification::showMessage(this,
+                tr("AI 模型"),
+                tr("未找到本地模型文件:\n%1\n请设置环境变量 LOCAL_LLM_MODEL_PATH").arg(model_path),
+                ToastNotification::Level::Error);
+            if (backend_status_label_) {
+                backend_status_label_->setText(tr("模型缺失"));
+                apply_state_property(backend_status_label_, "backendState", "idle");
+            }
+            if (backend_toggle_btn_) {
+                const QSignalBlocker blocker(backend_toggle_btn_);
+                backend_toggle_btn_->setChecked(false);
+                backend_toggle_btn_->setText(tr("云端大模型"));
+                backend_toggle_btn_->setToolTip(tr("点击切换到本地大模型"));
+            }
+            is_local_llm_ = false;
+            return;
+        }
         if (!LocalAiAnalysisService::instance()->isLocalLLMReady()) {
             ToastNotification::showMessage(this, tr("AI 模型"), tr("正在加载本地模型..."), ToastNotification::Level::Info);
             LocalAiAnalysisService::instance()->initializeLocalLLM(model_path);
         } else {
             if (backend_status_label_) {
                 backend_status_label_->setText(tr("就绪"));
-                backend_status_label_->setStyleSheet("color: #52c41a; font-size: 10px; min-width: 40px;");
+                apply_state_property(backend_status_label_, "backendState", "ready");
             }
+        }
+        // 启用 Agent 按钮（本地 LLM）
+        if (agent_mode_btn_) {
+            agent_mode_btn_->setEnabled(true);
         }
     } else {
         if (LocalAiAnalysisService::instance()->isAnalyzing()) {
             LocalAiAnalysisService::instance()->cancelAnalysis();
         }
         ToastNotification::showMessage(this, tr("AI 模型"), tr("已切换至云端 API"), ToastNotification::Level::Info);
+
+        // 云端也支持 Agent 模式，启用按钮
+        if (agent_mode_btn_) {
+            agent_mode_btn_->setEnabled(true);
+        }
+
+        // 初始化云端 Agent（如果尚未初始化）
+        if (attendance_service_ && user_service_) {
+            AiAnalysisService::instance()->initializeAgent(attendance_service_, user_service_);
+        }
     }
 }
 
 void DashboardPage::on_local_llm_ready() {
     if (is_local_llm_ && backend_status_label_) {
         backend_status_label_->setText(tr("就绪"));
-        backend_status_label_->setStyleSheet("color: #52c41a; font-size: 11px;");
+        apply_state_property(backend_status_label_, "backendState", "ready");
         ToastNotification::showMessage(this, tr("AI 模型"), tr("本地模型加载完成"), ToastNotification::Level::Success);
     }
 
@@ -1756,6 +1760,7 @@ void DashboardPage::on_local_llm_ready() {
 void DashboardPage::on_local_llm_progress(int percent) {
     if (is_local_llm_ && backend_status_label_) {
         backend_status_label_->setText(tr("加载中 %1%").arg(percent));
+        apply_state_property(backend_status_label_, "backendState", "loading");
     }
 }
 
@@ -1775,11 +1780,12 @@ void DashboardPage::on_local_llm_released() {
 
     if (backend_status_label_) {
         backend_status_label_->setText(tr(""));
+        apply_state_property(backend_status_label_, "backendState", "idle");
     }
 
-    // 禁用 Agent 模式按钮（云端不支持 Agent）
+    // 云端支持 Agent 模式，所以保持按钮可用
     if (agent_mode_btn_) {
-        agent_mode_btn_->setEnabled(false);
+        agent_mode_btn_->setEnabled(true);
     }
 
     spdlog::info("Dashboard: Local LLM released, button switched to cloud mode");
@@ -1790,7 +1796,7 @@ void DashboardPage::on_local_llm_released() {
 void DashboardPage::on_agent_thinking() {
     if (agent_status_label_) {
         agent_status_label_->setText(tr("🤔 思考中..."));
-        agent_status_label_->setStyleSheet("color: #1890ff; font-weight: bold;");
+        apply_state_property(agent_status_label_, "agentState", "thinking");
         agent_status_label_->show();
     }
     spdlog::debug("Agent: thinking started");
@@ -1799,7 +1805,7 @@ void DashboardPage::on_agent_thinking() {
 void DashboardPage::on_agent_tool_calling(const QString& tool_name) {
     if (agent_status_label_) {
         agent_status_label_->setText(tr("🔧 调用工具: %1").arg(tool_name));
-        agent_status_label_->setStyleSheet("color: #faad14; font-weight: bold;");
+        apply_state_property(agent_status_label_, "agentState", "tool");
         agent_status_label_->show();
     }
     spdlog::debug("Agent: calling tool {}", tool_name.toStdString());
@@ -1808,7 +1814,7 @@ void DashboardPage::on_agent_tool_calling(const QString& tool_name) {
 void DashboardPage::on_agent_tool_completed(const QString& tool_name, const QString& result) {
     if (agent_status_label_) {
         agent_status_label_->setText(tr("✅ %1 完成").arg(tool_name));
-        agent_status_label_->setStyleSheet("color: #52c41a; font-weight: bold;");
+        apply_state_property(agent_status_label_, "agentState", "success");
     }
     spdlog::debug("Agent: tool {} completed, result length: {}",
         tool_name.toStdString(), result.length());
@@ -1851,6 +1857,8 @@ void DashboardPage::on_agent_mode_toggled(bool checked) {
 
     // 同步到 LocalAiAnalysisService
     LocalAiAnalysisService::instance()->setAgentMode(checked);
+    // 同步到 Cloud AiAnalysisService
+    AiAnalysisService::instance()->setAgentMode(checked);
 
     spdlog::info("Agent mode toggled: {}, data range buttons {}",
                  checked ? "Agent" : "Chat",

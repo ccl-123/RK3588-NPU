@@ -8,6 +8,28 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# 测试框架开关（提供最小测试骨架）
+include(CTest)
+
+# 编译告警开关
+option(ENABLE_PROJECT_WARNINGS "Enable common compiler warnings" ON)
+option(ENABLE_STRICT_PEDANTIC "Enable -Wpedantic (may conflict with third-party headers)" OFF)
+
+function(enable_target_warnings target_name)
+    if(NOT ENABLE_PROJECT_WARNINGS)
+        return()
+    endif()
+
+    if(MSVC)
+        target_compile_options(${target_name} PRIVATE /W4)
+    else()
+        target_compile_options(${target_name} PRIVATE -Wall -Wextra)
+        if(ENABLE_STRICT_PEDANTIC)
+            target_compile_options(${target_name} PRIVATE -Wpedantic)
+        endif()
+    endif()
+endfunction()
+
 # 编译器警告和链接选项
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wl,--allow-shlib-undefined")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wl,--allow-shlib-undefined")
@@ -281,6 +303,7 @@ if(Qt5_FOUND)
         Qt5::Network
         Qt5::Concurrent
     )
+    enable_target_warnings(${TARGET_NAME}_gui)
 
     # 安装 GUI 版本
     install(TARGETS ${TARGET_NAME}_gui DESTINATION ./)
@@ -299,6 +322,22 @@ target_link_libraries(db_tool
   ${OpenCV_LIBS}
   ${SQLite3_LIBRARIES}
 )
+enable_target_warnings(db_tool)
+
+# 测试目标骨架
+if(BUILD_TESTING)
+    add_executable(config_smoke_test
+        tests/config_smoke_test.cc
+    )
+    target_compile_features(config_smoke_test PRIVATE cxx_std_17)
+    enable_target_warnings(config_smoke_test)
+
+    if(NOT CMAKE_CROSSCOMPILING)
+        add_test(NAME config_smoke_test COMMAND config_smoke_test)
+    else()
+        message(STATUS "Cross compiling detected, config_smoke_test will be built but not executed")
+    endif()
+endif()
 
 
 # 仅当 db_tool 不存在时才安装，避免重复编译和替换

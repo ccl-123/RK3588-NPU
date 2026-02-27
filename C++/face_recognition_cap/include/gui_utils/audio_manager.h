@@ -22,6 +22,8 @@
 #include <QStringList>
 #include <QTimer>
 #include <QThread>
+#include <chrono>
+#include <map>
 
 /**
  * @brief 音频类型枚举
@@ -141,6 +143,20 @@ public:
      */
     Q_INVOKABLE void refreshDevicesAsync();
 
+    /**
+     * @brief 带冷却时间地播放音频
+     * @param type 音频类型
+     * @param cooldown_ms 冷却时间（毫秒）
+     * @return bool true=已触发播放，false=仍在冷却中
+     */
+    bool playSoundWithCooldown(AudioType type, int cooldown_ms);
+
+    /**
+     * @brief 重置指定音频类型的冷却状态
+     * @param type 音频类型
+     */
+    void resetCooldown(AudioType type);
+
 signals:
     /**
      * @brief 音频播放开始信号
@@ -228,4 +244,5 @@ private:
     bool devices_refresh_in_progress_;///< 设备刷新是否进行中
     bool volume_task_running_;        ///< 音量设置任务进行中
     int last_applied_volume_;         ///< 最近一次应用的音量
+    std::map<AudioType, std::chrono::steady_clock::time_point> last_audio_play_times_; // 各音频类型冷却时间
 };

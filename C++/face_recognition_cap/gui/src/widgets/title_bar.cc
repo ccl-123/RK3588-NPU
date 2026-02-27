@@ -109,11 +109,12 @@ void TitleBar::setTitle(const QString& title) {
 
 void TitleBar::setBreadcrumb(const QStringList& crumbs) {
     QString html;
-    for (int i = 0; i < crumbs.size(); ++i) {
+    const qsizetype crumb_count = crumbs.size();
+    for (qsizetype i = 0; i < crumb_count; ++i) {
         if (i > 0) {
             html += " <span style='color:#bfbfbf;'>/</span> ";
         }
-        if (i == crumbs.size() - 1) {
+        if (i == crumb_count - 1) {
             // 最后一项高亮
             html += QString("<span style='color:#262626; font-weight:600;'>%1</span>").arg(crumbs[i]);
         } else {

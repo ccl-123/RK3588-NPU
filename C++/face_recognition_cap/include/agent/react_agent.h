@@ -22,6 +22,7 @@ struct AgentConfig {
     int max_iterations = 5;         ///< ReAct 最大循环次数
     bool stream_output = true;      ///< 是否流式输出
     QString system_prompt;          ///< 系统提示词（可选，使用默认）
+    bool skip_system_prompt = false; ///< 跳过系统提示（云端 LLM 已在服务端预设）
 
     AgentConfig() = default;
 };

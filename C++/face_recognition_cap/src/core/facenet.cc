@@ -19,6 +19,8 @@
 #include <iostream>
 #include <fstream>
 #include <typeinfo>
+#include <vector>
+#include <limits>
 
 #define _BASETSD_H
 
@@ -68,7 +70,12 @@ static unsigned char* load_data(FILE* fp, size_t ofst, size_t sz)
 		printf("buffer malloc failure.\n");
 		return NULL;
   	}
-  	ret = fread(data, 1, sz, fp);
+  	size_t read_size = fread(data, 1, sz, fp);
+  	if (read_size != sz) {
+		printf("blob read failure, expect=%zu actual=%zu.\n", sz, read_size);
+		free(data);
+		return NULL;
+  	}
   	return data;
 }
 
@@ -83,10 +90,24 @@ static unsigned char* load_model(const char* filename, int* model_size)
 		return NULL;
   	}
 
-  	fseek(fp, 0, SEEK_END);
-  	int size = ftell(fp);
+  	if (fseek(fp, 0, SEEK_END) != 0) {
+		printf("Seek file %s failed.\n", filename);
+		fclose(fp);
+		return NULL;
+  	}
+  	long size_long = ftell(fp);
+  	if (size_long <= 0 || size_long > std::numeric_limits<int>::max()) {
+		printf("Invalid model size for %s: %ld\n", filename, size_long);
+		fclose(fp);
+		return NULL;
+  	}
+  	int size = static_cast<int>(size_long);
 
   	data = load_data(fp, 0, size);
+  	if (data == NULL) {
+		fclose(fp);
+		return NULL;
+  	}
 
   	fclose(fp);
 
@@ -94,118 +115,176 @@ static unsigned char* load_model(const char* filename, int* model_size)
   	return data;
 }
 
-static int saveFloat(const char* file_name, float* output, int element_size)
-{
-  	FILE* fp;
-  	fp = fopen(file_name, "w");
-  	for (int i = 0; i < element_size; i++) {
-		fprintf(fp, "%.6f\n", output[i]);
-  	}
-  	fclose(fp);
-  	return 0;
-}
-
 /*-------------------------------------------
                   Main Functions
 -------------------------------------------*/
-int create_facenet(char *model_name, rknn_context *ctx, int &width, int &height, int &channel, rknn_input_output_num &io_num, unsigned char *model_data)
+int create_facenet(char *model_name, rknn_context *ctx, int &width, int &height, int &channel, rknn_input_output_num &io_num, unsigned char*& model_data)
 {
-  	int            status     = 0;
-  	int            ret;
+    int ret = -1;
+    bool rknn_inited = false;
+    rknn_core_mask core_mask = RKNN_NPU_CORE_0_1_2;  // 使用核心0、1、2
+    rknn_sdk_version version;
+    std::vector<rknn_tensor_attr> input_attrs;
+    std::vector<rknn_tensor_attr> output_attrs;
+    if (ctx == nullptr || model_name == nullptr) {
+        printf("create_facenet invalid args\n");
+        return -1;
+    }
 
-  	/* Create the neural network */
-  	printf("Loading facenet model...\n");
-  	int model_data_size = 0;
-  	model_data          = load_model(model_name, &model_data_size);
-  	// 启用高优先级
-  	uint32_t flag = RKNN_FLAG_PRIOR_HIGH;
-  	ret = rknn_init(ctx, model_data, model_data_size, flag, NULL);
-  	if (ret < 0) {
-		printf("rknn_init error ret=%d\n", ret);
+    /* Create the neural network */
+    printf("Loading facenet model...\n");
+    int model_data_size = 0;
+    model_data = nullptr;
+    model_data = load_model(model_name, &model_data_size);
+    if (model_data == nullptr || model_data_size <= 0) {
+        printf("load_model failed: %s\n", model_name);
+        model_data = nullptr;
+        return -1;
+    }
+
+    // 启用高优先级
+    uint32_t flag = RKNN_FLAG_PRIOR_HIGH;
+    ret = rknn_init(ctx, model_data, model_data_size, flag, NULL);
+    if (ret < 0) {
+        printf("rknn_init error ret=%d\n", ret);
+        goto create_failed;
+    }
+    rknn_inited = true;
+
+    ret = rknn_set_core_mask(*ctx, core_mask);
+    if (ret < 0) {
+        printf("rknn_set_core_mask error ret=%d\n", ret);
+        goto create_failed;
+    }
+
+    ret = rknn_query(*ctx, RKNN_QUERY_SDK_VERSION, &version, sizeof(rknn_sdk_version));
+    if (ret < 0) {
+        printf("rknn_query SDK version error ret=%d\n", ret);
+        goto create_failed;
+    }
+    printf("sdk version: %s driver version: %s\n", version.api_version, version.drv_version);
+
+    ret = rknn_query(*ctx, RKNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num));
+    if (ret < 0) {
+        printf("rknn_query io_num error ret=%d\n", ret);
+        goto create_failed;
+    }
+    if (io_num.n_input == 0 || io_num.n_output == 0) {
+        printf("invalid facenet io_num: in=%u out=%u\n", io_num.n_input, io_num.n_output);
+        ret = -1;
+        goto create_failed;
+    }
+    if (io_num.n_input != 1) {
+        printf("invalid facenet input num: %u\n", io_num.n_input);
+        ret = -1;
+        goto create_failed;
+    }
+    if (io_num.n_output != 1) {
+        printf("invalid facenet output num: %u\n", io_num.n_output);
+        ret = -1;
+        goto create_failed;
+    }
+    printf("model input num: %d, output num: %d\n", io_num.n_input, io_num.n_output);
+
+    input_attrs.resize(io_num.n_input);
+    memset(input_attrs.data(), 0, sizeof(rknn_tensor_attr) * input_attrs.size());
+    for (uint32_t i = 0; i < io_num.n_input; ++i) {
+        input_attrs[i].index = i;
+        ret = rknn_query(*ctx, RKNN_QUERY_INPUT_ATTR, &(input_attrs[i]), sizeof(rknn_tensor_attr));
+        if (ret < 0) {
+            printf("rknn_query input attr error ret=%d\n", ret);
+            goto create_failed;
+        }
+        dump_tensor_attr(&(input_attrs[i]));
+    }
+
+    output_attrs.resize(io_num.n_output);
+    memset(output_attrs.data(), 0, sizeof(rknn_tensor_attr) * output_attrs.size());
+    for (uint32_t i = 0; i < io_num.n_output; ++i) {
+        output_attrs[i].index = i;
+        ret = rknn_query(*ctx, RKNN_QUERY_OUTPUT_ATTR, &(output_attrs[i]), sizeof(rknn_tensor_attr));
+        if (ret < 0) {
+            printf("rknn_query output attr error ret=%d\n", ret);
+            goto create_failed;
+        }
+        dump_tensor_attr(&(output_attrs[i]));
+    }
+
+    if (input_attrs[0].fmt == RKNN_TENSOR_NCHW) {
+        printf("model is NCHW input fmt\n");
+        channel = input_attrs[0].dims[1];
+        width = input_attrs[0].dims[3];
+        height = input_attrs[0].dims[2];
+    } else {
+        printf("model is NHWC input fmt\n");
+        width = input_attrs[0].dims[2];
+        height = input_attrs[0].dims[1];
+        channel = input_attrs[0].dims[3];
+    }
+
+    printf("model input height=%d, width=%d, channel=%d\n", height, width, channel);
+    return 0;
+
+create_failed:
+    if (rknn_inited) {
+        rknn_destroy(*ctx);
+        *ctx = 0;
+    }
+    if (model_data) {
         free(model_data);
-		return -1;
-  	}
-  	
-  	rknn_core_mask core_mask = RKNN_NPU_CORE_0_1_2;  // 使用核心0、1、2
-  	ret = rknn_set_core_mask(*ctx, core_mask);
-  	if (ret < 0) {
-		printf("rknn_set_core_mask error ret=%d\n", ret);
-		return -1;
-  	}
-
-  	rknn_sdk_version version;
-  	ret = rknn_query(*ctx, RKNN_QUERY_SDK_VERSION, &version, sizeof(rknn_sdk_version));
-  	if (ret < 0) {
-		printf("rknn_init error ret=%d\n", ret);
-		return -1;
-  	}
-  	printf("sdk version: %s driver version: %s\n", version.api_version, version.drv_version);
-
-  	ret = rknn_query(*ctx, RKNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num));
-  	if (ret < 0) {
-		printf("rknn_init error ret=%d\n", ret);
-		return -1;
-  	}
-  	printf("model input num: %d, output num: %d\n", io_num.n_input, io_num.n_output);
-
-  	rknn_tensor_attr input_attrs[io_num.n_input];
-  	memset(input_attrs, 0, sizeof(input_attrs));
-  	for (int i = 0; i < io_num.n_input; i++) {
-		input_attrs[i].index = i;
-		ret                  = rknn_query(*ctx, RKNN_QUERY_INPUT_ATTR, &(input_attrs[i]), sizeof(rknn_tensor_attr));
-		if (ret < 0) {
-	  		printf("rknn_init error ret=%d\n", ret);
-	  		return -1;
-		}
-		dump_tensor_attr(&(input_attrs[i]));
-  	}
-
-  	rknn_tensor_attr output_attrs[io_num.n_output];
-  	memset(output_attrs, 0, sizeof(output_attrs));
-  	for (int i = 0; i < io_num.n_output; i++) {
-		output_attrs[i].index = i;
-		ret                   = rknn_query(*ctx, RKNN_QUERY_OUTPUT_ATTR, &(output_attrs[i]), sizeof(rknn_tensor_attr));
-		dump_tensor_attr(&(output_attrs[i]));
-  	}
-
-  	if (input_attrs[0].fmt == RKNN_TENSOR_NCHW) {
-		printf("model is NCHW input fmt\n");
-		channel = input_attrs[0].dims[1];
-		width   = input_attrs[0].dims[3];
-		height  = input_attrs[0].dims[2];
-  	} else {
-		printf("model is NHWC input fmt\n");
-		width   = input_attrs[0].dims[2];
-		height  = input_attrs[0].dims[1];
-		channel = input_attrs[0].dims[3];
-  	}
-
-  	printf("model input height=%d, width=%d, channel=%d\n", height, width, channel);
-  	
-  	return ret;
+        model_data = nullptr;
+    }
+    return ret;
 }
 
 int facenet_inference(rknn_context *ctx, cv::Mat img, rknn_input_output_num io_num, rknn_input *inputs, rknn_output *outputs, float **result){
     int ret;
+    if (ctx == nullptr || inputs == nullptr || outputs == nullptr || result == nullptr || img.empty()) {
+        return -1;
+    }
+    if (io_num.n_input == 0 || io_num.n_output == 0) {
+        return -1;
+    }
+    if (io_num.n_input != 1) {
+        return -1;
+    }
+    if (io_num.n_output != 1) {
+        return -1;
+    }
+
+    *result = nullptr;
 
     // 直接使用 uint8 输入，/home/firefly/RK_NPU2_SDK/convert.py转换脚本，RKNN 会按 config 中的 mean/std 做归一化
     inputs[0].buf = (void*)img.data;
     inputs[0].size = img.total() * img.elemSize();  // uint8 尺寸
 
     ret = rknn_inputs_set(*ctx, io_num.n_input, inputs);
+    if (ret < 0) {
+        return ret;
+    }
 
     ret = rknn_run(*ctx, NULL);
+    if (ret < 0) {
+        return ret;
+    }
+
     ret = rknn_outputs_get(*ctx, io_num.n_output, outputs, NULL);
-    result[0] = (float*)outputs[0].buf;
+    if (ret < 0 || outputs[0].buf == nullptr) {
+        return -1;
+    }
+    *result = (float*)outputs[0].buf;
 
-    l2_normalize(result[0]);
+    l2_normalize(*result);
 
-    return ret;
+    return 0;
 }
 
 int facenet_output_release(rknn_context *ctx, rknn_input_output_num io_num, rknn_output *outputs)
 {
 	int ret;
+	if (ctx == nullptr || outputs == nullptr) {
+        return -1;
+    }
 	
 	ret = rknn_outputs_release(*ctx, io_num.n_output, outputs);
 	
@@ -214,9 +293,11 @@ int facenet_output_release(rknn_context *ctx, rknn_input_output_num io_num, rknn
 
 void release_facenet(rknn_context *ctx, unsigned char *model_data)
 {
-	int ret;
   	// release
-  	ret = rknn_destroy(*ctx);
+    if (ctx && *ctx) {
+  	    rknn_destroy(*ctx);
+        *ctx = 0;
+    }
 
   	if (model_data) {
 		free(model_data);

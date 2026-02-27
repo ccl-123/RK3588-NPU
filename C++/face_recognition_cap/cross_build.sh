@@ -166,10 +166,23 @@ fi
 
 # ==================== 一键部署到设备 ====================
 if [ "$DO_DEPLOY" = true ]; then
-    DEVICE_IP="192.168.1.103"
+    DEVICE_IP_ETH="192.168.1.103"
+    DEVICE_IP_WIFI="10.120.78.58"
     DEVICE_USER="firefly"
     DEVICE_PASS="firefly"
     DEVICE_TARGET_DIR="/home/firefly/open_project/edge2-npu/C++/face_recognition_cap/install"
+
+    # 根据连通性自动选择 IP（网线优先）
+    if ping -c 1 -W 1 "${DEVICE_IP_ETH}" &>/dev/null; then
+        DEVICE_IP="${DEVICE_IP_ETH}"
+        echo "  网络: 网线 (${DEVICE_IP})"
+    elif ping -c 1 -W 1 "${DEVICE_IP_WIFI}" &>/dev/null; then
+        DEVICE_IP="${DEVICE_IP_WIFI}"
+        echo "  网络: WiFi (${DEVICE_IP})"
+    else
+        echo "两个 IP 均不可达 (${DEVICE_IP_ETH} / ${DEVICE_IP_WIFI})，跳过部署。"
+        exit 1
+    fi
 
     # 检查是否安装了 sshpass
     if ! command -v sshpass &> /dev/null; then
@@ -193,11 +206,26 @@ if [ "$DO_DEPLOY" = true ]; then
     ${SCP_CMD} ${INSTALL_DIR}/face_recognition_cap/face_recognition_cap \
         ${INSTALL_DIR}/face_recognition_cap/face_recognition_cap_gui \
         ${DEVICE_USER}@${DEVICE_IP}:${DEVICE_TARGET_DIR}/face_recognition_cap/
+    if [ $? -eq 0 ]; then
+        echo "     ✓ 核心可执行文件传输完成"
+    else
+        echo "     ✗ 核心可执行文件传输失败"
+    fi
 
-    # 传输运行时库 (RKNN/RGA/RKLLM)
-    echo "  -> 传输运行时库 (RKNN/RGA/RKLLM)..."
-    ${SCP_CMD} ${INSTALL_DIR}/face_recognition_cap/lib/*.so \
-        ${DEVICE_USER}@${DEVICE_IP}:${DEVICE_TARGET_DIR}/face_recognition_cap/lib/
+    # 传输运行时库 (RKNN/RGA/RKLLM) - 仅在设备缺失时传输
+    echo "  -> 检查并传输运行时库 (RKNN/RGA/RKLLM)..."
+    shopt -s nullglob
+    for lib_path in ${INSTALL_DIR}/face_recognition_cap/lib/*.so; do
+        lib_name=$(basename "${lib_path}")
+        if ${SSH_CMD} ${DEVICE_USER}@${DEVICE_IP} "[ -f ${DEVICE_TARGET_DIR}/face_recognition_cap/lib/${lib_name} ]"; then
+            echo "     - 已存在: ${lib_name}"
+        else
+            echo "     - 传输: ${lib_name}"
+            ${SCP_CMD} "${lib_path}" \
+                ${DEVICE_USER}@${DEVICE_IP}:${DEVICE_TARGET_DIR}/face_recognition_cap/lib/
+        fi
+    done
+    shopt -u nullglob
 
     if [ $? -eq 0 ]; then
         echo ""
@@ -220,4 +248,3 @@ else
     echo ""
     echo "跳过部署 (使用 --deploy 参数单独部署)"
 fi
-

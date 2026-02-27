@@ -11,6 +11,7 @@
 #include "im2d.h"
 #include "rga.h"
 #include <algorithm>
+#include <chrono>
 
 PreprocessingThread::PreprocessingThread(int resize_w, int resize_h, 
                                          int img_width, int img_height,
@@ -85,6 +86,7 @@ void PreprocessingThread::thread_func() {
         auto t0 = std::chrono::steady_clock::now();
         // 1. 从摄像头读取一帧
         if (!read_frame(frame)) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
             continue;
         }
         

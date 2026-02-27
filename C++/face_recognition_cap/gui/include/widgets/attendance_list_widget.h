@@ -5,8 +5,7 @@
  * @date 2025-12-18
  */
 
-#ifndef ATTENDANCE_LIST_WIDGET_H
-#define ATTENDANCE_LIST_WIDGET_H
+#pragma once
 
 #include <QWidget>
 #include <QListWidget>
@@ -73,4 +72,3 @@ private:
     FilterType current_filter_ = FilterType::All;
 };
 
-#endif // ATTENDANCE_LIST_WIDGET_H

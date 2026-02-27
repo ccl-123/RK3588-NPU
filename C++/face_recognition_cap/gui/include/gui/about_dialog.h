@@ -7,8 +7,7 @@
  * 显示系统版本信息、技术栈、性能指标、开发者信息等。
  */
 
-#ifndef ABOUT_DIALOG_H
-#define ABOUT_DIALOG_H
+#pragma once
 
 #include <QDialog>
 #include <QLabel>
@@ -39,5 +38,4 @@ private:
     QPushButton* close_btn_;
 };
 
-#endif // ABOUT_DIALOG_H
 

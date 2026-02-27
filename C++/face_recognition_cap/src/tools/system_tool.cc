@@ -6,6 +6,7 @@
 #include "tools/system_tool.h"
 #include "config/config.h"
 #include <stdexcept>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QLocale>
 #include <QRegularExpression>
@@ -80,7 +81,8 @@ QString SystemTool::getSystemStatus() {
     status += QString("重复打卡间隔: %1秒\n").arg(Config::Default::DUPLICATE_CHECK_INTERVAL);
 
     // LLM 状态
-    status += "LLM模型: " + QString(Config::LocalLLM::MODEL_PATH).section('/', -1) + "\n";
+    const QString llm_model_path = QString::fromUtf8(Config::LocalLLM::getModelPath());
+    status += "LLM模型: " + QFileInfo(llm_model_path).fileName() + "\n";
 
     return status;
 }

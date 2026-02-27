@@ -115,7 +115,7 @@ int ModelManager::init_facenet(const char* model_path) {
     // 配置输出 - FaceNet 模型原始输出为 FP16，这里设置 want_float=1 让 RKNN 转成 float32，便于后续相似度计算
     facenet_outputs_ = new rknn_output[facenet_io_num_.n_output];
     memset(facenet_outputs_, 0, sizeof(rknn_output) * facenet_io_num_.n_output);
-    for (int i = 0; i < facenet_io_num_.n_output; i++) {
+    for (uint32_t i = 0; i < facenet_io_num_.n_output; ++i) {
         facenet_outputs_[i].want_float = 1;
     }
 

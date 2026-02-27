@@ -145,22 +145,7 @@ int AttendanceService::determine_status(std::time_t check_time, int check_type) 
 }
 
 int AttendanceService::auto_determine_check_type(int user_id, std::time_t current_time) {
-    // 查询今天是否已有签到/签退记录
-    std::string today = get_current_date();
-    auto today_records = record_dao_->find_by_date(today);
-    
-    // 检查该用户今天的打卡情况
-    bool has_checked_in = false;
-    bool has_checked_out = false;
-    for (const auto& record : today_records) {
-        if (record.user_id == user_id) {
-            if (record.check_type == db::CheckType::CHECK_IN) {
-                has_checked_in = true;
-            } else if (record.check_type == db::CheckType::CHECK_OUT) {
-                has_checked_out = true;
-            }
-        }
-    }
+    (void)user_id;
     
     // 判断当前时间是上午还是下午
     std::tm tm_info;
@@ -175,16 +160,6 @@ int AttendanceService::auto_determine_check_type(int user_id, std::time_t curren
     
     // 判断当前是上午时段还是下午时段
     bool is_afternoon = (current_minutes >= midday_minutes);
-    
-    // 智能判断（基于时间和打卡历史）：
-    // 
-    // 上午时段（中点之前）：
-    //   - 无论是否签到过 → 签到（重复签到，会被拦截）
-    // 
-    // 下午时段（中点之后）：
-    //   - 如果已签到 + 未签退 → 签退
-    //   - 如果已签到 + 已签退 → 签退（重复签退，会被拦截）
-    //   - 如果未签到（新用户/上午没来）→ 签退（直接下午打卡）
     
     if (is_afternoon) {
         // 下午时段：统一返回签退
@@ -368,4 +343,3 @@ std::time_t AttendanceService::parse_time(const std::string& time_str) {
 }
 
 } // namespace service
-

@@ -1647,8 +1647,27 @@ QSlider::handle:horizontal:hover {
 #DashboardKpiValue {
     font-size: 22px;
     font-weight: 700;
+    color: #f0f0f0;
     background: transparent;
 }
+
+#DashboardKpiIcon[tone="blue"] { background: #112a45; }
+#DashboardKpiIcon[tone="green"] { background: #162312; }
+#DashboardKpiIcon[tone="orange"] { background: #2b1d0f; }
+#DashboardKpiIcon[tone="red"] { background: #2a1215; }
+#DashboardKpiIcon[tone="purple"] { background: #2a1445; }
+#DashboardKpiIcon[tone="cyan"] { background: #0b2f2e; }
+#DashboardKpiIcon[tone="brown"] { background: #3a2614; }
+#DashboardKpiIcon[tone="violet"] { background: #2a1445; }
+
+#DashboardKpiValue[tone="blue"] { color: #69c0ff; }
+#DashboardKpiValue[tone="green"] { color: #73d13d; }
+#DashboardKpiValue[tone="orange"] { color: #ffa940; }
+#DashboardKpiValue[tone="red"] { color: #ff7875; }
+#DashboardKpiValue[tone="purple"] { color: #b37feb; }
+#DashboardKpiValue[tone="cyan"] { color: #5cdbd3; }
+#DashboardKpiValue[tone="brown"] { color: #ffc069; }
+#DashboardKpiValue[tone="violet"] { color: #b37feb; }
 
 #DashboardKpiSub {
     font-size: 12px;
@@ -1818,6 +1837,165 @@ QProgressBar#DashboardRankBar::chunk {
 
 #AiQuickButton:hover {
     background-color: #15395b;
+}
+
+#DashboardAiButton {
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #531dab, stop:1 #c41d7f);
+    color: #ffffff;
+    border: none;
+    border-radius: 16px;
+    padding: 6px 16px;
+    font-weight: 700;
+}
+
+#DashboardAiButton:hover {
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #722ed1, stop:1 #eb2f96);
+}
+
+#DashboardAiButton:pressed {
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #391085, stop:1 #82004f);
+}
+
+#DashboardAiButton:disabled {
+    background-color: #303030;
+    color: #8c8c8c;
+}
+
+#AiQuickSeparator {
+    color: #434343;
+    background: transparent;
+}
+
+#AiRangeLabel {
+    color: #8c8c8c;
+    font-size: 12px;
+    background: transparent;
+}
+
+#AiDataRangeButton {
+    background-color: #262626;
+    color: #8c8c8c;
+    border: 1px solid #434343;
+    border-radius: 12px;
+    padding: 4px 12px;
+    font-size: 12px;
+}
+
+#AiDataRangeButton:hover {
+    background-color: #15395b;
+    color: #69c0ff;
+    border-color: #3c9ae8;
+}
+
+#AiDataRangeButton:checked {
+    background-color: #177ddc;
+    color: #ffffff;
+    border-color: #177ddc;
+}
+
+#AiDataRangeButton:disabled {
+    background-color: #1f1f1f;
+    color: #595959;
+    border-color: #303030;
+}
+
+#BackendToggle {
+    background-color: #112a45;
+    color: #69c0ff;
+    border: 1px solid #15395b;
+    border-radius: 4px;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+#BackendToggle:hover {
+    background-color: #15395b;
+    border-color: #3c9ae8;
+}
+
+#BackendToggle:checked {
+    background-color: #162312;
+    color: #73d13d;
+    border-color: #274916;
+}
+
+#BackendToggle:checked:hover {
+    background-color: #1f3318;
+    border-color: #73d13d;
+}
+
+#AgentModeToggle {
+    background-color: #2b1d0f;
+    color: #ffa940;
+    border: 1px solid #613400;
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+#AgentModeToggle:hover {
+    background-color: #3d2a16;
+    border-color: #ffa940;
+}
+
+#AgentModeToggle:checked {
+    background-color: #162312;
+    color: #73d13d;
+    border-color: #274916;
+}
+
+#AgentModeToggle:checked:hover {
+    background-color: #1f3318;
+    border-color: #73d13d;
+}
+
+#AgentModeToggle:disabled {
+    background-color: #1f1f1f;
+    color: #595959;
+    border-color: #303030;
+}
+
+#AiDataRangeLabel {
+    color: #73d13d;
+    font-size: 11px;
+    background: transparent;
+}
+
+#AiDataRangeLabel[rangeState="inactive"] {
+    color: #8c8c8c;
+}
+
+#BackendStatusLabel {
+    color: #8c8c8c;
+    font-size: 11px;
+    min-width: 50px;
+    background: transparent;
+}
+
+#BackendStatusLabel[backendState="loading"] {
+    color: #faad14;
+}
+
+#BackendStatusLabel[backendState="ready"] {
+    color: #73d13d;
+}
+
+#AgentStatusLabel {
+    color: #69c0ff;
+    font-size: 11px;
+    font-weight: bold;
+    min-width: 100px;
+    background: transparent;
+}
+
+#AgentStatusLabel[agentState="tool"] {
+    color: #faad14;
+}
+
+#AgentStatusLabel[agentState="success"] {
+    color: #73d13d;
 }
 
 #AiChatInput {

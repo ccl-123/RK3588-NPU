@@ -8,8 +8,7 @@
  * 质量检测和特征提取。
  */
 
-#ifndef FACE_REGISTRATION_DIALOG_H
-#define FACE_REGISTRATION_DIALOG_H
+#pragma once
 
 #include <QDialog>
 #include <QLineEdit>
@@ -117,4 +116,3 @@ private:
     static constexpr float QUALITY_THRESHOLD = 0.7f;
 };
 
-#endif // FACE_REGISTRATION_DIALOG_H

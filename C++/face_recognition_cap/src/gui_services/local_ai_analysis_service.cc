@@ -20,72 +20,8 @@
 #include <spdlog/spdlog.h>
 #include <QEventLoop>
 #include <QTimer>
+#include <QCoreApplication>
 #include <QThread>
-
-namespace {
-
-// Agent 输出标签常量（支持 XML 和 OpenAI/RKLLM 两种风格）
-constexpr const char* TAG_ANSWER_START = "<answer>";
-constexpr const char* TAG_ANSWER_END = "</answer>";
-constexpr const char* TAG_ANSWER_ALT_START = "<|answer|>";
-constexpr const char* TAG_ANSWER_ALT_END = "<|/answer|>";
-constexpr const char* TAG_THOUGHT_START = "<thought>";
-constexpr const char* TAG_THOUGHT_END = "</thought>";
-constexpr const char* TAG_THOUGHT_ALT_START = "<|thought|>";
-constexpr const char* TAG_THOUGHT_ALT_END = "<|/thought|>";
-constexpr const char* TAG_TOOL_CALL_START = "<tool_call>";
-constexpr const char* TAG_TOOL_CALL_END = "</tool_call>";
-constexpr const char* TAG_TOOL_CALL_ALT_START = "<|tool_call|>";
-constexpr const char* TAG_TOOL_CALL_ALT_END = "<|/tool_call|>";
-constexpr const char* TAG_TOOL_RESPONSE_START = "<tool_response>";
-constexpr const char* TAG_TOOL_RESPONSE_END = "</tool_response>";
-constexpr const char* TAG_TOOL_RESPONSE_ALT_START = "<|tool_response|>";
-constexpr const char* TAG_TOOL_RESPONSE_ALT_END = "<|/tool_response|>";
-
-/**
- * @brief 移除文本中指定开始/结束标签之间的内容（包括标签本身）
- * @param text 待处理文本
- * @param start_tag 开始标签
- * @param end_tag 结束标签
- */
-void removeTagBlocks(QString& text, const char* start_tag, const char* end_tag) {
-    int start = text.indexOf(start_tag);
-    int end = text.indexOf(end_tag);
-    while (start != -1 && end != -1 && end > start) {
-        text.remove(start, end - start + QString(end_tag).length());
-        start = text.indexOf(start_tag);
-        end = text.indexOf(end_tag);
-    }
-}
-
-/**
- * @brief 清理 Agent 输出中的所有标签，提取纯文本内容
- *
- * 支持两种标签风格：
- * - XML 风格: <tag>...</tag>
- * - OpenAI/RKLLM 风格: <|tag|>...<|/tag|>
- */
-QString cleanAgentTags(const QString& text) {
-    QString result = text;
-
-    // 清理答案和思考标签（保留内容，仅移除标签本身）
-    result.remove(TAG_ANSWER_START).remove(TAG_ANSWER_END);
-    result.remove(TAG_ANSWER_ALT_START).remove(TAG_ANSWER_ALT_END);
-    result.remove(TAG_THOUGHT_START).remove(TAG_THOUGHT_END);
-    result.remove(TAG_THOUGHT_ALT_START).remove(TAG_THOUGHT_ALT_END);
-
-    // 移除工具调用块（包括内容，因为是 JSON 不应显示给用户）
-    removeTagBlocks(result, TAG_TOOL_CALL_START, TAG_TOOL_CALL_END);
-    removeTagBlocks(result, TAG_TOOL_CALL_ALT_START, TAG_TOOL_CALL_ALT_END);
-
-    // 移除工具响应块（包括内容，因为是内部数据）
-    removeTagBlocks(result, TAG_TOOL_RESPONSE_START, TAG_TOOL_RESPONSE_END);
-    removeTagBlocks(result, TAG_TOOL_RESPONSE_ALT_START, TAG_TOOL_RESPONSE_ALT_END);
-
-    return result.trimmed();
-}
-
-}  // namespace
 
 // ==================== 单例与生命周期 ====================
 
@@ -136,7 +72,11 @@ void LocalAiAnalysisService::cancelAnalysis() {
     // 协作式停止：发送停止信号，不阻塞等待
     // 1. 停止 Agent 服务
     if (agent_service_) {
-        agent_service_->stop();
+        if (agent_service_->thread() != QThread::currentThread()) {
+            QMetaObject::invokeMethod(agent_service_.get(), &agent::AgentService::stop, Qt::QueuedConnection);
+        } else {
+            agent_service_->stop();
+        }
     }
 
     // 2. 停止 AgentWorker
@@ -270,7 +210,7 @@ void LocalAiAnalysisService::initializeAgent(service::AttendanceService* attenda
     config.max_iterations = Config::Agent::MAX_ITERATIONS;
     config.stream_output = Config::Agent::STREAM_OUTPUT;
 
-    agent_service_ = std::make_unique<agent::AgentService>(config, this);
+    agent_service_ = std::make_unique<agent::AgentService>(config, nullptr);
 
     // 根据配置注册工具
     if (Config::Agent::Tools::ENABLE_ATTENDANCE || Config::Agent::Tools::ENABLE_USER) {
@@ -324,6 +264,9 @@ void LocalAiAnalysisService::requestAgentChat(const QString& user_input) {
 
     // 创建工作线程（按需启动，完成后自动销毁）
     QThread* thread = new QThread;
+    if (agent_service_ && agent_service_->thread() != thread) {
+        agent_service_->moveToThread(thread);
+    }
     agent::AgentWorker* worker = new agent::AgentWorker(agent_service_.get());
     worker->moveToThread(thread);
 
@@ -364,8 +307,15 @@ void LocalAiAnalysisService::requestAgentChat(const QString& user_input) {
         }
     });
 
-    // 自动清理
-    connect(worker, &agent::AgentWorker::finished, thread, &QThread::quit);
+    // 自动清理与线程归位
+    connect(worker, &agent::AgentWorker::finished, worker, [this, thread]() {
+        if (agent_service_ && agent_service_->thread() != QCoreApplication::instance()->thread()) {
+            agent_service_->moveToThread(QCoreApplication::instance()->thread());
+        }
+        if (thread) {
+            thread->quit();
+        }
+    });
     connect(thread, &QThread::finished, worker, &QObject::deleteLater);
     connect(thread, &QThread::finished, thread, &QObject::deleteLater);
 
@@ -414,6 +364,7 @@ std::function<QString(const QString&)> LocalAiAnalysisService::createThreadSafeL
         QString result;
         bool finished = false;
         bool error_occurred = false;
+        bool cancelled = false;
         QString error_msg;
 
         // 在工作线程中创建事件循环
@@ -452,24 +403,53 @@ std::function<QString(const QString&)> LocalAiAnalysisService::createThreadSafeL
         // 设置超时（防止无限等待）
         QTimer timeout_timer;
         timeout_timer.setSingleShot(true);
-        connect(&timeout_timer, &QTimer::timeout, &loop, [&loop, &error_occurred, &error_msg]() {
+        connect(&timeout_timer, &QTimer::timeout, &loop, [&loop, &error_occurred, &error_msg, llm]() {
             error_occurred = true;
             error_msg = "LLM 推理超时";
+            // 超时后主动中止 LLM 推理，避免资源浪费
+            llm->abortInference();
             loop.quit();
         });
         timeout_timer.start(Config::Agent::LLM_TIMEOUT_MS);  // 使用 Agent LLM 超时配置
 
+        // 取消轮询：避免等待到超时才响应停止
+        QTimer cancel_timer;
+        cancel_timer.setInterval(50);
+        connect(&cancel_timer, &QTimer::timeout, &loop,
+                [this, &loop, &cancelled, llm]() {
+            if (!agent_cancel_requested_.load()) {
+                return;
+            }
+            cancelled = true;
+            llm->abortInference();
+            loop.quit();
+        });
+        cancel_timer.start();
+
         // 等待完成
         loop.exec();
+
+        // 停止超时计时器（如果正常完成则取消超时）
+        timeout_timer.stop();
+        cancel_timer.stop();
 
         // 断开临时连接
         disconnect(conn_chunk);
         disconnect(conn_finished);
         disconnect(conn_error);
 
+        if (cancelled) {
+            spdlog::info("LLM callback cancelled");
+            return QString();
+        }
+
         if (error_occurred) {
             spdlog::error("LLM callback error: {}", error_msg.toStdString());
-            emit errorOccurred(error_msg);
+            // 超时错误不再发送 errorOccurred 信号，让 Agent 循环自然结束
+            // 只有非超时错误才发送信号
+            if (error_msg != "LLM 推理超时") {
+                emit errorOccurred(error_msg);
+            }
             return QString();
         }
 
