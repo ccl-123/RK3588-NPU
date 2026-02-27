@@ -166,10 +166,23 @@ fi
 
 # ==================== 一键部署到设备 ====================
 if [ "$DO_DEPLOY" = true ]; then
-    DEVICE_IP="192.168.1.103"
+    DEVICE_IP_ETH="192.168.1.103"
+    DEVICE_IP_WIFI="10.120.78.58"
     DEVICE_USER="firefly"
     DEVICE_PASS="firefly"
     DEVICE_TARGET_DIR="/home/firefly/open_project/edge2-npu/C++/face_recognition_cap/install"
+
+    # 根据连通性自动选择 IP（网线优先）
+    if ping -c 1 -W 1 "${DEVICE_IP_ETH}" &>/dev/null; then
+        DEVICE_IP="${DEVICE_IP_ETH}"
+        echo "  网络: 网线 (${DEVICE_IP})"
+    elif ping -c 1 -W 1 "${DEVICE_IP_WIFI}" &>/dev/null; then
+        DEVICE_IP="${DEVICE_IP_WIFI}"
+        echo "  网络: WiFi (${DEVICE_IP})"
+    else
+        echo "两个 IP 均不可达 (${DEVICE_IP_ETH} / ${DEVICE_IP_WIFI})，跳过部署。"
+        exit 1
+    fi
 
     # 检查是否安装了 sshpass
     if ! command -v sshpass &> /dev/null; then
