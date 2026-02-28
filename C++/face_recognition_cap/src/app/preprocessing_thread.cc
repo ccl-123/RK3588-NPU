@@ -11,7 +11,6 @@
 #include "im2d.h"
 #include "rga.h"
 #include <algorithm>
-#include <chrono>
 
 PreprocessingThread::PreprocessingThread(int resize_w, int resize_h, 
                                          int img_width, int img_height,
@@ -62,16 +61,24 @@ void PreprocessingThread::stop() {
 }
 
 bool PreprocessingThread::get_result(PreprocessTask& task) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
+    std::unique_lock<std::mutex> lock(mutex_);
+    cv_output_.wait(lock, [this] {
+        return !output_queue_.empty() || wakeup_;
+    });
     if (output_queue_.empty()) {
-        return false;
+        return false;  // 被 wake_consumer() 唤醒，用于退出
     }
-
     task = output_queue_.front();
     output_queue_.pop();
-    
     return true;
+}
+
+void PreprocessingThread::wake_consumer() {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        wakeup_ = true;
+    }
+    cv_output_.notify_all();
 }
 
 size_t PreprocessingThread::output_queue_size() const {
@@ -86,7 +93,6 @@ void PreprocessingThread::thread_func() {
         auto t0 = std::chrono::steady_clock::now();
         // 1. 从摄像头读取一帧
         if (!read_frame(frame)) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
             continue;
         }
         
@@ -104,8 +110,9 @@ void PreprocessingThread::thread_func() {
             while (output_queue_.size() >= MAX_QUEUE_SIZE) {
                 output_queue_.pop();
             }
-                output_queue_.push(task);
-            }
+            output_queue_.push(task);
+        }
+        cv_output_.notify_one();
         auto t1 = std::chrono::steady_clock::now();
         if (perf_monitor_) {
             double ms = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count() / 1000.0;

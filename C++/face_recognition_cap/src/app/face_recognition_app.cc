@@ -253,7 +253,6 @@ int FaceRecognitionApp::run() {
         // 1. 从预处理线程获取结果（采集+RGA已在线程1完成）
         PreprocessTask task;
         if (!preprocess_thread_->get_result(task)) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
             continue;
         }
 
@@ -378,6 +377,10 @@ void FaceRecognitionApp::detect_faces(const cv::Mat& img, detect_result_group_t&
 
 void FaceRecognitionApp::stop() {
     running_.store(false, std::memory_order_release);
+    // 唤醒阻塞在 get_result() 的主循环，使其检查 running_ 后退出
+    if (preprocess_thread_) {
+        preprocess_thread_->wake_consumer();
+    }
 }
 
 void FaceRecognitionApp::cleanup() {

@@ -74,3 +74,4 @@ private:
 };
 
 #endif // _POSTPROCESS_THREAD_H_
+

@@ -64,11 +64,7 @@ bool UserDAO::update(const UserInfo& user) {
     if (!stmt) return false;
     
     stmt->bind_string(1, user.user_name);
-    if (user.employee_id.empty()) {
-        stmt->bind_null(2);
-    } else {
-        stmt->bind_string(2, user.employee_id);
-    }
+    stmt->bind_string(2, user.employee_id);
     stmt->bind_string(3, user.department);
     stmt->bind_string(4, user.position);
     stmt->bind_string(5, user.phone);
@@ -243,3 +239,4 @@ void UserDAO::fill_user_from_stmt(PreparedStatement* stmt, UserInfo& user) {
 }
 
 } // namespace db
+
