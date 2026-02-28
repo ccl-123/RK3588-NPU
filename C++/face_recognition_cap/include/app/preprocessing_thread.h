@@ -64,6 +64,9 @@ public:
     bool is_running() const { return running_; }
     size_t output_queue_size() const;
 
+    // 唤醒阻塞在 get_result() 的消费者（用于外部停止信号）
+    void wake_consumer();
+
 private:
     // 线程函数（采集 + 预处理循环）
     void thread_func();
@@ -81,6 +84,8 @@ private:
 
     // 输出队列
     mutable std::mutex mutex_;
+    std::condition_variable cv_output_;
+    bool wakeup_ = false;            // wake_consumer() 一次性唤醒标志
     std::queue<PreprocessTask> output_queue_;
 
     // 配置参数

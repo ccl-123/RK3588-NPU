@@ -60,14 +60,14 @@ size_t PostprocessThread::queue_size() const {
 }
 
 void PostprocessThread::thread_func() {
-    while (running_.load(std::memory_order_acquire)) {
+    while (running_) {
         PostprocessTask task;
         {
             std::unique_lock<std::mutex> lock(mutex_);
             cv_.wait(lock, [this] {
-                return !queue_.empty() || !running_.load(std::memory_order_acquire);
+                return !queue_.empty() || !running_;
             });
-            if (!running_.load(std::memory_order_acquire) && queue_.empty()) {
+            if (!running_ && queue_.empty()) {
                 break;
             }
             task = std::move(queue_.front());
@@ -111,4 +111,5 @@ void PostprocessThread::thread_func() {
         recognition_thread_->submit_task(rec_task);
     }
 }
+
 
