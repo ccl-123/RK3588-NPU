@@ -256,11 +256,8 @@ void LocalLLMThread::doInference() {
 int LocalLLMThread::llmCallback(RKLLMResult* result, void* userdata, LLMCallState state) {
     auto self = static_cast<LocalLLMThread*>(userdata);
     
-    spdlog::debug("LLM callback: state={}", static_cast<int>(state));
-
     if (state == RKLLM_RUN_FINISH) {
-        spdlog::info("LLM inference finished");
-        // 推理结束，打印换行
+        // 推理结束，刷新控制台缓冲（doInference 已有 "Inference completed" 日志）
         std::cout << std::endl;
     } else if (state == RKLLM_RUN_ERROR) {
         spdlog::error("LLM runtime error");
@@ -269,10 +266,9 @@ int LocalLLMThread::llmCallback(RKLLMResult* result, void* userdata, LLMCallStat
         // 流式输出
         if (result && result->text) {
             QString chunk = QString::fromUtf8(result->text);
-            spdlog::debug("LLM chunk: {}", chunk.toStdString());
             
-            // 同时输出到控制台（流式效果，不换行）
-            std::cout << result->text << std::flush;
+            // 输出到控制台（去掉每 token flush，减少 syscall 开销）
+            std::cout << result->text;
             
             self->emitChunk(chunk);
         }

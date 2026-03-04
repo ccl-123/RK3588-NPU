@@ -92,24 +92,24 @@ QString ReactAgent::run(const QString& user_input,
                     emit toolCompleted(call.name, result);
 
                     // 将工具结果反馈给 LLM
+                    // 注意：keep_history=1 时 RKLLM 内部 KV Cache 已缓存之前的输出，
+                    // 只需传工具结果（增量），不要重复拼接 llm_output 造成 prompt 膨胀
                     QString observation = executor_.formatToolResponse(call.name, result);
-                    prompt += "\n" + llm_output + "\n" + observation + "\n";
-                    prompt += "\n请根据工具返回的结果继续回答用户问题。如果已经可以回答，请用 <answer>...</answer> 格式给出最终答案。\n";
+                    prompt = observation + "\n\n请根据工具返回的结果继续回答用户问题。如果已经可以回答，请用 <answer>...</answer> 格式给出最终答案。\n";
                 } else {
                     spdlog::warn("Failed to parse tool call from: {}",
                         llm_output.left(100).toStdString());
-                    // 作为普通输出处理
-                    prompt += "\n" + llm_output + "\n";
+                    // 作为普通输出处理 — KV Cache 已缓存，只传引导语
+                    prompt = "请用正确格式重试。\n";
                 }
                 break;
             }
 
             case StepType::Thought: {
-                // 继续思考，将思考内容加入上下文
+                // 继续思考 — keep_history KV Cache 已缓存思考内容，只传引导语
                 spdlog::debug("Agent thinking: {}...",
                     llm_output.left(50).toStdString());
-                prompt += "\n" + llm_output + "\n";
-                prompt += "\n请继续思考并决定下一步行动。\n";
+                prompt = "请继续思考并决定下一步行动。\n";
                 break;
             }
 
@@ -125,8 +125,7 @@ QString ReactAgent::run(const QString& user_input,
                     running_ = false;
                 } else {
                     // 尝试继续
-                    prompt += "\n" + llm_output + "\n";
-                    prompt += "\n请用 <answer>...</answer> 格式给出最终答案，或使用 <tool_call>...</tool_call> 调用工具。\n";
+                    prompt = "请用 <answer>...</answer> 格式给出最终答案，或使用 <tool_call>...</tool_call> 调用工具。\n";
                 }
                 break;
             }

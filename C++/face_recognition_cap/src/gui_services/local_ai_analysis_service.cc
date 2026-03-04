@@ -367,17 +367,61 @@ std::function<QString(const QString&)> LocalAiAnalysisService::createThreadSafeL
         bool cancelled = false;
         QString error_msg;
 
+        // Agent 流式输出过滤状态：
+        // 只有进入 <answer> 标签后才转发给 UI，过滤掉 <tool_call>/<think> 等中间内容
+        bool in_answer = false;
+        QString pending_buf;  // 缓冲区，用于检测跨 chunk 的标签边界
+
         // 在工作线程中创建事件循环
         QEventLoop loop;
 
         auto* llm = LocalLLMThread::instance();
 
-        // 临时连接：收集 chunks
+        // 临时连接：收集 chunks，只转发 <answer> 区域的内容到 UI
         auto conn_chunk = connect(llm, &LocalLLMThread::chunkReady,
-            &loop, [this, &result](const QString& chunk) {
+            &loop, [this, &result, &in_answer, &pending_buf](const QString& chunk) {
                 result += chunk;
-                // 同时转发给 UI 进行流式显示
-                emit analysisResultReady(chunk);
+
+                // 状态机：过滤非 <answer> 区域的内容
+                pending_buf += chunk;
+
+                if (!in_answer) {
+                    // 检测 <answer> 开始标签
+                    int pos = pending_buf.indexOf("<answer>");
+                    if (pos >= 0) {
+                        in_answer = true;
+                        // 取标签之后的内容转发
+                        QString after = pending_buf.mid(pos + 8); // strlen("<answer>") = 8
+                        pending_buf.clear();
+                        if (!after.isEmpty()) {
+                            emit analysisResultReady(after);
+                        }
+                    } else {
+                        // 保留末尾可能的不完整标签（最多 "<answer" = 7 字符）
+                        if (pending_buf.size() > 7) {
+                            pending_buf = pending_buf.right(7);
+                        }
+                    }
+                } else {
+                    // 已在 <answer> 区域，检测 </answer> 结束标签
+                    int pos = pending_buf.indexOf("</answer>");
+                    if (pos >= 0) {
+                        // 转发结束标签之前的内容
+                        QString before = pending_buf.left(pos);
+                        if (!before.isEmpty()) {
+                            emit analysisResultReady(before);
+                        }
+                        in_answer = false;
+                        pending_buf.clear();
+                    } else {
+                        // 正常转发，但保留末尾可能的不完整标签
+                        QString safe = pending_buf.left(pending_buf.size() - 9); // strlen("</answer>") = 9
+                        pending_buf = pending_buf.right(9);
+                        if (!safe.isEmpty()) {
+                            emit analysisResultReady(safe);
+                        }
+                    }
+                }
             }, Qt::QueuedConnection);
 
         // 临时连接：推理完成

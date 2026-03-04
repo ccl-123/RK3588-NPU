@@ -33,7 +33,7 @@ void setup_logger() {
         // 创建文件 sink (10MB, 3个文件轮转)
         auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
             "logs/face_recognition_gui.log", 1024 * 1024 * 10, 3);
-        file_sink->set_level(spdlog::level::debug);
+        file_sink->set_level(spdlog::level::info);
         
         // 创建 logger
         std::vector<spdlog::sink_ptr> sinks{console_sink, file_sink};
