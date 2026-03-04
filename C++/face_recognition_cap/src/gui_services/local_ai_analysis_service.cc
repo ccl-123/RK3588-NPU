@@ -221,18 +221,14 @@ void LocalAiAnalysisService::initializeAgent(service::AttendanceService* attenda
     }
 
     // 连接 Agent 信号
-    connect(agent_service_.get(), &agent::AgentService::thinkingStarted,
-            this, &LocalAiAnalysisService::agentThinking);
-    connect(agent_service_.get(), &agent::AgentService::toolCalling,
-            this, &LocalAiAnalysisService::agentToolCalling);
-    connect(agent_service_.get(), &agent::AgentService::toolCompleted,
-            this, &LocalAiAnalysisService::agentToolCompleted);
+    // 注意：不在这里连接 thinkingStarted/toolCalling/toolCompleted，
+    // 因为 requestAgentChat 中已通过 AgentWorker 转发这些信号，
+    // AgentWorker 内部会把 AgentService 的信号再转发一次，
+    // 如果这里也连接就会导致信号重复触发（UI 显示多条状态）。
+    // 连接统一在 requestAgentChat() 中通过 worker 完成。
+
     // 注意：answerReady 信号不再转发，因为流式输出已在 requestAgentChat 中通过
     // analysisResultReady 逐 chunk 发送。如果再发完整答案会导致 UI 重复显示。
-    // connect(agent_service_.get(), &agent::AgentService::answerReady,
-    //         this, [this](const QString& answer) {
-    //             emit analysisResultReady(answer);
-    //         });
 
     spdlog::info("Agent initialized with {} tools", agent_service_->getToolCount());
 }
@@ -413,13 +409,11 @@ std::function<QString(const QString&)> LocalAiAnalysisService::createThreadSafeL
                         }
                         in_answer = false;
                         pending_buf.clear();
-                    } else {
-                        // 正常转发，但保留末尾可能的不完整标签
-                        QString safe = pending_buf.left(pending_buf.size() - 9); // strlen("</answer>") = 9
+                    } else if (pending_buf.size() > 9) {
+                        // 转发安全部分（保留末尾 9 字符防 </answer> 跨 chunk）
+                        QString safe = pending_buf.left(pending_buf.size() - 9);
                         pending_buf = pending_buf.right(9);
-                        if (!safe.isEmpty()) {
-                            emit analysisResultReady(safe);
-                        }
+                        emit analysisResultReady(safe);
                     }
                 }
             }, Qt::QueuedConnection);

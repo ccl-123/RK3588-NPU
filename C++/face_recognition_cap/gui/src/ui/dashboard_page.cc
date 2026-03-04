@@ -1795,27 +1795,33 @@ void DashboardPage::on_local_llm_released() {
 
 void DashboardPage::on_agent_thinking() {
     if (agent_status_label_) {
-        agent_status_label_->setText(tr("🤔 思考中..."));
+        agent_status_label_->setText(tr("[思考中...]"));
         apply_state_property(agent_status_label_, "agentState", "thinking");
         agent_status_label_->show();
     }
+    // 追加状态行到聊天气泡
+    updateAssistantMessage("[思考中...]\n", true);
     spdlog::debug("Agent: thinking started");
 }
 
 void DashboardPage::on_agent_tool_calling(const QString& tool_name) {
     if (agent_status_label_) {
-        agent_status_label_->setText(tr("🔧 调用工具: %1").arg(tool_name));
+        agent_status_label_->setText(tr("[查询数据: %1]").arg(tool_name));
         apply_state_property(agent_status_label_, "agentState", "tool");
         agent_status_label_->show();
     }
+    // 追加状态行到聊天气泡
+    updateAssistantMessage(QString("[查询数据: %1]\n").arg(tool_name), true);
     spdlog::debug("Agent: calling tool {}", tool_name.toStdString());
 }
 
 void DashboardPage::on_agent_tool_completed(const QString& tool_name, const QString& result) {
     if (agent_status_label_) {
-        agent_status_label_->setText(tr("✅ %1 完成").arg(tool_name));
+        agent_status_label_->setText(tr("[%1 完成]").arg(tool_name));
         apply_state_property(agent_status_label_, "agentState", "success");
     }
+    // 追加状态行到聊天气泡
+    updateAssistantMessage(QString("[%1 完成]\n").arg(tool_name), true);
     spdlog::debug("Agent: tool {} completed, result length: {}",
         tool_name.toStdString(), result.length());
 }
