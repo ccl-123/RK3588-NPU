@@ -3,12 +3,16 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN="${ROOT_DIR}/install/face_recognition_cap/face_recognition_cap_gui"
+LIB_DIR="${ROOT_DIR}/install/face_recognition_cap/lib"
 
 if [[ ! -x "${BIN}" ]]; then
   echo "Executable not found: ${BIN}"
   echo "Run ./build.sh first."
   exit 1
 fi
+
+# Make bundled runtime dependencies visible for both direct and transitive shared-library loads.
+export LD_LIBRARY_PATH="${LIB_DIR}:${LD_LIBRARY_PATH:-}"
 
 # Filter noisy rk-debug fence logs while keeping ANSI colors.
 exec script -q /dev/null -c "${BIN}" 2>&1 | grep --line-buffered -vF "rk-debug out_fence_fd = 0"

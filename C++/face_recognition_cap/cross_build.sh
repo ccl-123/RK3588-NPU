@@ -131,7 +131,7 @@ cd ${ROOT_PWD}
 
 if [ "$DO_BUILD" = true ]; then
     echo ""
-    echo "打包依赖库 (仅 RKNN/RGA，OpenCV/SQLite 使用系统库)..."
+echo "打包依赖库 (RKNN/RGA/RKLLM/spdlog/fmt，OpenCV/SQLite/Qt 使用系统库)..."
     LIB_DIR="${INSTALL_DIR}/face_recognition_cap/lib"
     mkdir -p "${LIB_DIR}"
 
@@ -148,6 +148,11 @@ if [ "$DO_BUILD" = true ]; then
         echo "  ⚠ RKLLM 库未找到: ${RKLLM_LIB}"
         echo "  ✓ RKNN/RGA 库已复制"
     fi
+
+    # spdlog / fmt 运行时库（GUI 与 db_tool 依赖）
+    cp -Lf ${AARCH64_LIB_DIR}/libspdlog.so.1 "${LIB_DIR}/" 2>/dev/null || true
+    cp -Lf ${AARCH64_LIB_DIR}/libfmt.so.8 "${LIB_DIR}/" 2>/dev/null || true
+    echo "  ✓ spdlog/fmt 库已复制"
 
     # 不复制 OpenCV/SQLite - 板子上已经有！
 
@@ -215,7 +220,7 @@ if [ "$DO_DEPLOY" = true ]; then
     # 传输运行时库 (RKNN/RGA/RKLLM) - 仅在设备缺失时传输
     echo "  -> 检查并传输运行时库 (RKNN/RGA/RKLLM)..."
     shopt -s nullglob
-    for lib_path in ${INSTALL_DIR}/face_recognition_cap/lib/*.so; do
+    for lib_path in ${INSTALL_DIR}/face_recognition_cap/lib/*.so*; do
         lib_name=$(basename "${lib_path}")
         if ${SSH_CMD} ${DEVICE_USER}@${DEVICE_IP} "[ -f ${DEVICE_TARGET_DIR}/face_recognition_cap/lib/${lib_name} ]"; then
             echo "     - 已存在: ${lib_name}"
