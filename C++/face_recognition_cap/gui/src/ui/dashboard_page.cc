@@ -1711,15 +1711,16 @@ void DashboardPage::on_backend_toggled(bool checked) {
             is_local_llm_ = false;
             return;
         }
-        if (!LocalAiAnalysisService::instance()->isLocalLLMReady()) {
-            ToastNotification::showMessage(this, tr("AI 模型"), tr("正在加载本地模型..."), ToastNotification::Level::Info);
-            LocalAiAnalysisService::instance()->initializeLocalLLM(model_path);
-        } else {
+        if (LocalAiAnalysisService::instance()->isLocalLLMReady()) {
             if (backend_status_label_) {
                 backend_status_label_->setText(tr("就绪"));
                 apply_state_property(backend_status_label_, "backendState", "ready");
             }
+        } else if (backend_status_label_) {
+            backend_status_label_->setText(tr("等待 NPU..."));
+            apply_state_property(backend_status_label_, "backendState", "loading");
         }
+        emit backendPreferenceChanged(true, model_path);
         // 启用 Agent 按钮（本地 LLM）
         if (agent_mode_btn_) {
             agent_mode_btn_->setEnabled(true);
@@ -1739,6 +1740,7 @@ void DashboardPage::on_backend_toggled(bool checked) {
         if (attendance_service_ && user_service_) {
             AiAnalysisService::instance()->initializeAgent(attendance_service_, user_service_);
         }
+        emit backendPreferenceChanged(false, QString());
     }
 }
 

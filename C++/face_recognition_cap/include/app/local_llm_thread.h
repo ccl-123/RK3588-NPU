@@ -50,6 +50,7 @@ public:
 
     // 检查模型是否已初始化
     bool isModelReady() const { return model_ready_.load(); }
+    bool isInitInProgress() const { return init_in_progress_.load(); }
 
     // 检查是否正在推理
     bool isInferring() const { return inferring_.load(); }
@@ -115,6 +116,7 @@ private:
 
     LLMHandle llm_handle_;
     std::atomic<bool> model_ready_;
+    std::atomic<bool> init_in_progress_;
     std::atomic<bool> inferring_;
     std::atomic<bool> abort_requested_;
     std::atomic<bool> stop_requested_;

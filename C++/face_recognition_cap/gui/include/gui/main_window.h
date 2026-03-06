@@ -20,6 +20,7 @@
 #include <thread>
 #include <atomic>
 #include <mutex>
+#include <QString>
 
 #include "app/face_recognition_app.h"
 #include "database/database_manager.h"
@@ -113,6 +114,7 @@ private slots:
     // NPU 模型异步加载/卸载完成回调
     void on_rknn_models_released(bool success);
     void on_rknn_models_reloaded(bool success);
+    void on_dashboard_backend_preference_changed(bool use_local, const QString& model_path);
 
 private:
     void setup_ui();
@@ -129,6 +131,7 @@ private:
     // NPU 模型异步加载/卸载
     void release_rknn_models_async();
     void reload_rknn_models_async();
+    void maybe_start_local_llm();
 
     // 系统组件
     std::unique_ptr<FaceRecognitionApp> recognition_app_;
@@ -173,7 +176,8 @@ private:
     std::atomic<bool> closing_{false};
     std::atomic<bool> init_in_progress_{false};
     std::atomic<bool> rknn_switching_{false};   // NPU 模型切换中（防止重复触发）
-    std::atomic<bool> pending_recognition_start_{false};  // 切换完成后需要启动识别
+    std::atomic<bool> waiting_for_llm_release_{false};    // 等待本地 LLM 释放完成
+    std::atomic<bool> rknn_released_for_llm_{false};      // RKNN 是否已为本地 LLM 释放
 
     // NPU 模型异步切换 Future Watcher
     QFutureWatcher<bool>* rknn_release_watcher_;
@@ -224,4 +228,6 @@ private:
     std::string facenet_model_;
     std::string camera_source_;
     int camera_id_;
+    QString current_route_key_;
+    QString pending_local_llm_model_path_;
 };

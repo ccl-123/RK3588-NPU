@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QString>
 #include <QWidget>
 
 class QComboBox;
@@ -26,6 +27,10 @@ public:
     void setUserService(service::UserService* service);
 
     void refreshData();
+    bool isLocalBackendEnabled() const { return is_local_llm_; }
+
+signals:
+    void backendPreferenceChanged(bool use_local, const QString& model_path);
 
 protected:
     void showEvent(QShowEvent* event) override;

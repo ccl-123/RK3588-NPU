@@ -262,7 +262,7 @@ public:
      * @brief 检查 RKNN 模型是否已加载
      * @return true 模型已加载可用, false 模型未加载
      */
-    bool are_models_loaded() const { return models_loaded_; }
+    bool are_models_loaded() const { return models_loaded_.load(std::memory_order_acquire); }
 
     // ==================== GUI 人脸注册接口 ====================
 
@@ -371,7 +371,7 @@ private:
     std::string camera_error_;      // 摄像头错误信息
     
     // 模型状态（LLM 资源管理）
-    bool models_loaded_;            // 人脸模型是否已加载
+    std::atomic<bool> models_loaded_;            // 人脸模型是否已加载
 };
 
 #endif // _FACE_RECOGNITION_APP_H_

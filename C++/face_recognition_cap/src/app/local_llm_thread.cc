@@ -31,6 +31,7 @@ LocalLLMThread::LocalLLMThread(QObject* parent)
     : QThread(parent)
     , llm_handle_(nullptr)
     , model_ready_(false)
+    , init_in_progress_(false)
     , inferring_(false)
     , abort_requested_(false)
     , stop_requested_(false)
@@ -49,6 +50,10 @@ LocalLLMThread::~LocalLLMThread() {
 
 void LocalLLMThread::stop() {
     stop_requested_ = true;
+    abort_requested_ = true;
+    if (llm_handle_ && inferring_) {
+        rkllm_abort(llm_handle_);
+    }
     condition_.wakeAll();
 }
 
@@ -60,10 +65,15 @@ bool LocalLLMThread::initModel(const QString& model_path, int max_new_tokens, in
     }
 
     QMutexLocker locker(&mutex_);
+    if (init_in_progress_) {
+        spdlog::info("Model initialization already in progress");
+        return true;
+    }
+
     model_path_ = model_path;
     max_new_tokens_ = max_new_tokens;
     max_context_len_ = max_context_len;
-    
+    init_in_progress_ = true;
     pending_request_ = RequestType::Init;
     condition_.wakeOne();
     
@@ -72,6 +82,10 @@ bool LocalLLMThread::initModel(const QString& model_path, int max_new_tokens, in
 
 void LocalLLMThread::requestInference(const QString& prompt) {
     if (!model_ready_) {
+        if (init_in_progress_) {
+            emit errorOccurred("模型正在初始化，请稍候");
+            return;
+        }
         emit errorOccurred("模型未初始化");
         return;
     }
@@ -117,10 +131,29 @@ void LocalLLMThread::destroyModel() {
         llm_handle_ = nullptr;
     }
     model_ready_ = false;
+    init_in_progress_ = false;
 }
 
 void LocalLLMThread::releaseModelAsync() {
-    if (!model_ready_) {
+    bool emit_released_immediately = false;
+    {
+        QMutexLocker locker(&mutex_);
+        if (!model_ready_ && !init_in_progress_ && pending_request_ == RequestType::None) {
+            emit_released_immediately = true;
+        } else if (pending_request_ == RequestType::Init && llm_handle_ == nullptr) {
+            spdlog::info("Cancelling queued LLM initialization before release");
+            pending_request_ = RequestType::Destroy;
+            init_in_progress_ = false;
+            condition_.wakeOne();
+            spdlog::info("LLM model release requested");
+            return;
+        } else {
+            pending_request_ = RequestType::Destroy;
+            condition_.wakeOne();
+        }
+    }
+
+    if (emit_released_immediately) {
         spdlog::info("LLM model already released");
         emit modelReleased();
         return;
@@ -130,10 +163,6 @@ void LocalLLMThread::releaseModelAsync() {
         spdlog::warn("Cannot release model while inferring, aborting first...");
         abortInference();
     }
-
-    QMutexLocker locker(&mutex_);
-    pending_request_ = RequestType::Destroy;
-    condition_.wakeOne();
     spdlog::info("LLM model release requested");
 }
 
@@ -188,6 +217,7 @@ void LocalLLMThread::doInitModel() {
 
     int ret = rkllm_init(&llm_handle_, &param, llmCallback);
     if (ret != 0) {
+        init_in_progress_ = false;
         spdlog::error("rkllm_init failed with code: {}", ret);
         emit modelFailed(QString("初始化失败: 错误码 %1").arg(ret));
         return;
@@ -201,6 +231,7 @@ void LocalLLMThread::doInitModel() {
 
     spdlog::info("rkllm_init success");
     model_ready_ = true;
+    init_in_progress_ = false;
     emit modelReady();
 }
 
