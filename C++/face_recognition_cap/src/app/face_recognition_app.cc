@@ -769,7 +769,7 @@ bool FaceRecognitionApp::get_current_frame(cv::Mat& frame) {
     cv::Mat orig_img;
     bool ret = false;
     if (config_.camera_type == "usb") {
-        ret = read_usb_frame(&orig_img);
+        ret = read_usb_frame(&orig_img, &current_frame_sequence_cursor_);
     } else {
         // MIPI support removed
         return false;

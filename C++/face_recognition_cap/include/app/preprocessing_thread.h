@@ -100,6 +100,9 @@ private:
     cv::Mat flipped_buffer_;
     cv::Mat resized_buffer_;    // 非方形缩放结果，后续再padding
 
+    // 摄像头消费者游标：保证预处理线程只跟踪自己的最新帧，不影响其他读取方
+    uint64_t frame_sequence_cursor_ = 0;
+
     // padding 目标尺寸与边界
     int target_w_;
     int target_h_;

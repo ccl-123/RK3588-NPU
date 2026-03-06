@@ -36,11 +36,12 @@ void stop_usb_capture_thread();
 /**
  * @brief 从帧缓存读取最新的一帧 (零拷贝/低延迟)
  * @param[out] orig_img 输出的 OpenCV Mat 对象
+ * @param[in,out] consumer_sequence 调用方维护的帧游标；首次传 0，成功读取后会更新为最新序列号
  * @return true 读取成功, false 失败 (缓冲区为空或设备未就绪)
  * @note 使用 cv::Mat 浅拷贝，返回的 Mat 与内部帧共享数据。
  *       如需独立副本，调用者应使用 clone()。
  */
-bool read_usb_frame(cv::Mat *orig_img);
+bool read_usb_frame(cv::Mat *orig_img, uint64_t *consumer_sequence);
 
 /**
  * @brief 获取摄像头真实采集帧率

@@ -129,7 +129,7 @@ void PreprocessingThread::thread_func() {
 bool PreprocessingThread::read_frame(cv::Mat& frame) {
     bool ret = false;
     if (camera_type_ == "usb") {
-        ret = read_usb_frame(&frame);
+        ret = read_usb_frame(&frame, &frame_sequence_cursor_);
     } else {
         return false;
     }

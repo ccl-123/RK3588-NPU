@@ -74,9 +74,6 @@ static std::atomic<double> camera_fps(0.0);
 /** @brief 帧序列号（每次采集到新帧时递增，用于检测是否有新帧） */
 static std::atomic<uint64_t> frame_sequence(0);
 
-/** @brief 上次读取时的帧序列号 */
-static std::atomic<uint64_t> last_read_sequence(0);
-
 // ==================== 内部辅助函数 (Helper Functions) ====================
 
 /**
@@ -324,7 +321,6 @@ void start_usb_capture_thread()
     if (capture_running.compare_exchange_strong(expected, true)) {
         // 重置帧序列号
         frame_sequence.store(0);
-        last_read_sequence.store(0);
         capture_thread = std::thread(usb_capture_thread_func);
     }
 }
@@ -351,17 +347,22 @@ void stop_usb_capture_thread()
 /**
  * @brief 从全局缓冲区读取最新的图像帧
  * @param[out] orig_img 输出的图像容器
+ * @param[in,out] consumer_sequence 调用方独立维护的读取游标
  * @return true 有新帧可用, false 无新帧或缓冲区为空
  * @note [ZERO-COPY] 利用 cv::Mat 的浅拷贝（引用计数机制）实现，不产生像素级拷贝。
- *       只有当帧序列号变化时才返回 true，避免流水线重复处理同一帧。
+ *       每个调用方拥有独立游标，避免注册预览和主识别链路相互抢帧。
  */
-bool read_usb_frame(cv::Mat *orig_img)
+bool read_usb_frame(cv::Mat *orig_img, uint64_t *consumer_sequence)
 {
+    if (orig_img == nullptr || consumer_sequence == nullptr) {
+        return false;
+    }
+
     std::lock_guard<std::mutex> lock(frame_mutex);
     
     // 检查帧序列号是否变化（是否有新帧）
     uint64_t current_seq = frame_sequence.load();
-    if (current_seq == last_read_sequence.load()) {
+    if (current_seq == *consumer_sequence) {
         // 没有新帧，返回 false
         return false;
     }
@@ -369,7 +370,7 @@ bool read_usb_frame(cv::Mat *orig_img)
     if (current_frame && !current_frame->empty()) {
         // 浅拷贝：orig_img 与 current_frame 共享同一块像素内存，底层引用计数 +1
         *orig_img = *current_frame;
-        last_read_sequence.store(current_seq);  // 更新已读序列号
+        *consumer_sequence = current_seq;  // 更新调用方自己的已读序列号
         return true;
     }
     return false;
