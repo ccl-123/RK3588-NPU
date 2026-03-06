@@ -16,14 +16,6 @@ AttendanceService::AttendanceService(db::DatabaseManager* db_manager)
     : db_manager_(db_manager)
     , record_dao_(std::make_unique<db::AttendanceRecordDAO>(db_manager))
     , user_dao_(std::make_unique<db::UserDAO>(db_manager))
-    , work_start_hour_(9)
-    , work_start_minute_(0)
-    , work_end_hour_(18)
-    , work_end_minute_(0)
-    , late_threshold_(30)
-    , early_leave_threshold_(30)
-    , allow_multiple_checkin_(false)
-    , duplicate_check_interval_(300)
 {
 }
 
@@ -35,6 +27,7 @@ int AttendanceService::record_attendance(int user_id, const std::string& user_na
                                         float similarity, const std::string& face_image_path,
                                         int check_type) {
     std::time_t current_time = std::time(nullptr);
+    WorkScheduleConfig schedule = get_work_schedule_snapshot();
     
     // 如果 check_type 为默认值（1），自动判断是签到还是签退
     if (check_type == db::CheckType::CHECK_IN) {
@@ -42,10 +35,10 @@ int AttendanceService::record_attendance(int user_id, const std::string& user_na
     }
     
     // 检查是否允许打卡（基于多次签到开关）
-    if (allow_multiple_checkin_) {
+    if (schedule.allow_multiple_checkin) {
         // 启用多次签到：只检查短时间内重复，防止误触
-        if (is_duplicate_check(user_id, duplicate_check_interval_)) {
-            spdlog::debug("Duplicate check within {} seconds, user_id: {}", duplicate_check_interval_, user_id);
+        if (is_duplicate_check(user_id, schedule.duplicate_check_interval)) {
+            spdlog::debug("Duplicate check within {} seconds, user_id: {}", schedule.duplicate_check_interval, user_id);
             return -1;
         }
     } else {
@@ -57,8 +50,8 @@ int AttendanceService::record_attendance(int user_id, const std::string& user_na
         }
         
         // 同时也检查短时间内重复（双重保护）
-        if (is_duplicate_check(user_id, duplicate_check_interval_)) {
-            spdlog::debug("Duplicate check within {} seconds, user_id: {}", duplicate_check_interval_, user_id);
+        if (is_duplicate_check(user_id, schedule.duplicate_check_interval)) {
+            spdlog::debug("Duplicate check within {} seconds, user_id: {}", schedule.duplicate_check_interval, user_id);
             return -1;
         }
     }
@@ -81,6 +74,12 @@ int AttendanceService::record_attendance(int user_id, const std::string& user_na
     int record_id = record_dao_->insert(record);
     
     if (record_id > 0) {
+        RecentCheckCacheEntry cache_entry;
+        cache_entry.latest_check_time = record.check_time;
+        cache_entry.latest_check_type = record.check_type;
+        cache_entry.latest_check_date = date_from_time(record.check_time);
+        update_recent_check_cache(user_id, cache_entry);
+
         const char* type_str = (check_type == db::CheckType::CHECK_IN) ? "签到" : "签退";
         const char* status_str = (record.status == db::AttendanceStatus::STATUS_NORMAL) ? "正常" :
                                 (record.status == db::AttendanceStatus::STATUS_LATE) ? "迟到" : "早退";
@@ -92,25 +91,44 @@ int AttendanceService::record_attendance(int user_id, const std::string& user_na
 }
 
 bool AttendanceService::is_duplicate_check(int user_id, int interval_seconds) {
-    return record_dao_->has_recent_record(user_id, interval_seconds);
+    const std::time_t now = std::time(nullptr);
+    RecentCheckCacheEntry cache_entry;
+
+    if (get_recent_check_cache(user_id, cache_entry)) {
+        return cache_entry.latest_check_time > 0 &&
+               std::difftime(now, cache_entry.latest_check_time) < interval_seconds;
+    }
+
+    db::AttendanceRecord latest_record;
+    if (!record_dao_->find_latest_by_user_id(user_id, latest_record)) {
+        return false;
+    }
+
+    cache_entry.latest_check_time = latest_record.check_time;
+    cache_entry.latest_check_type = latest_record.check_type;
+    cache_entry.latest_check_date = date_from_time(latest_record.check_time);
+    update_recent_check_cache(user_id, cache_entry);
+
+    return std::difftime(now, latest_record.check_time) < interval_seconds;
 }
 
 bool AttendanceService::has_today_check_record(int user_id, int check_type) {
-    // 查询今天的所有记录
     std::string today = get_current_date();
-    auto today_records = record_dao_->find_by_date(today);
-    
-    // 检查该用户今天是否已有指定类型的打卡记录
-    for (const auto& record : today_records) {
-        if (record.user_id == user_id && record.check_type == check_type) {
-            return true;  // 今天已有该类型的打卡
-        }
+
+    // 先用进程内缓存做快速判断，避免实时预览阶段反复查库
+    RecentCheckCacheEntry cache_entry;
+    if (get_recent_check_cache(user_id, cache_entry) &&
+        cache_entry.latest_check_date == today &&
+        cache_entry.latest_check_type == check_type) {
+        return true;
     }
-    
-    return false;  // 今天还没有该类型的打卡
+
+    // 缓存未命中时回退到精准 SQL 查询
+    return record_dao_->has_user_check_on_date(user_id, today, check_type);
 }
 
 int AttendanceService::determine_status(std::time_t check_time, int check_type) {
+    WorkScheduleConfig schedule = get_work_schedule_snapshot();
     std::tm tm_info;
     localtime_r(&check_time, &tm_info);
     int hour = tm_info.tm_hour;
@@ -121,8 +139,8 @@ int AttendanceService::determine_status(std::time_t check_time, int check_type) 
     
     if (check_type == db::CheckType::CHECK_IN) {
         // 签到逻辑：基于上班时间 + 迟到阈值
-        int work_start_minutes = work_start_hour_ * 60 + work_start_minute_;
-        int late_limit_minutes = work_start_minutes + late_threshold_;
+        int work_start_minutes = schedule.work_start_hour * 60 + schedule.work_start_minute;
+        int late_limit_minutes = work_start_minutes + schedule.late_threshold;
         
         if (check_minutes <= late_limit_minutes) {
             return db::AttendanceStatus::STATUS_NORMAL;  // 在迟到阈值内，正常
@@ -131,8 +149,8 @@ int AttendanceService::determine_status(std::time_t check_time, int check_type) 
         }
     } else if (check_type == db::CheckType::CHECK_OUT) {
         // 签退逻辑：基于下班时间 - 早退阈值
-        int work_end_minutes = work_end_hour_ * 60 + work_end_minute_;
-        int early_leave_limit_minutes = work_end_minutes - early_leave_threshold_;
+        int work_end_minutes = schedule.work_end_hour * 60 + schedule.work_end_minute;
+        int early_leave_limit_minutes = work_end_minutes - schedule.early_leave_threshold;
         
         if (check_minutes < early_leave_limit_minutes) {
             return db::AttendanceStatus::STATUS_EARLY_LEAVE;  // 提前太多，早退
@@ -177,27 +195,38 @@ void AttendanceService::set_work_schedule(const std::string& work_start_time,
                                          int early_leave_threshold,
                                          bool allow_multiple_checkin,
                                          int duplicate_check_interval) {
+    WorkScheduleConfig updated_schedule = get_work_schedule_snapshot();
+
     // 解析上班时间（HH:mm 格式），添加错误检查
-    int parsed_start = sscanf(work_start_time.c_str(), "%d:%d", &work_start_hour_, &work_start_minute_);
+    int parsed_start = sscanf(work_start_time.c_str(), "%d:%d",
+                              &updated_schedule.work_start_hour,
+                              &updated_schedule.work_start_minute);
     if (parsed_start != 2) {
         spdlog::warn("Invalid work_start_time format '{}', using default 09:00", work_start_time);
-        work_start_hour_ = 9;
-        work_start_minute_ = 0;
+        updated_schedule.work_start_hour = 9;
+        updated_schedule.work_start_minute = 0;
     }
 
     // 解析下班时间（HH:mm 格式），添加错误检查
-    int parsed_end = sscanf(work_end_time.c_str(), "%d:%d", &work_end_hour_, &work_end_minute_);
+    int parsed_end = sscanf(work_end_time.c_str(), "%d:%d",
+                            &updated_schedule.work_end_hour,
+                            &updated_schedule.work_end_minute);
     if (parsed_end != 2) {
         spdlog::warn("Invalid work_end_time format '{}', using default 18:00", work_end_time);
-        work_end_hour_ = 18;
-        work_end_minute_ = 0;
+        updated_schedule.work_end_hour = 18;
+        updated_schedule.work_end_minute = 0;
     }
 
     // 设置阈值
-    late_threshold_ = late_threshold;
-    early_leave_threshold_ = early_leave_threshold;
-    allow_multiple_checkin_ = allow_multiple_checkin;
-    duplicate_check_interval_ = duplicate_check_interval;
+    updated_schedule.late_threshold = late_threshold;
+    updated_schedule.early_leave_threshold = early_leave_threshold;
+    updated_schedule.allow_multiple_checkin = allow_multiple_checkin;
+    updated_schedule.duplicate_check_interval = duplicate_check_interval;
+
+    {
+        std::lock_guard<std::mutex> lock(work_schedule_mutex_);
+        work_schedule_ = updated_schedule;
+    }
 
     spdlog::info("Work schedule updated: {} - {} (late: {}min, early_leave: {}min, multiple_checkin: {}, dup_interval: {}s)",
                  work_start_time, work_end_time, late_threshold, early_leave_threshold,
@@ -300,19 +329,17 @@ std::vector<AttendanceStatistics> AttendanceService::get_statistics_range(
 }
 
 bool AttendanceService::delete_record(int record_id) {
-    return record_dao_->remove(record_id);
+    bool removed = record_dao_->remove(record_id);
+    if (removed) {
+        std::lock_guard<std::mutex> lock(recent_check_cache_mutex_);
+        recent_check_cache_.clear();
+    }
+    return removed;
 }
 
 std::string AttendanceService::get_current_date() {
     std::time_t now = std::time(nullptr);
-    std::tm tm_info;
-    localtime_r(&now, &tm_info);
-
-    std::ostringstream oss;
-    oss << (tm_info.tm_year + 1900) << "-"
-        << std::setfill('0') << std::setw(2) << (tm_info.tm_mon + 1) << "-"
-        << std::setfill('0') << std::setw(2) << tm_info.tm_mday;
-    return oss.str();
+    return date_from_time(now);
 }
 
 std::string AttendanceService::get_current_time() {
@@ -340,6 +367,38 @@ std::time_t AttendanceService::parse_time(const std::string& time_str) {
     tm_info.tm_mon -= 1;
     
     return std::mktime(&tm_info);
+}
+
+AttendanceService::WorkScheduleConfig AttendanceService::get_work_schedule_snapshot() const {
+    std::lock_guard<std::mutex> lock(work_schedule_mutex_);
+    return work_schedule_;
+}
+
+bool AttendanceService::get_recent_check_cache(int user_id, RecentCheckCacheEntry& entry) const {
+    std::lock_guard<std::mutex> lock(recent_check_cache_mutex_);
+    auto it = recent_check_cache_.find(user_id);
+    if (it == recent_check_cache_.end()) {
+        return false;
+    }
+
+    entry = it->second;
+    return true;
+}
+
+void AttendanceService::update_recent_check_cache(int user_id, const RecentCheckCacheEntry& entry) {
+    std::lock_guard<std::mutex> lock(recent_check_cache_mutex_);
+    recent_check_cache_[user_id] = entry;
+}
+
+std::string AttendanceService::date_from_time(std::time_t time_value) {
+    std::tm tm_info;
+    localtime_r(&time_value, &tm_info);
+
+    std::ostringstream oss;
+    oss << (tm_info.tm_year + 1900) << "-"
+        << std::setfill('0') << std::setw(2) << (tm_info.tm_mon + 1) << "-"
+        << std::setfill('0') << std::setw(2) << tm_info.tm_mday;
+    return oss.str();
 }
 
 } // namespace service

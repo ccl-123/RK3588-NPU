@@ -16,9 +16,9 @@ namespace db {
 // PreparedStatement 实现
 // ============================================
 
-PreparedStatement::PreparedStatement(sqlite3* db, const std::string& sql)
-    : db_(db), stmt_(nullptr), prepared_(false) {
-    
+PreparedStatement::PreparedStatement(sqlite3* db, std::recursive_mutex& db_mutex, const std::string& sql)
+    : db_(db), db_mutex_(&db_mutex), stmt_(nullptr), prepared_(false) {
+    std::lock_guard<std::recursive_mutex> lock(*db_mutex_);
     int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt_, nullptr);
     if (rc != SQLITE_OK) {
         spdlog::error("Failed to prepare statement: {}", sqlite3_errmsg(db_));
@@ -30,42 +30,50 @@ PreparedStatement::PreparedStatement(sqlite3* db, const std::string& sql)
 
 PreparedStatement::~PreparedStatement() {
     if (stmt_) {
+        std::lock_guard<std::recursive_mutex> lock(*db_mutex_);
         sqlite3_finalize(stmt_);
     }
 }
 
 bool PreparedStatement::bind_int(int index, int value) {
     if (!prepared_) return false;
+    std::lock_guard<std::recursive_mutex> lock(*db_mutex_);
     return sqlite3_bind_int(stmt_, index, value) == SQLITE_OK;
 }
 
 bool PreparedStatement::bind_int64(int index, int64_t value) {
     if (!prepared_) return false;
+    std::lock_guard<std::recursive_mutex> lock(*db_mutex_);
     return sqlite3_bind_int64(stmt_, index, value) == SQLITE_OK;
 }
 
 bool PreparedStatement::bind_double(int index, double value) {
     if (!prepared_) return false;
+    std::lock_guard<std::recursive_mutex> lock(*db_mutex_);
     return sqlite3_bind_double(stmt_, index, value) == SQLITE_OK;
 }
 
 bool PreparedStatement::bind_string(int index, const std::string& value) {
     if (!prepared_) return false;
+    std::lock_guard<std::recursive_mutex> lock(*db_mutex_);
     return sqlite3_bind_text(stmt_, index, value.c_str(), -1, SQLITE_TRANSIENT) == SQLITE_OK;
 }
 
 bool PreparedStatement::bind_blob(int index, const void* data, int size) {
     if (!prepared_) return false;
+    std::lock_guard<std::recursive_mutex> lock(*db_mutex_);
     return sqlite3_bind_blob(stmt_, index, data, size, SQLITE_TRANSIENT) == SQLITE_OK;
 }
 
 bool PreparedStatement::bind_null(int index) {
     if (!prepared_) return false;
+    std::lock_guard<std::recursive_mutex> lock(*db_mutex_);
     return sqlite3_bind_null(stmt_, index) == SQLITE_OK;
 }
 
 bool PreparedStatement::execute() {
     if (!prepared_) return false;
+    std::lock_guard<std::recursive_mutex> lock(*db_mutex_);
     int rc = sqlite3_step(stmt_);
     if (rc != SQLITE_DONE) {
         spdlog::error("Execute failed: {} (code: {})", sqlite3_errmsg(db_), rc);
@@ -76,39 +84,48 @@ bool PreparedStatement::execute() {
 
 bool PreparedStatement::step() {
     if (!prepared_) return false;
+    std::lock_guard<std::recursive_mutex> lock(*db_mutex_);
     int rc = sqlite3_step(stmt_);
     return rc == SQLITE_ROW;
 }
 
 void PreparedStatement::reset() {
     if (stmt_) {
+        std::lock_guard<std::recursive_mutex> lock(*db_mutex_);
         sqlite3_reset(stmt_);
+        sqlite3_clear_bindings(stmt_);
     }
 }
 
 int PreparedStatement::get_column_int(int index) {
+    std::lock_guard<std::recursive_mutex> lock(*db_mutex_);
     return sqlite3_column_int(stmt_, index);
 }
 
 int64_t PreparedStatement::get_column_int64(int index) {
+    std::lock_guard<std::recursive_mutex> lock(*db_mutex_);
     return sqlite3_column_int64(stmt_, index);
 }
 
 double PreparedStatement::get_column_double(int index) {
+    std::lock_guard<std::recursive_mutex> lock(*db_mutex_);
     return sqlite3_column_double(stmt_, index);
 }
 
 std::string PreparedStatement::get_column_string(int index) {
+    std::lock_guard<std::recursive_mutex> lock(*db_mutex_);
     const unsigned char* text = sqlite3_column_text(stmt_, index);
     return text ? std::string(reinterpret_cast<const char*>(text)) : "";
 }
 
 const void* PreparedStatement::get_column_blob(int index, int& size) {
+    std::lock_guard<std::recursive_mutex> lock(*db_mutex_);
     size = sqlite3_column_bytes(stmt_, index);
     return sqlite3_column_blob(stmt_, index);
 }
 
 int64_t PreparedStatement::last_insert_id() {
+    std::lock_guard<std::recursive_mutex> lock(*db_mutex_);
     return sqlite3_last_insert_rowid(db_);
 }
 
@@ -147,7 +164,11 @@ bool DatabaseManager::initialize(const std::string& db_path) {
     db_path_ = db_path;
 
     // 打开数据库
-    int rc = sqlite3_open(db_path.c_str(), &db_);
+    int rc = sqlite3_open_v2(
+        db_path.c_str(),
+        &db_,
+        SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX,
+        nullptr);
     if (rc != SQLITE_OK) {
         last_error_ = sqlite3_errmsg(db_);
         spdlog::error("Failed to open database: {}", last_error_);
@@ -158,8 +179,14 @@ bool DatabaseManager::initialize(const std::string& db_path) {
 
     spdlog::info("Database opened: {}", db_path);
 
+    sqlite3_extended_result_codes(db_, 1);
+    sqlite3_busy_timeout(db_, 3000);
+
     // 启用外键约束
     execute("PRAGMA foreign_keys = ON;");
+    execute("PRAGMA journal_mode = WAL;");
+    execute("PRAGMA synchronous = NORMAL;");
+    execute("PRAGMA temp_store = MEMORY;");
 
     // 初始化表结构
     if (!init_tables()) {
@@ -176,7 +203,12 @@ void DatabaseManager::close() {
     std::lock_guard<std::recursive_mutex> lock(db_mutex_);
 
     if (db_) {
-        sqlite3_close(db_);
+        int rc = sqlite3_close_v2(db_);
+        if (rc != SQLITE_OK) {
+            last_error_ = sqlite3_errmsg(db_);
+            spdlog::warn("Database close deferred or failed: {}", last_error_);
+            return;
+        }
         db_ = nullptr;
         spdlog::info("Database closed");
     }
@@ -190,7 +222,7 @@ std::shared_ptr<PreparedStatement> DatabaseManager::prepare(const std::string& s
         return nullptr;
     }
 
-    return std::make_shared<PreparedStatement>(db_, sql);
+    return std::make_shared<PreparedStatement>(db_, db_mutex_, sql);
 }
 
 bool DatabaseManager::execute(const std::string& sql) {
@@ -290,9 +322,12 @@ bool DatabaseManager::init_tables() {
             FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
         ))",
 
+        "DROP INDEX IF EXISTS idx_attendance_date",
         "CREATE INDEX IF NOT EXISTS idx_attendance_user_id ON attendance_records(user_id)",
         "CREATE INDEX IF NOT EXISTS idx_attendance_check_time ON attendance_records(check_time)",
-        "CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance_records(DATE(check_time))",
+        "CREATE INDEX IF NOT EXISTS idx_attendance_user_check_time ON attendance_records(user_id, check_time DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_attendance_user_type_check_time ON attendance_records(user_id, check_type, check_time DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_attendance_status_check_time ON attendance_records(status, check_time)",
 
         // 考勤规则表
         R"(CREATE TABLE IF NOT EXISTS attendance_rules (
@@ -354,4 +389,3 @@ bool DatabaseManager::init_tables() {
 }
 
 } // namespace db
-

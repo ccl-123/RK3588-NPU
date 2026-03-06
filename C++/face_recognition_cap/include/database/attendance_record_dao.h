@@ -87,6 +87,15 @@ public:
      * @return true有记录, false无记录
      */
     bool has_recent_record(int user_id, int seconds_ago);
+
+    /**
+     * @brief 检查用户在指定日期是否已有某种类型的打卡记录
+     * @param user_id 用户ID
+     * @param date 日期字符串(YYYY-MM-DD)
+     * @param check_type 打卡类型(1=签到, 2=签退)
+     * @return true存在, false不存在
+     */
+    bool has_user_check_on_date(int user_id, const std::string& date, int check_type);
     
     /**
      * @brief 统计指定日期的考勤人数
@@ -158,4 +167,3 @@ private:
 } // namespace db
 
 #endif // _ATTENDANCE_RECORD_DAO_H_
-

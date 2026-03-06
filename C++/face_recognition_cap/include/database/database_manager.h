@@ -1,6 +1,6 @@
 /**
  * @file database_manager.h
- * @brief 数据库连接管理器 - 单例模式 + 连接池
+ * @brief 数据库连接管理器 - 单例模式 + 共享连接串行访问
  * @author CL
  * @date 2025-11-20
  */
@@ -20,7 +20,7 @@ namespace db {
  */
 class PreparedStatement {
 public:
-    PreparedStatement(sqlite3* db, const std::string& sql);
+    PreparedStatement(sqlite3* db, std::recursive_mutex& db_mutex, const std::string& sql);
     ~PreparedStatement();
     
     // 绑定参数
@@ -48,6 +48,7 @@ public:
     
 private:
     sqlite3* db_;
+    std::recursive_mutex* db_mutex_;
     sqlite3_stmt* stmt_;
     bool prepared_;
 };
@@ -115,4 +116,3 @@ private:
 };
 
 } // namespace db
-

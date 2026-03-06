@@ -16,6 +16,8 @@
 #include <vector>
 #include <memory>
 #include <ctime>
+#include <mutex>
+#include <unordered_map>
 
 namespace service {
 
@@ -158,6 +160,31 @@ public:
     
 private:
     /**
+     * @brief 考勤时间规则快照
+     * @note 所有需要跨线程读取的规则都先复制到本地快照，避免读写竞争。
+     */
+    struct WorkScheduleConfig {
+        int work_start_hour = 9;
+        int work_start_minute = 0;
+        int work_end_hour = 18;
+        int work_end_minute = 0;
+        int late_threshold = 30;
+        int early_leave_threshold = 30;
+        bool allow_multiple_checkin = false;
+        int duplicate_check_interval = 300;
+    };
+
+    /**
+     * @brief 最近一次打卡缓存
+     * @note 用于减少实时预览阶段针对同一用户的重复查库。
+     */
+    struct RecentCheckCacheEntry {
+        std::time_t latest_check_time = 0;
+        int latest_check_type = 0;
+        std::string latest_check_date;
+    };
+
+    /**
      * @brief 获取当前日期字符串
      */
     std::string get_current_date();
@@ -171,6 +198,11 @@ private:
      * @brief 解析时间字符串
      */
     std::time_t parse_time(const std::string& time_str);
+
+    WorkScheduleConfig get_work_schedule_snapshot() const;
+    bool get_recent_check_cache(int user_id, RecentCheckCacheEntry& entry) const;
+    void update_recent_check_cache(int user_id, const RecentCheckCacheEntry& entry);
+    static std::string date_from_time(std::time_t time_value);
     
 private:
     db::DatabaseManager* db_manager_;
@@ -178,17 +210,14 @@ private:
     std::unique_ptr<db::UserDAO> user_dao_;                // 智能指针管理
 
     // 考勤规则配置（支持分钟级精度）
-    int work_start_hour_;       // 上班时间（小时）
-    int work_start_minute_;     // 上班时间（分钟）
-    int work_end_hour_;         // 下班时间（小时）
-    int work_end_minute_;       // 下班时间（分钟）
-    int late_threshold_;        // 迟到阈值（分钟）
-    int early_leave_threshold_; // 早退阈值（分钟）
-    bool allow_multiple_checkin_; // 是否允许一天多次签到
-    int duplicate_check_interval_; // 防重复签到间隔（秒）
+    mutable std::mutex work_schedule_mutex_;
+    WorkScheduleConfig work_schedule_;
+
+    // 最近打卡缓存：按 user_id 保存最后一次打卡时间和类型
+    mutable std::mutex recent_check_cache_mutex_;
+    std::unordered_map<int, RecentCheckCacheEntry> recent_check_cache_;
 };
 
 } // namespace service
 
 #endif // _ATTENDANCE_SERVICE_H_
-

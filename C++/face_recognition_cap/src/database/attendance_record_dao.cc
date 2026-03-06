@@ -8,9 +8,18 @@
 #include "database/attendance_record_dao.h"
 #include <sstream>
 #include <iomanip>
+#include <utility>
 #include <spdlog/spdlog.h>
 
 namespace db {
+
+namespace {
+
+std::pair<std::string, std::string> make_day_bounds(const std::string& date) {
+    return {date + " 00:00:00", date + " 23:59:59"};
+}
+
+}  // namespace
 
 AttendanceRecordDAO::AttendanceRecordDAO(DatabaseManager* db_manager)
     : db_manager_(db_manager) {
@@ -124,8 +133,7 @@ std::vector<AttendanceRecord> AttendanceRecordDAO::find_by_date(const std::strin
     auto stmt = db_manager_->prepare(sql);
     if (!stmt) return records;
     
-    std::string start_time = date + " 00:00:00";
-    std::string end_time = date + " 23:59:59";
+    const auto [start_time, end_time] = make_day_bounds(date);
     
     stmt->bind_string(1, start_time);
     stmt->bind_string(2, end_time);
@@ -247,8 +255,33 @@ bool AttendanceRecordDAO::has_recent_record(int user_id, int seconds_ago) {
     return false;
 }
 
+bool AttendanceRecordDAO::has_user_check_on_date(int user_id, const std::string& date, int check_type) {
+    const auto [start_time, end_time] = make_day_bounds(date);
+    std::string sql = R"(
+        SELECT 1 FROM attendance_records
+        WHERE user_id = ?
+          AND check_type = ?
+          AND check_time >= ?
+          AND check_time <= ?
+        LIMIT 1
+    )";
+
+    auto stmt = db_manager_->prepare(sql);
+    if (!stmt) return false;
+
+    stmt->bind_int(1, user_id);
+    stmt->bind_int(2, check_type);
+    stmt->bind_string(3, start_time);
+    stmt->bind_string(4, end_time);
+
+    return stmt->step();
+}
+
 int AttendanceRecordDAO::count_by_date(const std::string& date, int check_type) {
-    std::string sql = "SELECT COUNT(DISTINCT user_id) FROM attendance_records WHERE DATE(check_time) = ?";
+    std::string sql = R"(
+        SELECT COUNT(DISTINCT user_id) FROM attendance_records
+        WHERE check_time >= ? AND check_time <= ?
+    )";
     
     if (check_type > 0) {
         sql += " AND check_type = ?";
@@ -257,9 +290,11 @@ int AttendanceRecordDAO::count_by_date(const std::string& date, int check_type) 
     auto stmt = db_manager_->prepare(sql);
     if (!stmt) return 0;
     
-    stmt->bind_string(1, date);
+    const auto [start_time, end_time] = make_day_bounds(date);
+    stmt->bind_string(1, start_time);
+    stmt->bind_string(2, end_time);
     if (check_type > 0) {
-        stmt->bind_int(2, check_type);
+        stmt->bind_int(3, check_type);
     }
     
     if (stmt->step()) {
@@ -270,12 +305,17 @@ int AttendanceRecordDAO::count_by_date(const std::string& date, int check_type) 
 }
 
 int AttendanceRecordDAO::count_late_by_date(const std::string& date) {
-    std::string sql = "SELECT COUNT(DISTINCT user_id) FROM attendance_records WHERE DATE(check_time) = ? AND status = 2";
+    std::string sql = R"(
+        SELECT COUNT(DISTINCT user_id) FROM attendance_records
+        WHERE check_time >= ? AND check_time <= ? AND status = 2
+    )";
 
     auto stmt = db_manager_->prepare(sql);
     if (!stmt) return 0;
 
-    stmt->bind_string(1, date);
+    const auto [start_time, end_time] = make_day_bounds(date);
+    stmt->bind_string(1, start_time);
+    stmt->bind_string(2, end_time);
 
     if (stmt->step()) {
         return stmt->get_column_int(0);
@@ -285,12 +325,17 @@ int AttendanceRecordDAO::count_late_by_date(const std::string& date) {
 }
 
 int AttendanceRecordDAO::count_early_leave_by_date(const std::string& date) {
-    std::string sql = "SELECT COUNT(DISTINCT user_id) FROM attendance_records WHERE DATE(check_time) = ? AND status = 3";
+    std::string sql = R"(
+        SELECT COUNT(DISTINCT user_id) FROM attendance_records
+        WHERE check_time >= ? AND check_time <= ? AND status = 3
+    )";
 
     auto stmt = db_manager_->prepare(sql);
     if (!stmt) return 0;
 
-    stmt->bind_string(1, date);
+    const auto [start_time, end_time] = make_day_bounds(date);
+    stmt->bind_string(1, start_time);
+    stmt->bind_string(2, end_time);
 
     if (stmt->step()) {
         return stmt->get_column_int(0);
@@ -359,4 +404,3 @@ std::time_t AttendanceRecordDAO::string_to_time(const std::string& time_str) {
 }
 
 } // namespace db
-
