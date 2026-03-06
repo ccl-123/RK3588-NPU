@@ -11,6 +11,14 @@ if [[ ! -x "${BIN}" ]]; then
   exit 1
 fi
 
+for lib in libspdlog.so.1 libfmt.so.8; do
+  if [[ ! -f "${LIB_DIR}/${lib}" ]]; then
+    echo "Missing bundled runtime library: ${LIB_DIR}/${lib}"
+    echo "Run ./build.sh to refresh install/face_recognition_cap/lib."
+    exit 1
+  fi
+done
+
 # Make bundled runtime dependencies visible for both direct and transitive shared-library loads.
 export LD_LIBRARY_PATH="${LIB_DIR}:${LD_LIBRARY_PATH:-}"
 
