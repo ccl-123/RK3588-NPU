@@ -119,6 +119,7 @@ MainWindow::MainWindow(QWidget* parent)
     , holiday_service_(nullptr)
     , news_service_(nullptr)
     , status_timer_(nullptr)
+    , camera_pause_timer_(nullptr)
     , registration_dialog_(nullptr)
     , is_running_(false)
     , recognition_paused_for_llm_(false)
@@ -167,6 +168,22 @@ MainWindow::MainWindow(QWidget* parent)
     status_timer_ = new QTimer(this);
     connect(status_timer_, &QTimer::timeout, this, &MainWindow::update_status);
     status_timer_->start(1000);  // 每秒更新一次状态
+
+    // 快速切页时延迟暂停摄像头，避免 V4L2 设备被频繁 close/open
+    camera_pause_timer_ = new QTimer(this);
+    camera_pause_timer_->setSingleShot(true);
+    connect(camera_pause_timer_, &QTimer::timeout, this, [this]() {
+        if (closing_.load(std::memory_order_acquire) ||
+            current_route_key_ != "dashboard" ||
+            is_running_.load(std::memory_order_acquire) ||
+            !recognition_app_) {
+            return;
+        }
+
+        if (!recognition_app_->pause_camera()) {
+            spdlog::warn("Failed to pause camera for LLM");
+        }
+    });
 
     last_fps_time_ = std::chrono::steady_clock::now();
 
@@ -849,9 +866,18 @@ void MainWindow::on_route_changed(const QString& key) {
 }
 
 void MainWindow::handle_recognition_route() {
+    if (camera_pause_timer_ && camera_pause_timer_->isActive()) {
+        camera_pause_timer_->stop();
+        spdlog::info("Cancelled delayed camera pause while returning to recognition");
+    }
+
+    if (is_running_.load(std::memory_order_acquire) && !recognition_paused_for_llm_) {
+        return;
+    }
+
     // 进入识别页面时确保摄像头已恢复（不自动启动识别）
     bool camera_ready = true;
-    if (recognition_app_) {
+    if (recognition_app_ && !is_running_.load(std::memory_order_acquire)) {
         camera_ready = recognition_app_->resume_camera();
         if (!camera_ready) {
             spdlog::error("Failed to resume camera for recognition");
@@ -888,10 +914,9 @@ void MainWindow::handle_dashboard_route() {
         spdlog::info("Recognition paused (entering dashboard for LLM)");
     }
 
-    if (recognition_app_) {
-        if (!recognition_app_->pause_camera()) {
-            spdlog::warn("Failed to pause camera for LLM");
-        }
+    if (recognition_app_ && camera_pause_timer_ && !camera_pause_timer_->isActive()) {
+        camera_pause_timer_->start(CAMERA_PAUSE_DELAY_MS);
+        spdlog::info("Scheduled delayed camera pause for dashboard");
     }
 
     if (dashboard_page_ && dashboard_page_->isLocalBackendEnabled()) {

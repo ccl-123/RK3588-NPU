@@ -158,6 +158,7 @@ private:
 
     // 定时器
     QTimer* status_timer_;
+    QTimer* camera_pause_timer_;
 
     // 后台识别线程
     std::thread recognition_thread_;
@@ -221,6 +222,7 @@ private:
     // 不同音频类型的冷却时间（毫秒）
     static constexpr int DUPLICATE_CHECK_COOLDOWN_MS = 10000;   // 重复签到/签退冷却（10秒）
     static constexpr int STRANGER_AUDIO_COOLDOWN_MS = 10000;    // 陌生人提示音冷却（10秒）
+    static constexpr int CAMERA_PAUSE_DELAY_MS = 300;           // 快速切页时延迟暂停摄像头，避免频繁重开设备
 
 
     // 配置

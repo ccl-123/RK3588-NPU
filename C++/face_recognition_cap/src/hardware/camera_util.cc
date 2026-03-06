@@ -11,6 +11,7 @@
  */
 
 #include <string.h>
+#include <cerrno>
 #include <memory>
 #include <fcntl.h>
 #include <unistd.h>
@@ -271,7 +272,15 @@ static void usb_capture_thread_func()
     while (capture_running) {
         // [BLOCKING] 从硬件就绪队列中弹出一个已填充数据的缓冲区
         if (ioctl(fd, VIDIOC_DQBUF, &thread_buf) == -1) {
+            if (!capture_running.load(std::memory_order_acquire)) {
+                break;
+            }
             if (errno == EAGAIN) continue;
+            if (errno == EINVAL) {
+                // STREAMOFF/关闭设备会打断阻塞中的 DQBUF，这是预期的停止路径，不需要报错刷屏。
+                spdlog::debug("VIDIOC_DQBUF interrupted during camera shutdown");
+                break;
+            }
             perror("VIDIOC_DQBUF failed in capture thread");
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             if (!capture_running) break;
