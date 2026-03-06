@@ -83,6 +83,11 @@ include_directories( ${RGA_PATH}/include)
 find_package(SQLite3 REQUIRED)
 include_directories(${SQLite3_INCLUDE_DIRS})
 
+# spdlog / fmt
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(SPDLOG REQUIRED spdlog)
+pkg_check_modules(FMT REQUIRED fmt)
+
 # Qt5 (可选，用于 GUI 版本)
 find_package(Qt5 COMPONENTS Core Gui Widgets Svg Multimedia Network Concurrent)
 if(Qt5_FOUND)
@@ -92,8 +97,31 @@ else()
     message(STATUS "Qt5 not found, GUI version will be skipped")
 endif()
 
-# spdlog (header-only)
+# spdlog / fmt 头文件路径（同时保留 pkg-config 返回的编译参数）
 include_directories(/usr/local/include)
+
+function(link_logging_dependencies target_name)
+    target_include_directories(${target_name} PRIVATE
+        ${SPDLOG_INCLUDE_DIRS}
+        ${FMT_INCLUDE_DIRS}
+    )
+    target_compile_options(${target_name} PRIVATE
+        ${SPDLOG_CFLAGS}
+        ${FMT_CFLAGS}
+    )
+    target_link_directories(${target_name} PRIVATE
+        ${SPDLOG_LIBRARY_DIRS}
+        ${FMT_LIBRARY_DIRS}
+    )
+    target_link_libraries(${target_name}
+        ${SPDLOG_LIBRARIES}
+        ${FMT_LIBRARIES}
+    )
+    target_link_options(${target_name} PRIVATE
+        ${SPDLOG_LDFLAGS_OTHER}
+        ${FMT_LDFLAGS_OTHER}
+    )
+endfunction()
 
 # demo - 分层架构
 include_directories( ${CMAKE_SOURCE_DIR}/include)
@@ -303,6 +331,7 @@ if(Qt5_FOUND)
         Qt5::Network
         Qt5::Concurrent
     )
+    link_logging_dependencies(${TARGET_NAME}_gui)
     enable_target_warnings(${TARGET_NAME}_gui)
 
     # 安装 GUI 版本
@@ -322,6 +351,7 @@ target_link_libraries(db_tool
   ${OpenCV_LIBS}
   ${SQLite3_LIBRARIES}
 )
+link_logging_dependencies(db_tool)
 enable_target_warnings(db_tool)
 
 # 测试目标骨架
