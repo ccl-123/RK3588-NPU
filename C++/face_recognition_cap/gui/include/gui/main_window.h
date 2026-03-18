@@ -132,6 +132,7 @@ private:
     void release_rknn_models_async();
     void reload_rknn_models_async();
     void maybe_start_local_llm();
+    void handle_camera_runtime_failure(const QString& error_message, bool should_offer_restart);
 
     // 系统组件
     std::unique_ptr<FaceRecognitionApp> recognition_app_;
@@ -207,6 +208,7 @@ private:
     UserDetection user_detection_;
     int last_displayed_user_id_;
     std::atomic<int> user_confirm_duration_ms_;                 // 用户确认时长（可配置，默认1秒）
+    bool restart_recognition_after_camera_recovery_ = false;    // 摄像头异常恢复后自动重启识别
     static constexpr int USER_DETECTION_TIMEOUT_MS = 500;       // 用户检测超时（500ms，帧间隔容差）
     
     // 陌生人持续检测机制（基于时间而非帧数）

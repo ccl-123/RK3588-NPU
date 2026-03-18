@@ -2,6 +2,7 @@
 #define _CAMERA_UTIL_H_
 
 #include <string.h>
+#include <string>
 #include <opencv2/opencv.hpp>
 #include <thread>
 #include <mutex>
@@ -48,6 +49,18 @@ bool read_usb_frame(cv::Mat *orig_img, uint64_t *consumer_sequence);
  * @return 摄像头采集帧率（约 30 FPS）
  */
 double get_camera_fps();
+
+/**
+ * @brief 查询 USB 摄像头是否出现运行时错误（如热拔出）
+ * @return true 出现错误, false 正常
+ */
+bool has_usb_camera_error();
+
+/**
+ * @brief 获取 USB 摄像头运行时错误信息
+ * @return 错误信息；若无错误则返回空字符串
+ */
+std::string get_usb_camera_error();
 
 /**
  * @brief 停止采集线程并关闭摄像头设备

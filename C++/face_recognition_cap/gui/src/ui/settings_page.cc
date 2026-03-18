@@ -58,24 +58,23 @@ SettingsPage::SettingsPage(QWidget* parent)
 }
 
 void SettingsPage::activate() {
-    if (activated_) {
-        return;
-    }
-    activated_ = true;
+    if (!activated_) {
+        activated_ = true;
 
-    // 异步加载音频设备列表
-    if (audio_device_combo_) {
-        QSignalBlocker blocker(audio_device_combo_);
-        audio_device_combo_->clear();
-        audio_device_combo_->addItem(tr("正在加载设备..."));
+        // 异步加载音频设备列表
+        if (audio_device_combo_) {
+            QSignalBlocker blocker(audio_device_combo_);
+            audio_device_combo_->clear();
+            audio_device_combo_->addItem(tr("正在加载设备..."));
 
-        // 连接异步刷新信号
-        connect(AudioManager::instance(), &AudioManager::devicesRefreshed,
-                this, &SettingsPage::onAudioDevicesRefreshed,
-                Qt::UniqueConnection);
+            // 连接异步刷新信号
+            connect(AudioManager::instance(), &AudioManager::devicesRefreshed,
+                    this, &SettingsPage::onAudioDevicesRefreshed,
+                    Qt::UniqueConnection);
 
-        // 触发异步刷新
-        AudioManager::instance()->refreshDevicesAsync();
+            // 触发异步刷新
+            AudioManager::instance()->refreshDevicesAsync();
+        }
     }
 
     scan_usb_cameras();

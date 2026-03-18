@@ -253,6 +253,19 @@ int FaceRecognitionApp::run() {
         // 1. 从预处理线程获取结果（采集+RGA已在线程1完成）
         PreprocessTask task;
         if (!preprocess_thread_->get_result(task)) {
+            if (!running_.load(std::memory_order_acquire)) {
+                break;
+            }
+
+            if (preprocess_thread_->has_camera_failed()) {
+                camera_error_ = preprocess_thread_->get_camera_error();
+                camera_initialized_ = false;
+                running_.store(false, std::memory_order_release);
+                close_usb_camera();
+                spdlog::error("Stopping recognition due to camera failure: {}", camera_error_);
+                return -1;
+            }
+
             continue;
         }
 
@@ -658,6 +671,19 @@ bool FaceRecognitionApp::resume_camera() {
 
     if (running_.load(std::memory_order_acquire)) {
         spdlog::error("Cannot resume camera while app is running. Please stop the app first.");
+        return false;
+    }
+
+    if (preprocess_thread_ && preprocess_thread_->has_camera_failed()) {
+        camera_error_ = preprocess_thread_->get_camera_error();
+        preprocess_thread_->stop();
+        preprocess_thread_.reset();
+
+        if (camera_initialized_ && config_.camera_type == "usb") {
+            close_usb_camera();
+        }
+        camera_initialized_ = false;
+        spdlog::warn("Cannot resume camera without reinitialization: {}", camera_error_);
         return false;
     }
 

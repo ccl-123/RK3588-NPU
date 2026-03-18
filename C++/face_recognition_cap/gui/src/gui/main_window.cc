@@ -881,6 +881,10 @@ void MainWindow::handle_recognition_route() {
         camera_ready = recognition_app_->resume_camera();
         if (!camera_ready) {
             spdlog::error("Failed to resume camera for recognition");
+            handle_camera_runtime_failure(
+                QString::fromStdString(recognition_app_->get_camera_error()),
+                false);
+            return;
         }
     }
 
@@ -1036,6 +1040,12 @@ void MainWindow::start_recognition() {
         }
         return;
     }
+    if (!recognition_app_->is_camera_initialized()) {
+        handle_camera_runtime_failure(
+            QString::fromStdString(recognition_app_->get_camera_error()),
+            false);
+        return;
+    }
     if (is_running_.load(std::memory_order_acquire)) {
         if (recognition_page_) {
             recognition_page_->setRecognitionRunning(true);
@@ -1075,8 +1085,21 @@ void MainWindow::start_recognition() {
     // 启动后台识别线程
     recognition_thread_ = std::thread([this]() {
         spdlog::info("Recognition thread started");
-        recognition_app_->run();
-        spdlog::info("Recognition thread stopped");
+        int ret = recognition_app_->run();
+        spdlog::info("Recognition thread stopped with code {}", ret);
+
+        if (ret != 0 &&
+            !closing_.load(std::memory_order_acquire) &&
+            recognition_app_ &&
+            !recognition_app_->get_camera_error().empty()) {
+            const QString error_message = QString::fromStdString(recognition_app_->get_camera_error());
+            QMetaObject::invokeMethod(
+                this,
+                [this, error_message]() {
+                    handle_camera_runtime_failure(error_message, true);
+                },
+                Qt::QueuedConnection);
+        }
     });
 
     spdlog::info("Recognition started in background thread");
@@ -1150,6 +1173,44 @@ void MainWindow::stop_recognition() {
     last_displayed_user_id_ = -1;
 
     spdlog::info("Recognition stopped");
+}
+
+void MainWindow::handle_camera_runtime_failure(const QString& error_message, bool should_offer_restart) {
+    if (closing_.load(std::memory_order_acquire)) {
+        return;
+    }
+
+    const bool was_running = is_running_.load(std::memory_order_acquire);
+    if (should_offer_restart && was_running) {
+        restart_recognition_after_camera_recovery_ = true;
+    }
+
+    if (was_running) {
+        stop_recognition();
+    }
+
+    camera_fps_ = 0.0;
+    if (video_widget_) {
+        video_widget_->set_camera_fps(0.0);
+    }
+
+    if (recognition_page_) {
+        recognition_page_->setSystemStatus(tr("摄像头已断开"));
+        recognition_page_->setRecognitionRunning(false);
+        recognition_page_->updateDetectionStatus(tr("摄像头已断开"), -1);
+    }
+
+    if (side_menu_) {
+        side_menu_->setActiveKey("settings");
+    } else if (router_) {
+        router_->navigateTo("settings");
+    }
+
+    QMessageBox::warning(
+        this,
+        tr("摄像头已断开"),
+        tr("运行中的摄像头连接已中断：\n%1\n\n已切换到【设置】页面，请重新选择摄像头并点击【应用】完成初始化。")
+            .arg(error_message.isEmpty() ? tr("设备不可用") : error_message));
 }
 
 void MainWindow::on_frame_ready(const cv::Mat& frame, const std::vector<RecognitionResult>& results) {
@@ -1452,14 +1513,16 @@ void MainWindow::apply_camera_settings(int deviceId) {
     // 重新初始化摄像头（内部会处理线程同步）
     std::string device_number = std::to_string(deviceId);
     bool success = recognition_app_->reinitialize_camera(device_number);
+    const bool should_restart = was_running || restart_recognition_after_camera_recovery_;
 
     if (success) {
         spdlog::info("Camera reinitialized successfully: /dev/video{}", deviceId);
+        restart_recognition_after_camera_recovery_ = false;
         QMessageBox::information(this, tr("成功"),
             tr("摄像头已切换到 /dev/video%1").arg(deviceId));
 
         // 如果之前在运行，重新启动识别
-        if (was_running) {
+        if (should_restart) {
             spdlog::info("Restarting recognition with new camera");
             start_recognition();
         }
@@ -1564,6 +1627,7 @@ void MainWindow::closeEvent(QCloseEvent* event) {
     if (reply == QMessageBox::Yes) {
         spdlog::info("User confirmed exit, stopping recognition...");
         closing_.store(true, std::memory_order_release);
+        restart_recognition_after_camera_recovery_ = false;
         stop_recognition();
         event->accept();
     } else {

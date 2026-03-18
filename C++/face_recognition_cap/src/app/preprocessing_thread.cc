@@ -10,6 +10,7 @@
 #include "RgaUtils.h"
 #include "im2d.h"
 #include "rga.h"
+#include <spdlog/spdlog.h>
 #include <algorithm>
 
 PreprocessingThread::PreprocessingThread(int resize_w, int resize_h, 
@@ -52,22 +53,27 @@ void PreprocessingThread::start() {
 }
 
 void PreprocessingThread::stop() {
-    if (running_) {
-        running_ = false;
-        if (thread_.joinable()) {
-            thread_.join();
-        }
+    running_ = false;
+    if (thread_.joinable()) {
+        thread_.join();
     }
 }
 
 bool PreprocessingThread::get_result(PreprocessTask& task) {
     std::unique_lock<std::mutex> lock(mutex_);
     cv_output_.wait(lock, [this] {
-        return !output_queue_.empty() || wakeup_;
+        return !output_queue_.empty() || wakeup_ || camera_failed_.load(std::memory_order_acquire);
     });
-    if (output_queue_.empty()) {
-        return false;  // 被 wake_consumer() 唤醒，用于退出
+
+    if (wakeup_ || camera_failed_.load(std::memory_order_acquire)) {
+        wakeup_ = false;
+        return false;  // 被停止/故障信号唤醒，用于退出
     }
+
+    if (output_queue_.empty()) {
+        return false;
+    }
+
     task = output_queue_.front();
     output_queue_.pop();
     return true;
@@ -86,6 +92,11 @@ size_t PreprocessingThread::output_queue_size() const {
     return output_queue_.size();
 }
 
+std::string PreprocessingThread::get_camera_error() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return camera_error_;
+}
+
 void PreprocessingThread::thread_func() {
     cv::Mat frame;
     
@@ -93,6 +104,10 @@ void PreprocessingThread::thread_func() {
         auto t0 = std::chrono::steady_clock::now();
         // 1. 从摄像头读取一帧
         if (!read_frame(frame)) {
+            if (camera_failed_.load(std::memory_order_acquire)) {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
             continue;
         }
         
@@ -130,6 +145,18 @@ bool PreprocessingThread::read_frame(cv::Mat& frame) {
     bool ret = false;
     if (camera_type_ == "usb") {
         ret = read_usb_frame(&frame, &frame_sequence_cursor_);
+        if (!ret && has_usb_camera_error()) {
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                camera_error_ = get_usb_camera_error();
+                wakeup_ = true;
+            }
+            camera_failed_.store(true, std::memory_order_release);
+            running_ = false;
+            cv_output_.notify_all();
+            spdlog::error("Camera read failed in preprocessing thread: {}", camera_error_);
+            return false;
+        }
     } else {
         return false;
     }

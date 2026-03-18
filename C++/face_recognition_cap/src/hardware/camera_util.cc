@@ -75,6 +75,16 @@ static std::atomic<double> camera_fps(0.0);
 /** @brief 帧序列号（每次采集到新帧时递增，用于检测是否有新帧） */
 static std::atomic<uint64_t> frame_sequence(0);
 
+/** @brief 运行时故障状态（如设备热拔出） */
+static std::atomic<bool> camera_faulted(false);
+
+/** @brief 运行时故障信息 */
+static std::mutex camera_error_mutex;
+static std::string camera_error_message;
+
+/** @brief 当前打开的设备路径（用于日志和报错） */
+static std::string current_device_path;
+
 // ==================== 内部辅助函数 (Helper Functions) ====================
 
 /**
@@ -104,6 +114,29 @@ static void cleanup_fd() {
         fd = -1;
     }
     camera_opened = false;
+    current_device_path.clear();
+}
+
+static void clear_camera_error_state() {
+    camera_faulted.store(false, std::memory_order_release);
+    camera_fps.store(0.0, std::memory_order_release);
+    std::lock_guard<std::mutex> lock(camera_error_mutex);
+    camera_error_message.clear();
+}
+
+static void set_camera_error_state(const std::string& message) {
+    {
+        std::lock_guard<std::mutex> lock(camera_error_mutex);
+        camera_error_message = message;
+    }
+
+    camera_faulted.store(true, std::memory_order_release);
+    camera_fps.store(0.0, std::memory_order_release);
+
+    {
+        std::lock_guard<std::mutex> lock(frame_mutex);
+        current_frame.reset();
+    }
 }
 
 // ==================== 核心功能接口实现 ====================
@@ -120,6 +153,9 @@ int load_usb_camera(std::string device, int camera_width, int camera_height)
     }
 
     std::string device_path = "/dev/video" + device;
+    current_device_path = device_path;
+    clear_camera_error_state();
+
     fd = open(device_path.c_str(), O_RDWR);
     if (fd < 0) {
         perror(("Failed to open " + device_path).c_str());
@@ -281,36 +317,72 @@ static void usb_capture_thread_func()
                 spdlog::debug("VIDIOC_DQBUF interrupted during camera shutdown");
                 break;
             }
-            perror("VIDIOC_DQBUF failed in capture thread");
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            if (!capture_running) break;
-            continue;
+
+            const std::string error_message =
+                "USB camera " + current_device_path + " disconnected or became unavailable: " +
+                std::strerror(errno);
+            set_camera_error_state(error_message);
+            spdlog::error("{}", error_message);
+            break;
+        }
+
+        if (thread_buf.index >= REQ_COUNT || buffers == nullptr || buffers[thread_buf.index].start == nullptr) {
+            const std::string error_message =
+                "USB camera " + current_device_path + " returned an invalid buffer after hot-plug.";
+            set_camera_error_state(error_message);
+            spdlog::error("{}", error_message);
+            break;
+        }
+
+        if (thread_buf.bytesused == 0) {
+            const std::string error_message =
+                "USB camera " + current_device_path + " returned an empty frame. Device may have been disconnected.";
+            set_camera_error_state(error_message);
+            spdlog::error("{}", error_message);
+            break;
         }
 
         // [CPU-INTENSIVE] 解码 MJPEG 到 BGR 格式
         // 指针 buffers[i].start 通过 mmap 直接指向内核内存，此处为 0 拷贝访问
         cv::Mat raw_data(1, thread_buf.bytesused, CV_8UC1, buffers[thread_buf.index].start);
-        cv::Mat decoded_frame = cv::imdecode(raw_data, cv::IMREAD_COLOR);
+        cv::Mat decoded_frame;
+        try {
+            decoded_frame = cv::imdecode(raw_data, cv::IMREAD_COLOR);
+        } catch (const cv::Exception& e) {
+            const std::string error_message =
+                "Failed to decode frame from " + current_device_path +
+                ". Camera may have been disconnected: " + e.what();
+            set_camera_error_state(error_message);
+            spdlog::error("{}", error_message);
+            break;
+        }
 
-        if (!decoded_frame.empty()) {
-            // [OPTIMIZATION] 使用移动语义将解码后的帧封装入 shared_ptr，原子性更新全局指针
-            // 旧帧引用的引用计数会在 current_frame 被替换时自动递减
-            auto new_frame = std::make_shared<cv::Mat>(std::move(decoded_frame));
-            {
-                std::lock_guard<std::mutex> lock(frame_mutex);
-                current_frame = new_frame;
-                frame_sequence++;  // 递增帧序列号，表示有新帧
-            }
-            
-            // 统计摄像头真实采集帧率
-            capture_frame_count++;
-            auto now = std::chrono::steady_clock::now();
-            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_fps_calc_time);
-            if (duration.count() >= 1000) {
-                camera_fps = capture_frame_count * 1000.0 / duration.count();
-                capture_frame_count = 0;
-                last_fps_calc_time = now;
-            }
+        if (decoded_frame.empty()) {
+            const std::string error_message =
+                "Decoded frame from " + current_device_path +
+                " is empty. Camera may have been disconnected.";
+            set_camera_error_state(error_message);
+            spdlog::error("{}", error_message);
+            break;
+        }
+
+        // [OPTIMIZATION] 使用移动语义将解码后的帧封装入 shared_ptr，原子性更新全局指针
+        // 旧帧引用的引用计数会在 current_frame 被替换时自动递减
+        auto new_frame = std::make_shared<cv::Mat>(std::move(decoded_frame));
+        {
+            std::lock_guard<std::mutex> lock(frame_mutex);
+            current_frame = new_frame;
+            frame_sequence++;  // 递增帧序列号，表示有新帧
+        }
+
+        // 统计摄像头真实采集帧率
+        capture_frame_count++;
+        auto now = std::chrono::steady_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_fps_calc_time);
+        if (duration.count() >= 1000) {
+            camera_fps = capture_frame_count * 1000.0 / duration.count();
+            capture_frame_count = 0;
+            last_fps_calc_time = now;
         }
 
         // 将缓冲区重新放入硬件接收队列
@@ -346,10 +418,10 @@ void stop_usb_capture_thread()
             v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
             ioctl(fd, VIDIOC_STREAMOFF, &type);
         }
+    }
 
-        if (capture_thread.joinable()) {
-            capture_thread.join();
-        }
+    if (capture_thread.joinable()) {
+        capture_thread.join();
     }
 }
 
@@ -394,6 +466,17 @@ double get_camera_fps()
     return camera_fps.load();
 }
 
+bool has_usb_camera_error()
+{
+    return camera_faulted.load(std::memory_order_acquire);
+}
+
+std::string get_usb_camera_error()
+{
+    std::lock_guard<std::mutex> lock(camera_error_mutex);
+    return camera_error_message;
+}
+
 /**
  * @brief 完整关闭摄像头系统并释放所有硬件资源
  */
@@ -412,6 +495,8 @@ void close_usb_camera()
         std::lock_guard<std::mutex> lock(frame_mutex);
         current_frame.reset();
     }
+
+    camera_fps.store(0.0, std::memory_order_release);
 
     cleanup_buffers(REQ_COUNT);
     cleanup_fd();

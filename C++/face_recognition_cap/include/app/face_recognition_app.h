@@ -176,7 +176,10 @@ public:
      * @brief 检查摄像头是否已初始化
      * @return true 摄像头可用, false 摄像头未初始化或初始化失败
      */
-    bool is_camera_initialized() const { return camera_initialized_; }
+    bool is_camera_initialized() const {
+        return camera_initialized_ &&
+               !(preprocess_thread_ && preprocess_thread_->has_camera_failed());
+    }
 
     /**
      * @brief 获取 NPU 帧率（YOLO 检测能力）
@@ -194,7 +197,12 @@ public:
      * @brief 获取摄像头错误信息
      * @return 错误信息字符串，如果没有错误则返回空字符串
      */
-    std::string get_camera_error() const { return camera_error_; }
+    std::string get_camera_error() const {
+        if (preprocess_thread_ && preprocess_thread_->has_camera_failed()) {
+            return preprocess_thread_->get_camera_error();
+        }
+        return camera_error_;
+    }
 
     /**
      * @brief 重新初始化摄像头（用于设置页面切换摄像头）

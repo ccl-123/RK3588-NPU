@@ -63,6 +63,8 @@ public:
     // 获取队列状态
     bool is_running() const { return running_; }
     size_t output_queue_size() const;
+    bool has_camera_failed() const { return camera_failed_.load(std::memory_order_acquire); }
+    std::string get_camera_error() const;
 
     // 唤醒阻塞在 get_result() 的消费者（用于外部停止信号）
     void wake_consumer();
@@ -87,6 +89,7 @@ private:
     std::condition_variable cv_output_;
     bool wakeup_ = false;            // wake_consumer() 一次性唤醒标志
     std::queue<PreprocessTask> output_queue_;
+    std::string camera_error_;
 
     // 配置参数
     int resize_w_;
@@ -102,6 +105,7 @@ private:
 
     // 摄像头消费者游标：保证预处理线程只跟踪自己的最新帧，不影响其他读取方
     uint64_t frame_sequence_cursor_ = 0;
+    std::atomic<bool> camera_failed_{false};
 
     // padding 目标尺寸与边界
     int target_w_;

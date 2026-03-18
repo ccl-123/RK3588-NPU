@@ -97,28 +97,25 @@ else()
     message(STATUS "Qt5 not found, GUI version will be skipped")
 endif()
 
-# spdlog / fmt 头文件路径（同时保留 pkg-config 返回的编译参数）
-include_directories(/usr/local/include)
-
 function(link_logging_dependencies target_name)
     target_include_directories(${target_name} PRIVATE
         ${SPDLOG_INCLUDE_DIRS}
         ${FMT_INCLUDE_DIRS}
     )
+    target_compile_definitions(${target_name} PRIVATE
+        SPDLOG_HEADER_ONLY
+        SPDLOG_FMT_EXTERNAL
+    )
     target_compile_options(${target_name} PRIVATE
-        ${SPDLOG_CFLAGS}
         ${FMT_CFLAGS}
     )
     target_link_directories(${target_name} PRIVATE
-        ${SPDLOG_LIBRARY_DIRS}
         ${FMT_LIBRARY_DIRS}
     )
     target_link_libraries(${target_name}
-        ${SPDLOG_LIBRARIES}
         ${FMT_LIBRARIES}
     )
     target_link_options(${target_name} PRIVATE
-        ${SPDLOG_LDFLAGS_OTHER}
         ${FMT_LDFLAGS_OTHER}
     )
 endfunction()
