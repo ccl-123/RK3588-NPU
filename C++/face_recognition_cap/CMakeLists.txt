@@ -162,6 +162,7 @@ set(AGENT_SOURCES
     src/agent/tool_registry.cc
     src/agent/tool_executor.cc
     src/agent/conversation_memory.cc
+    src/agent/incremental_response_parser.cc
     src/agent/react_agent.cc
     src/agent/agent_service.cc
     src/agent/agent_worker.cc
@@ -195,6 +196,7 @@ if(Qt5_FOUND)
         src/gui_services/ai_analysis_service.cc
         src/gui_services/ai_prompt_builder.cc
         src/gui_services/local_ai_analysis_service.cc
+        src/gui_services/llm_protocol_adapter.cc
     )
 
     set(GUI_UTILS_SOURCES

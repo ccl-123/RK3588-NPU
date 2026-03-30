@@ -2,11 +2,13 @@
 
 #include <QString>
 #include <QWidget>
+#include "agent/stream_event.h"
 
 class QComboBox;
 class QLabel;
 class QPushButton;
 class QLineEdit;
+class QFrame;
 class QScrollArea;
 class QScrollBar;
 class QVBoxLayout;
@@ -42,9 +44,29 @@ private slots:
     void on_ai_input_send();
 
 private:
+    struct ChatRenderMessage {
+        QWidget* row = nullptr;
+        QFrame* bubble = nullptr;
+        QVBoxLayout* bubble_layout = nullptr;
+        QLabel* placeholder_label = nullptr;
+        QLabel* latest_text_block = nullptr;
+        QLabel* latest_reasoning_block = nullptr;
+        bool active = false;
+    };
+
     void setup_ui();
     void appendChatMessage(const QString& role, const QString& text);
-    void updateAssistantMessage(const QString& text, bool append);
+    void beginAssistantRenderMessage(const QString& placeholder_text);
+    QLabel* appendRenderBlock(ChatRenderMessage& message,
+                              const QString& block_type,
+                              const QString& text,
+                              bool append_to_existing = false);
+    void appendAssistantTextBlock(const QString& text, bool append);
+    void appendAssistantReasoningBlock(const QString& text, bool append);
+    void appendAssistantToolBlock(const QString& block_type,
+                                  const QString& title,
+                                  const QString& detail = QString());
+    void finishAssistantRenderMessage();
     void scrollChatToBottom();
 
     service::AttendanceService* attendance_service_;
@@ -79,7 +101,6 @@ private:
     // AI 分析相关
     QPushButton* ai_analysis_btn_;
     bool is_analyzing_;
-    QLabel* ai_result_label_;  // AI分析结果显示标签
     QScrollArea* ai_scroll_;
     QWidget* ai_chat_container_;
     QVBoxLayout* ai_chat_layout_;
@@ -96,12 +117,14 @@ private:
     QPushButton* ai_data_30day_btn_;
     QPushButton* ai_data_qa_btn_;  // 纯问答模式按钮（不附带考勤数据）
     QLabel* ai_data_range_label_;  // 显示当前选中的数据范围
+    ChatRenderMessage current_assistant_message_;
 
     void update_data_range_buttons();  // 更新按钮选中状态
 
 private slots:
     void on_ai_analysis_clicked();
     void on_ai_result_ready(const QString& result);
+    void on_ai_stream_event(const agent::AgentStreamEvent& event);
     void on_ai_analysis_finished();
     void on_ai_error(const QString& error);
     void on_ai_analysis_started();

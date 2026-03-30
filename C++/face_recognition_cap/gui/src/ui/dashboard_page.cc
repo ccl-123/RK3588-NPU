@@ -100,6 +100,25 @@ QString resolve_local_llm_model_path() {
     return QDir(app_dir).filePath(configured);
 }
 
+bool has_custom_remote_backend() {
+    return !QString::fromUtf8(Config::LlamaCpp::getBaseUrl()).trimmed().isEmpty();
+}
+
+QString remote_backend_display_name() {
+    if (has_custom_remote_backend()) {
+        const QString model = QString::fromUtf8(Config::LlamaCpp::getModel()).trimmed();
+        return model.isEmpty() ? QStringLiteral("自定义模型") : model;
+    }
+    return QStringLiteral("腾讯云");
+}
+
+QString remote_backend_tooltip() {
+    if (has_custom_remote_backend()) {
+        return QObject::tr("点击切换到本地大模型");
+    }
+    return QObject::tr("点击切换到本地大模型");
+}
+
 class TrendChartWidget : public QWidget {
 public:
     explicit TrendChartWidget(QWidget* parent = nullptr)
@@ -312,7 +331,6 @@ DashboardPage::DashboardPage(QWidget* parent)
     , alerts_layout_(nullptr)
     , ai_analysis_btn_(nullptr)
     , is_analyzing_(false)
-    , ai_result_label_(nullptr)
     , ai_scroll_(nullptr)
     , ai_chat_container_(nullptr)
     , ai_chat_layout_(nullptr)
@@ -337,28 +355,19 @@ DashboardPage::DashboardPage(QWidget* parent)
     // 连接 AI 服务信号
     auto cloud_service = AiAnalysisService::instance();
     connect(cloud_service, &AiAnalysisService::analysisStarted, this, &DashboardPage::on_ai_analysis_started);
-    connect(cloud_service, &AiAnalysisService::analysisResultReady, this, &DashboardPage::on_ai_result_ready);
+    connect(cloud_service, &AiAnalysisService::streamEventReady, this, &DashboardPage::on_ai_stream_event);
     connect(cloud_service, &AiAnalysisService::analysisFinished, this, &DashboardPage::on_ai_analysis_finished);
     connect(cloud_service, &AiAnalysisService::errorOccurred, this, &DashboardPage::on_ai_error);
     connect(cloud_service, &AiAnalysisService::analysisCancelled, this, &DashboardPage::on_ai_analysis_cancelled);
 
     auto local_service = LocalAiAnalysisService::instance();
     connect(local_service, &LocalAiAnalysisService::analysisStarted, this, &DashboardPage::on_ai_analysis_started);
-    connect(local_service, &LocalAiAnalysisService::analysisResultReady, this, &DashboardPage::on_ai_result_ready);
+    connect(local_service, &LocalAiAnalysisService::streamEventReady, this, &DashboardPage::on_ai_stream_event);
     connect(local_service, &LocalAiAnalysisService::analysisFinished, this, &DashboardPage::on_ai_analysis_finished);
     connect(local_service, &LocalAiAnalysisService::errorOccurred, this, &DashboardPage::on_ai_error);
     connect(local_service, &LocalAiAnalysisService::analysisCancelled, this, &DashboardPage::on_ai_analysis_cancelled);
     connect(local_service, &LocalAiAnalysisService::localLLMReady, this, &DashboardPage::on_local_llm_ready);
     connect(local_service, &LocalAiAnalysisService::localLLMReleased, this, &DashboardPage::on_local_llm_released);
-
-    // 连接 Agent 状态信号
-    connect(local_service, &LocalAiAnalysisService::agentThinking, this, &DashboardPage::on_agent_thinking);
-    connect(local_service, &LocalAiAnalysisService::agentToolCalling, this, &DashboardPage::on_agent_tool_calling);
-    connect(local_service, &LocalAiAnalysisService::agentToolCompleted, this, &DashboardPage::on_agent_tool_completed);
-
-    connect(cloud_service, &AiAnalysisService::agentThinking, this, &DashboardPage::on_agent_thinking);
-    connect(cloud_service, &AiAnalysisService::agentToolCalling, this, &DashboardPage::on_agent_tool_calling);
-    connect(cloud_service, &AiAnalysisService::agentToolCompleted, this, &DashboardPage::on_agent_tool_completed);
 }
 
 void DashboardPage::setAttendanceService(service::AttendanceService* service) {
@@ -414,14 +423,21 @@ void DashboardPage::appendChatMessage(const QString& role, const QString& text) 
     bubble->setMaximumWidth(520);
     auto bubble_layout = new QVBoxLayout(bubble);
     bubble_layout->setContentsMargins(12, 10, 12, 10);
-    bubble_layout->setSpacing(4);
+    bubble_layout->setSpacing(6);
 
-    auto label = new QLabel(text, bubble);
+    auto block = new QFrame(bubble);
+    block->setObjectName("AiChatBlock");
+    block->setProperty("blockType", "text");
+    auto block_layout = new QVBoxLayout(block);
+    block_layout->setContentsMargins(8, 6, 8, 6);
+    block_layout->setSpacing(0);
+
+    auto label = new QLabel(text, block);
     label->setObjectName("AiChatText");
-    // 样式由 QSS #AiChatText 定义
     label->setWordWrap(true);
     label->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    bubble_layout->addWidget(label);
+    block_layout->addWidget(label);
+    bubble_layout->addWidget(block);
 
     if (role == "user") {
         row_layout->addStretch();
@@ -437,30 +453,151 @@ void DashboardPage::appendChatMessage(const QString& role, const QString& text) 
     }
     ai_chat_layout_->insertWidget(insert_pos, row);
     scrollChatToBottom();
-
-    if (role == "assistant") {
-        ai_result_label_ = label;
-    }
 }
 
-void DashboardPage::updateAssistantMessage(const QString& text, bool append) {
-    if (!ai_result_label_) {
-        appendChatMessage("assistant", text);
+void DashboardPage::beginAssistantRenderMessage(const QString& placeholder_text) {
+    if (!ai_chat_layout_ || !ai_chat_container_) {
         return;
     }
 
-    const QString current = ai_result_label_->text();
-    if (append) {
-        if (current == tr("正在分析中，请稍候...")) {
-            ai_result_label_->setText(text);
-        } else {
-            ai_result_label_->setText(current + text);
-        }
-    } else {
-        ai_result_label_->setText(text);
+    ChatRenderMessage message;
+    message.active = true;
+
+    auto row = new QWidget(ai_chat_container_);
+    auto row_layout = new QHBoxLayout(row);
+    row_layout->setContentsMargins(0, 0, 0, 0);
+    row_layout->setSpacing(8);
+
+    auto bubble = new QFrame(row);
+    bubble->setObjectName("AiChatBubble");
+    bubble->setProperty("role", "assistant");
+    bubble->setMaximumWidth(520);
+    auto bubble_layout = new QVBoxLayout(bubble);
+    bubble_layout->setContentsMargins(12, 10, 12, 10);
+    bubble_layout->setSpacing(6);
+
+    row_layout->addWidget(bubble);
+    row_layout->addStretch();
+
+    int insert_pos = ai_chat_layout_->count();
+    if (ai_chat_spacer_) {
+        insert_pos = ai_chat_layout_->count() - 1;
     }
-    ai_result_label_->updateGeometry();
+    ai_chat_layout_->insertWidget(insert_pos, row);
+
+    message.row = row;
+    message.bubble = bubble;
+    message.bubble_layout = bubble_layout;
+    current_assistant_message_ = message;
+
+    if (!placeholder_text.isEmpty()) {
+        current_assistant_message_.placeholder_label =
+            appendRenderBlock(current_assistant_message_, "status", placeholder_text, false);
+    }
+
     scrollChatToBottom();
+}
+
+QLabel* DashboardPage::appendRenderBlock(ChatRenderMessage& message,
+                                         const QString& block_type,
+                                         const QString& text,
+                                         bool append_to_existing) {
+    if (!message.bubble_layout) {
+        return nullptr;
+    }
+
+    QLabel* existing_label = nullptr;
+    if (append_to_existing) {
+        if (block_type == "text") {
+            existing_label = message.latest_text_block;
+        } else if (block_type == "reasoning") {
+            existing_label = message.latest_reasoning_block;
+        }
+    }
+
+    if (existing_label) {
+        existing_label->setText(existing_label->text() + text);
+        existing_label->updateGeometry();
+        scrollChatToBottom();
+        return existing_label;
+    }
+
+    auto block = new QFrame(message.bubble);
+    block->setObjectName("AiChatBlock");
+    block->setProperty("blockType", block_type);
+    auto block_layout = new QVBoxLayout(block);
+    block_layout->setContentsMargins(8, 6, 8, 6);
+    block_layout->setSpacing(0);
+
+    auto label = new QLabel(text, block);
+    label->setObjectName("AiChatText");
+    label->setWordWrap(true);
+    label->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    block_layout->addWidget(label);
+    message.bubble_layout->addWidget(block);
+
+    if (block_type == "text") {
+        message.latest_text_block = label;
+    } else if (block_type == "reasoning") {
+        message.latest_reasoning_block = label;
+    }
+
+    scrollChatToBottom();
+    return label;
+}
+
+void DashboardPage::appendAssistantTextBlock(const QString& text, bool append) {
+    if (text.isEmpty()) {
+        return;
+    }
+    if (!current_assistant_message_.active) {
+        beginAssistantRenderMessage(QString());
+    }
+
+    if (current_assistant_message_.placeholder_label) {
+        current_assistant_message_.placeholder_label->setText(text);
+        if (auto* block = qobject_cast<QWidget*>(current_assistant_message_.placeholder_label->parentWidget())) {
+            apply_state_property(block, "blockType", "text");
+        }
+        current_assistant_message_.latest_text_block = current_assistant_message_.placeholder_label;
+        current_assistant_message_.placeholder_label = nullptr;
+        scrollChatToBottom();
+        return;
+    }
+
+    appendRenderBlock(current_assistant_message_, "text", text, append);
+}
+
+void DashboardPage::appendAssistantReasoningBlock(const QString& text, bool append) {
+    if (text.isEmpty()) {
+        return;
+    }
+    if (!current_assistant_message_.active) {
+        beginAssistantRenderMessage(QString());
+    }
+
+    appendRenderBlock(current_assistant_message_, "reasoning", text, append);
+}
+
+void DashboardPage::appendAssistantToolBlock(const QString& block_type,
+                                             const QString& title,
+                                             const QString& detail) {
+    if (!current_assistant_message_.active) {
+        beginAssistantRenderMessage(QString());
+    }
+
+    QString text = title;
+    if (!detail.isEmpty()) {
+        text += "\n" + detail;
+    }
+    appendRenderBlock(current_assistant_message_, block_type, text, false);
+}
+
+void DashboardPage::finishAssistantRenderMessage() {
+    current_assistant_message_.active = false;
+    current_assistant_message_.placeholder_label = nullptr;
+    current_assistant_message_.latest_text_block = nullptr;
+    current_assistant_message_.latest_reasoning_block = nullptr;
 }
 
 void DashboardPage::scrollChatToBottom() {
@@ -511,7 +648,7 @@ void DashboardPage::on_ai_analysis_clicked() {
             }
         } else {
             is_analyzing_ = false;
-            ai_result_label_ = nullptr;
+            finishAssistantRenderMessage();
             if (ai_analysis_btn_) {
                 ai_analysis_btn_->setText(tr("智能分析"));
                 ai_analysis_btn_->setEnabled(true);
@@ -554,7 +691,7 @@ void DashboardPage::on_ai_analysis_clicked() {
             appendChatMessage("user", user_prompt);
         }
         ai_skip_prefix_.clear();
-        appendChatMessage("assistant", tr("正在思考中，请稍候..."));
+        beginAssistantRenderMessage(tr("正在思考中，请稍候..."));
         spdlog::info("Sending pure Q&A request (no attendance data)");
 
         auto empty_stats = make_empty_stats();
@@ -572,7 +709,7 @@ void DashboardPage::on_ai_analysis_clicked() {
             appendChatMessage("user", user_prompt);
         }
         ai_skip_prefix_.clear();
-        appendChatMessage("assistant", tr("正在思考中，请稍候..."));
+        beginAssistantRenderMessage(tr("正在思考中，请稍候..."));
         spdlog::info("Agent mode: skipping data collection, sending user prompt directly (local={})", is_local_llm_);
 
         if (is_local_llm_) {
@@ -663,7 +800,7 @@ void DashboardPage::on_ai_analysis_clicked() {
         }
     }
 
-    appendChatMessage("assistant", tr("正在分析中，请稍候..."));
+    beginAssistantRenderMessage(tr("正在分析中，请稍候..."));
     spdlog::info("Sending AI analysis with {} records for last {} days", range_records.size(), range_days);
     if (is_local_llm_) {
         LocalAiAnalysisService::instance()->requestAnalysis(today_stats, QString(), detail_records_str, user_prompt, range_days);
@@ -703,19 +840,63 @@ void DashboardPage::on_ai_result_ready(const QString& result) {
             if (trimmed.isEmpty()) {
                 return;
             }
-            updateAssistantMessage(trimmed, true);
+            appendAssistantTextBlock(trimmed, true);
             return;
         }
         ai_skip_prefix_.clear();
     }
-    updateAssistantMessage(result, true);
+    appendAssistantTextBlock(result, true);
+}
+
+void DashboardPage::on_ai_stream_event(const agent::AgentStreamEvent& event) {
+    if (event.channel == "assistant" && event.type == "delta") {
+        on_ai_result_ready(event.text);
+        return;
+    }
+
+    if (event.channel == "reasoning" && event.type == "reasoning") {
+        appendAssistantReasoningBlock(event.text, true);
+        return;
+    }
+
+    if (event.channel != "status" || !agent_status_label_) {
+        return;
+    }
+
+    if (event.type == "thinking") {
+        agent_status_label_->setText(tr("[思考中...]"));
+        apply_state_property(agent_status_label_, "agentState", "thinking");
+        agent_status_label_->show();
+        return;
+    }
+
+    if (event.type == "tool_call") {
+        const QString tool_name = event.data.value("tool_name").toString(event.text);
+        agent_status_label_->setText(tr("[查询数据: %1]").arg(tool_name));
+        apply_state_property(agent_status_label_, "agentState", "tool");
+        agent_status_label_->show();
+        appendAssistantToolBlock("tool_call", tr("[工具调用] %1").arg(tool_name));
+        return;
+    }
+
+    if (event.type == "tool_result") {
+        const QString tool_name = event.data.value("tool_name").toString(event.text);
+        QString detail = event.data.value("result").toString();
+        if (detail.length() > 240) {
+            detail = detail.left(240) + tr("\n...(结果已截断)");
+        }
+        agent_status_label_->setText(tr("[%1 完成]").arg(tool_name));
+        apply_state_property(agent_status_label_, "agentState", "success");
+        agent_status_label_->show();
+        appendAssistantToolBlock("tool_result", tr("[工具结果] %1").arg(tool_name), detail);
+    }
 }
 
 
 void DashboardPage::on_ai_analysis_finished() {
     spdlog::info("on_ai_analysis_finished() called");
     is_analyzing_ = false;
-    ai_result_label_ = nullptr;
+    finishAssistantRenderMessage();
     ai_skip_prefix_.clear();
 
     if (ai_analysis_btn_) {
@@ -741,7 +922,7 @@ void DashboardPage::on_ai_analysis_finished() {
 void DashboardPage::on_ai_error(const QString& error) {
     spdlog::warn("on_ai_error() called: {}", error.toStdString());
     is_analyzing_ = false;
-    ai_result_label_ = nullptr;
+    finishAssistantRenderMessage();
     ai_skip_prefix_.clear();
 
     if (ai_analysis_btn_) {
@@ -767,7 +948,7 @@ void DashboardPage::on_ai_error(const QString& error) {
 
 void DashboardPage::on_ai_analysis_cancelled() {
     is_analyzing_ = false;
-    ai_result_label_ = nullptr;
+    finishAssistantRenderMessage();
     ai_skip_prefix_.clear();
 
     if (ai_analysis_btn_) {
@@ -1080,6 +1261,7 @@ void DashboardPage::setup_ui() {
             }
             delete item;
         }
+        finishAssistantRenderMessage();
         ai_chat_spacer_ = new QSpacerItem(0, 0, QSizePolicy::Minimum, QSizePolicy::Expanding);
         ai_chat_layout_->addItem(ai_chat_spacer_);
         appendChatMessage("assistant", tr("对话已清空，输入问题即可开始新的分析。"));
@@ -1168,12 +1350,12 @@ void DashboardPage::setup_ui() {
     input_layout->addWidget(ai_input_, 1);
     
     // 本地/云端 LLM 切换按钮（浅色风格，显示当前模式）
-    backend_toggle_btn_ = new QPushButton(tr("云端大模型"), input_row);
+    backend_toggle_btn_ = new QPushButton(remote_backend_display_name(), input_row);
     backend_toggle_btn_->setObjectName("BackendToggle");
     backend_toggle_btn_->setCheckable(true);
     backend_toggle_btn_->setMinimumWidth(90);
     backend_toggle_btn_->setCursor(Qt::PointingHandCursor);
-    backend_toggle_btn_->setToolTip(tr("点击切换到本地大模型"));
+    backend_toggle_btn_->setToolTip(remote_backend_tooltip());
     connect(backend_toggle_btn_, &QPushButton::toggled, this, &DashboardPage::on_backend_toggled);
     input_layout->addWidget(backend_toggle_btn_);
 
@@ -1675,10 +1857,10 @@ void DashboardPage::on_backend_toggled(bool checked) {
 
     // 更新按钮文字和提示
     if (backend_toggle_btn_) {
-        backend_toggle_btn_->setText(checked ? tr("本地大模型") : tr("云端大模型"));
+        backend_toggle_btn_->setText(checked ? tr("本地大模型") : remote_backend_display_name());
         backend_toggle_btn_->setToolTip(checked
-            ? tr("点击切换到云端大模型")
-            : tr("点击切换到本地大模型"));
+            ? tr("点击切换到%1").arg(remote_backend_display_name())
+            : remote_backend_tooltip());
     }
 
     if (backend_status_label_) {
@@ -1705,8 +1887,8 @@ void DashboardPage::on_backend_toggled(bool checked) {
             if (backend_toggle_btn_) {
                 const QSignalBlocker blocker(backend_toggle_btn_);
                 backend_toggle_btn_->setChecked(false);
-                backend_toggle_btn_->setText(tr("云端大模型"));
-                backend_toggle_btn_->setToolTip(tr("点击切换到本地大模型"));
+                backend_toggle_btn_->setText(remote_backend_display_name());
+                backend_toggle_btn_->setToolTip(remote_backend_tooltip());
             }
             is_local_llm_ = false;
             return;
@@ -1729,7 +1911,9 @@ void DashboardPage::on_backend_toggled(bool checked) {
         if (LocalAiAnalysisService::instance()->isAnalyzing()) {
             LocalAiAnalysisService::instance()->cancelAnalysis();
         }
-        ToastNotification::showMessage(this, tr("AI 模型"), tr("已切换至云端 API"), ToastNotification::Level::Info);
+        ToastNotification::showMessage(this, tr("AI 模型"),
+            tr("已切换至%1").arg(remote_backend_display_name()),
+            ToastNotification::Level::Info);
 
         // 云端也支持 Agent 模式，启用按钮
         if (agent_mode_btn_) {
@@ -1775,8 +1959,8 @@ void DashboardPage::on_local_llm_released() {
         // 阻止信号触发 on_backend_toggled
         backend_toggle_btn_->blockSignals(true);
         backend_toggle_btn_->setChecked(false);
-        backend_toggle_btn_->setText(tr("云端大模型"));
-        backend_toggle_btn_->setToolTip(tr("点击切换到本地大模型"));
+        backend_toggle_btn_->setText(remote_backend_display_name());
+        backend_toggle_btn_->setToolTip(remote_backend_tooltip());
         backend_toggle_btn_->blockSignals(false);
     }
 
@@ -1801,8 +1985,6 @@ void DashboardPage::on_agent_thinking() {
         apply_state_property(agent_status_label_, "agentState", "thinking");
         agent_status_label_->show();
     }
-    // 追加状态行到聊天气泡
-    updateAssistantMessage("[思考中...]\n", true);
     spdlog::debug("Agent: thinking started");
 }
 
@@ -1812,8 +1994,6 @@ void DashboardPage::on_agent_tool_calling(const QString& tool_name) {
         apply_state_property(agent_status_label_, "agentState", "tool");
         agent_status_label_->show();
     }
-    // 追加状态行到聊天气泡
-    updateAssistantMessage(QString("[查询数据: %1]\n").arg(tool_name), true);
     spdlog::debug("Agent: calling tool {}", tool_name.toStdString());
 }
 
@@ -1821,9 +2001,8 @@ void DashboardPage::on_agent_tool_completed(const QString& tool_name, const QStr
     if (agent_status_label_) {
         agent_status_label_->setText(tr("[%1 完成]").arg(tool_name));
         apply_state_property(agent_status_label_, "agentState", "success");
+        agent_status_label_->show();
     }
-    // 追加状态行到聊天气泡
-    updateAssistantMessage(QString("[%1 完成]\n").arg(tool_name), true);
     spdlog::debug("Agent: tool {} completed, result length: {}",
         tool_name.toStdString(), result.length());
 }

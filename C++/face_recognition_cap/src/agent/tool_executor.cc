@@ -11,15 +11,6 @@
 
 namespace agent {
 
-QString ToolCall::toString() const {
-    if (!valid) {
-        return "ToolCall{invalid}";
-    }
-    return QString("ToolCall{name=%1, args=%2}")
-        .arg(name)
-        .arg(QString::fromUtf8(QJsonDocument(arguments).toJson(QJsonDocument::Compact)));
-}
-
 ToolExecutor::ToolExecutor(ToolRegistry* registry)
     : registry_(registry) {}
 
@@ -46,8 +37,10 @@ ToolCall ToolExecutor::parseToolCall(const QString& llm_output) {
     }
 
     QJsonObject obj = doc.object();
+    call.call_id = obj["id"].toString(obj["call_id"].toString());
     call.name = obj["name"].toString();
     call.arguments = obj["arguments"].toObject();
+    call.raw_text = llm_output;
     call.valid = !call.name.isEmpty();
 
     if (call.valid) {
@@ -57,19 +50,29 @@ ToolCall ToolExecutor::parseToolCall(const QString& llm_output) {
     return call;
 }
 
-QString ToolExecutor::execute(const ToolCall& call) {
+ToolExecutionResult ToolExecutor::execute(const ToolCall& call) {
+    ToolExecutionResult result;
+    result.call_id = call.call_id;
+    result.name = call.name;
+
     if (!call.valid) {
-        return "错误: 无效的工具调用";
+        result.error = "无效的工具调用";
+        result.display_text = "错误: 无效的工具调用";
+        return result;
     }
 
     if (!registry_) {
-        return "错误: 工具注册表未初始化";
+        result.error = "工具注册表未初始化";
+        result.display_text = "错误: 工具注册表未初始化";
+        return result;
     }
 
     BaseTool* tool = registry_->getTool(call.name);
     if (!tool) {
         spdlog::warn("Unknown tool: {}", call.name.toStdString());
-        return QString("错误: 未知工具 '%1'").arg(call.name);
+        result.error = QString("未知工具 '%1'").arg(call.name);
+        result.display_text = QString("错误: 未知工具 '%1'").arg(call.name);
+        return result;
     }
 
     spdlog::info("Executing tool: {} with args: {}",
@@ -77,19 +80,21 @@ QString ToolExecutor::execute(const ToolCall& call) {
         QString::fromUtf8(QJsonDocument(call.arguments).toJson(QJsonDocument::Compact)).toStdString());
 
     try {
-        QString result = tool->execute(call.arguments);
+        result = tool->executeWithResult(call);
         spdlog::debug("Tool '{}' returned: {}", call.name.toStdString(),
-            result.left(100).toStdString());
+            result.display_text.left(100).toStdString());
         return result;
-    } catch (const std::exception& e) {
-        spdlog::error("Tool execution failed: {}", e.what());
-        return QString("错误: 工具执行失败 - %1").arg(e.what());
+    } catch (...) {
+        result.ok = false;
+        result.error = "未知异常";
+        result.display_text = "错误: 工具执行失败 - 未知异常";
+        return result;
     }
 }
 
-QString ToolExecutor::formatToolResponse(const QString& tool_name, const QString& result) {
+QString ToolExecutor::formatToolResponse(const ToolExecutionResult& result) {
     return QString("<|tool_response|>\n[%1 返回结果]\n%2\n<|/tool_response|>")
-        .arg(tool_name, result);
+        .arg(result.name, result.promptText());
 }
 
 bool ToolExecutor::hasToolCall(const QString& llm_output) const {

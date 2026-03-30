@@ -84,17 +84,17 @@ QString ReactAgent::run(const QString& user_input,
                 if (call.valid) {
                     emit toolCalling(call.name);
 
-                    QString result = executor_.execute(call);
+                    ToolExecutionResult result = executor_.execute(call);
 
                     if (memory_) {
-                        memory_->addToolMessage(call.name, result);
+                        memory_->addToolMessage(call.name, result.promptText());
                     }
-                    emit toolCompleted(call.name, result);
+                    emit toolCompleted(call.name, result.promptText());
 
                     // 将工具结果反馈给 LLM
                     // 注意：keep_history=1 时 RKLLM 内部 KV Cache 已缓存之前的输出，
                     // 只需传工具结果（增量），不要重复拼接 llm_output 造成 prompt 膨胀
-                    QString observation = executor_.formatToolResponse(call.name, result);
+                    QString observation = executor_.formatToolResponse(result);
                     prompt = observation + "\n\n请根据工具返回的结果继续回答用户问题。如果已经可以回答，请用 <answer>...</answer> 格式给出最终答案。\n";
                 } else {
                     spdlog::warn("Failed to parse tool call from: {}",

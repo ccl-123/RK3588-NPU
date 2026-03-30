@@ -11,7 +11,9 @@
 #include "service/attendance_service.h"
 #include "config/config.h"
 #include "gui_services/ai_prompt_builder.h"
+#include "gui_services/llm_protocol_adapter.h"
 #include "agent/agent_worker.h"
+#include "agent/incremental_response_parser.h"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -24,6 +26,87 @@
 #include <spdlog/spdlog.h>
 #include <cstring>  // for strlen
 
+namespace {
+
+enum class RemoteProvider {
+    Tencent,
+    LlamaCpp,
+};
+
+RemoteProvider detect_remote_provider() {
+    const QString llama_base = QString::fromUtf8(Config::LlamaCpp::getBaseUrl()).trimmed();
+    if (!llama_base.isEmpty()) {
+        return RemoteProvider::LlamaCpp;
+    }
+    return RemoteProvider::Tencent;
+}
+
+QUrl build_remote_url(RemoteProvider provider) {
+    if (provider == RemoteProvider::LlamaCpp) {
+        QString base = QString::fromUtf8(Config::LlamaCpp::getBaseUrl()).trimmed();
+        if (base.endsWith('/')) {
+            base.chop(1);
+        }
+        return QUrl(base + "/v1/chat/completions");
+    }
+    return QUrl(QString::fromStdString(Config::TencentAI::API_URL));
+}
+
+void apply_remote_auth(RemoteProvider provider, QNetworkRequest& request) {
+    if (provider != RemoteProvider::LlamaCpp) {
+        return;
+    }
+
+    const QByteArray api_key = QByteArray(Config::LlamaCpp::getApiKey()).trimmed();
+    if (api_key.isEmpty()) {
+        return;
+    }
+
+    request.setRawHeader("Authorization", "Bearer " + api_key);
+}
+
+QJsonObject build_remote_request(RemoteProvider provider,
+                                 const QString& content,
+                                 bool stream_enabled) {
+    if (provider == RemoteProvider::LlamaCpp) {
+        QJsonObject body;
+        body["model"] = QString::fromUtf8(Config::LlamaCpp::getModel());
+        body["stream"] = stream_enabled;
+        body["messages"] = QJsonArray{
+            QJsonObject{
+                {"role", "user"},
+                {"content", content}
+            }
+        };
+        return body;
+    }
+
+    QString session_id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    QString request_id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+
+    QJsonObject body;
+    body["session_id"] = session_id;
+    body["request_id"] = request_id;
+    body["bot_app_key"] = QString::fromUtf8(Config::TencentAI::getAppKey());
+    body["visitor_biz_id"] = QString::fromStdString(Config::TencentAI::VISITOR_BIZ_ID);
+    body["content"] = content;
+    body["incremental"] = true;
+    body["streaming_throttle"] = 10;
+    body["search_network"] = "disable";
+    body["stream"] = "enable";
+    body["workflow_status"] = "enable";
+    return body;
+}
+
+QVector<gui_services::ProtocolChunkEvent> consume_remote_events(RemoteProvider provider, QByteArray& buffer) {
+    if (provider == RemoteProvider::LlamaCpp) {
+        return gui_services::LlmProtocolAdapter::consumeLlamaCppSse(buffer);
+    }
+    return gui_services::LlmProtocolAdapter::consumeTencentSse(buffer);
+}
+
+}  // namespace
+
 AiAnalysisService* AiAnalysisService::instance() {
     static AiAnalysisService s_instance;
     return &s_instance;
@@ -35,6 +118,7 @@ AiAnalysisService::AiAnalysisService(QObject* parent)
     , completed_(false)
     , is_incremental_(false)
     , agent_mode_(true) {
+    qRegisterMetaType<agent::AgentStreamEvent>("agent::AgentStreamEvent");
     network_manager_ = new QNetworkAccessManager(this);
 
     // 检查环境变量是否已设置
@@ -58,6 +142,18 @@ AiAnalysisService::AiAnalysisService(QObject* parent)
         spdlog::warn("TENCENT_SECRET_KEY environment variable is not set");
     } else {
         spdlog::info("TENCENT_SECRET_KEY loaded from environment (length: {})", strlen(secret_key));
+    }
+
+    if (detect_remote_provider() == RemoteProvider::LlamaCpp) {
+        spdlog::info("Remote LLM provider: llama.cpp ({})", Config::LlamaCpp::getBaseUrl());
+        if (std::strlen(Config::LlamaCpp::getApiKey()) == 0) {
+            spdlog::warn("LLAMA_CPP_SERVER_API_KEY is not set");
+        } else {
+            spdlog::info("LLAMA_CPP_SERVER_API_KEY loaded from environment (length: {})",
+                         std::strlen(Config::LlamaCpp::getApiKey()));
+        }
+    } else {
+        spdlog::info("Remote LLM provider: Tencent LKE");
     }
 
     // 创建超时定时器
@@ -96,6 +192,45 @@ AiAnalysisService::AiAnalysisService(QObject* parent)
 
 AiAnalysisService::~AiAnalysisService() {
     cleanup();
+}
+
+void AiAnalysisService::beginStreamRequest() {
+    active_stream_request_id_ = ++stream_request_seq_;
+    stream_event_seq_ = 0;
+    stream_has_visible_output_ = false;
+}
+
+void AiAnalysisService::emitStreamEvent(const QString& phase,
+                                        const QString& type,
+                                        const QString& channel,
+                                        const QString& text,
+                                        const QJsonObject& data,
+                                        bool final) {
+    agent::AgentStreamEvent event;
+    event.request_id = active_stream_request_id_;
+    event.seq = ++stream_event_seq_;
+    event.phase = phase;
+    event.type = type;
+    event.channel = channel;
+    event.text = text;
+    event.data = data;
+    event.final = final;
+
+    if (channel == "assistant" && type == "delta" && !text.isEmpty()) {
+        stream_has_visible_output_ = true;
+    }
+
+    emit streamEventReady(event);
+}
+
+void AiAnalysisService::emitAssistantDelta(const QString& text,
+                                           const QString& phase,
+                                           bool final) {
+    if (text.isEmpty()) {
+        return;
+    }
+    emit analysisResultReady(text);
+    emitStreamEvent(phase, "delta", "assistant", text, QJsonObject(), final);
 }
 
 void AiAnalysisService::cleanup() {
@@ -193,9 +328,11 @@ void AiAnalysisService::requestAnalysis(const service::AttendanceStatistics& sta
     current_range_days_ = range_days;
     completed_ = false;  // 重置完成标志
     incremental_buffer_.clear();  // 清空增量缓冲
+    beginStreamRequest();
 
     // 发送开始信号
     emit analysisStarted();
+    emitStreamEvent("model", "start", "status");
 
     doCloudRequest(stats, trend_summary, detail_records, user_prompt, range_days, 0);
 }
@@ -208,51 +345,30 @@ void AiAnalysisService::doCloudRequest(const service::AttendanceStatistics& stat
                                        int retry_count) {
     current_retry_count_ = retry_count;
 
-    QUrl url(QString::fromStdString(Config::TencentAI::API_URL));
+    const RemoteProvider provider = detect_remote_provider();
+    QUrl url(build_remote_url(provider));
     QNetworkRequest request(url);
 
     // 设置请求头（SSE 接口需要 Content-Type 和 Accept）
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     request.setRawHeader("Accept", "text/event-stream");  // 关键：告诉代理/CDN 这是 SSE 流
+    apply_remote_auth(provider, request);
 
     // 构建 Prompt
     QString content = AiPromptBuilder::buildPrompt(
         stats, trend_summary, detail_records, user_prompt, range_days);
 
-    // 生成唯一的 session_id 和 request_id
-    // 文档说 request_id "非必填但建议必填"，用于排查串联
-    QString session_id = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    QString request_id = QUuid::createUuid().toString(QUuid::WithoutBraces);
-
-    // 构建 JSON Body（严格按文档 105561 格式）
-    QJsonObject jsonBody;
-
-    // 必填字段
-    jsonBody["session_id"] = session_id;
-    jsonBody["bot_app_key"] = QString::fromUtf8(Config::TencentAI::getAppKey());
-    jsonBody["visitor_biz_id"] = QString::fromStdString(Config::TencentAI::VISITOR_BIZ_ID);
-    jsonBody["content"] = content;
-
-    // 建议必填字段（文档明确提及）
-    jsonBody["request_id"] = request_id;  // 用于排查串联，建议必填
-
-    // 可选字段（文档中存在的字段）
-    // 注意：incremental 默认 false，true 才是"增量片段"
-    jsonBody["incremental"] = true;  // 启用增量输出（默认 false）
-    jsonBody["streaming_throttle"] = 10;  // 每积攒 N 字符回包一次（默认 10）
-    jsonBody["search_network"] = "disable";  // 禁用联网搜索
-    jsonBody["stream"] = "enable";  // 文档中存在，启用流式传输
-    jsonBody["workflow_status"] = "enable";  // 启用工作流
-
-    // 记录请求信息（跟请求体一致）
-    is_incremental_ = jsonBody.value("incremental").toBool(false);  // 默认 false
+    QJsonObject jsonBody = build_remote_request(provider, content, true);
+    is_incremental_ = provider == RemoteProvider::Tencent
+        ? jsonBody.value("incremental").toBool(false)
+        : true;
 
     if (retry_count > 0) {
         spdlog::info("Retrying AI analysis request ({}/{})", retry_count, MAX_RETRIES);
     } else {
-        spdlog::info("Sending AI analysis request (Tencent SSE Mode)...");
+        spdlog::info("Sending AI analysis request (provider={})...",
+                     provider == RemoteProvider::LlamaCpp ? "llama.cpp" : "tencent");
     }
-    spdlog::info("Session ID: {}, Request ID: {}", session_id.toStdString(), request_id.toStdString());
 
     // 清空缓冲区
     sse_buffer_.clear();
@@ -265,7 +381,7 @@ void AiAnalysisService::doCloudRequest(const service::AttendanceStatistics& stat
 
     // 处理流式数据（腾讯云 SSE 事件流格式）
     // 关键：支持多行 data 拼接、正确的 incremental 语义、防止重复 emit
-    connect(reply, &QNetworkReply::readyRead, this, [this, reply]() {
+    connect(reply, &QNetworkReply::readyRead, this, [this, reply, provider]() {
         if (!current_reply_ || current_reply_ != reply) {
             return;  // 请求已被取消
         }
@@ -275,191 +391,50 @@ void AiAnalysisService::doCloudRequest(const service::AttendanceStatistics& stat
             timeout_timer_->start(TIMEOUT_MS);
         }
 
-        QByteArray newData = reply->readAll();
-        sse_buffer_.append(newData);
+        sse_buffer_.append(reply->readAll());
 
-        while (true) {
-            // SSE 事件以空行分隔（\n\n 或 \r\n\r\n）
-            // 关键：先取 block，再 remove，避免丢包/乱包
-            int idx = sse_buffer_.indexOf("\n\n");
-            int separator_len = 2;
-            if (idx == -1) {
-                // 尝试 \r\n\r\n
-                idx = sse_buffer_.indexOf("\r\n\r\n");
-                separator_len = 4;
-                if (idx == -1) break;
-            }
-
-            // 正确顺序：先取 block，再 remove
-            QByteArray eventData = sse_buffer_.left(idx).trimmed();
-            sse_buffer_.remove(0, idx + separator_len);
-
-            // 忽略空行/心跳行（某些代理会插入）
-            if (eventData.isEmpty()) {
-                continue;
-            }
-
-            // 按行解析事件块
-            QString eventType;
-            QByteArray dataBuffer;  // 用于拼接多行 data
-
-            QList<QByteArray> lines = eventData.split('\n');
-            for (const QByteArray& line : lines) {
-                QByteArray trimmedLine = line.trimmed();
-
-                // 解析 event 行（兼容 "event:reply" 和 "event: reply"）
-                if (trimmedLine.startsWith("event:") || trimmedLine.startsWith("event :")) {
-                    int colonIdx = trimmedLine.indexOf(':');
-                    eventType = QString::fromUtf8(trimmedLine.mid(colonIdx + 1)).trimmed();
-                }
-                // 解析 data 行（兼容 "data:{...}" 和 "data: {...}"）
-                else if (trimmedLine.startsWith("data:") || trimmedLine.startsWith("data :")) {
-                    int colonIdx = trimmedLine.indexOf(':');
-                    QByteArray dataContent = trimmedLine.mid(colonIdx + 1).trimmed();
-                    // 支持多行 data 拼接（防止粘包/分段）
-                    if (!dataBuffer.isEmpty()) {
-                        dataBuffer.append(dataContent);
-                    } else {
-                        dataBuffer = dataContent;
-                    }
-                }
-            }
-
-            // 解析 data JSON
-            QJsonObject root;
-            QJsonObject payload;
-            if (!dataBuffer.isEmpty()) {
-                QJsonDocument doc = QJsonDocument::fromJson(dataBuffer);
-                if (doc.isObject()) {
-                    root = doc.object();
-                    // 兼容两种格式：
-                    // 1. {"type":"reply","payload":{...}}
-                    // 2. {"payload":{...}}
-                    if (root.contains("payload")) {
-                        payload = root["payload"].toObject();
-                    } else {
-                        payload = root;
-                    }
-                }
-            }
-
-            // 如果没有 event 行，尝试从 data JSON 中解析 type（兼容模式）
-            if (eventType.isEmpty()) {
-                eventType = root["type"].toString();
-            }
-            if (eventType.isEmpty()) {
-                eventType = root["event"].toString();
-            }
-
-            if (eventType.isEmpty()) {
-                continue;  // 跳过无效事件
-            }
-
-            spdlog::debug("SSE event: type={}, dataLen={}", eventType.toStdString(), dataBuffer.size());
-
-            // 处理各类事件
-            if (eventType == "workflow_status" || eventType == "workflow") {
-                spdlog::debug("Ignoring workflow event");
-                continue;
-            }
-            if (eventType == "reply") {
-                // 处理回复事件
-                QString content = payload["content"].toString();
-                bool is_final = payload["is_final"].toBool();
-                if (!is_final && root.contains("is_final")) {
-                    is_final = root["is_final"].toBool();
-                }
-                bool is_evil = payload["is_evil"].toBool();
-
-                spdlog::debug("Reply event: content_len={}, is_final={}, is_evil={}",
-                             content.length(), is_final, is_evil);
-
-                if (is_evil) {
-                    spdlog::warn("Content flagged as sensitive");
-                    timeout_timer_->stop();
-                    emit errorOccurred("内容包含敏感信息，已被拦截");
-                    // 异步清理，避免在 readyRead 回调中直接 delete reply
-                    QTimer::singleShot(0, this, &AiAnalysisService::cleanup);
-                    continue;
-                }
-
+        const auto events = consume_remote_events(provider, sse_buffer_);
+        for (const auto& event : events) {
+            if (event.kind == "delta") {
+                const QString content = event.text;
                 if (!content.isEmpty()) {
-                    spdlog::info("Received AI content: {} chars, is_final={}", content.length(), is_final);
-                    // 处理 incremental 语义
                     if (is_incremental_) {
-                        // incremental=true：content 是增量片段，需要 append
                         incremental_buffer_.append(content);
-                        emit analysisResultReady(content);
                     } else {
-                        // incremental=false：content 可能覆盖之前答案，需要 replace
                         incremental_buffer_ = content;
-                        emit analysisResultReady(content);
                     }
-                } else {
-                    // 空 content 但 is_final=true 可能是工作流结束信号，忽略
-                    if (is_final) {
-                        spdlog::debug("Ignoring empty content with is_final=true (likely workflow signal)");
-                        continue;
-                    }
-                    spdlog::warn("Received empty content, is_final={}", is_final);
+                    emitAssistantDelta(content, "model", event.final);
                 }
-
-                // 注意：不在这里判断结束！
-                // 腾讯云 SSE 可能发送多个 reply 事件，每个都有自己的 is_final
-                // 第一个 reply 可能带 is_final=true（快速摘要），但后续还有更多数据
-                // 真正的结束判断放在 finished 信号处理中（HTTP 连接关闭时）
-                if (is_final) {
-                    spdlog::info("Received is_final=true marker (total {} chars so far), waiting for connection close",
-                                incremental_buffer_.length());
-                }
+                continue;
             }
-            else if (eventType == "error") {
-                // 处理错误事件（无 payload，直接在 root 中）
-                QJsonObject error;
-                if (dataBuffer.isEmpty()) {
-                    continue;
-                }
-                QJsonDocument doc = QJsonDocument::fromJson(dataBuffer);
-                if (doc.isObject()) {
-                    error = doc.object()["error"].toObject();
-                }
 
-                int code = error["code"].toInt();
-                QString message = error["message"].toString();
-                spdlog::error("AI error: code={}, message={}", code, message.toStdString());
+            if (event.kind == "reasoning" && !event.text.isEmpty()) {
+                emitStreamEvent("model", "reasoning", "reasoning", event.text);
+                continue;
+            }
 
+            if (event.kind == "error") {
+                const QJsonObject error = event.data.value("error").toObject();
+                const int code = error.value("code").toInt();
+                const QString message = error.value("message").toString(event.text);
                 timeout_timer_->stop();
 
-                // 特定错误码处理
                 if (code == 460011) {
+                    emitStreamEvent("model", "error", "status", "超出并发数限制，请稍后再试");
                     emit errorOccurred("超出并发数限制，请稍后再试");
                 } else if (code == 460032) {
+                    emitStreamEvent("model", "error", "status", "模型余额不足，请联系管理员");
                     emit errorOccurred("模型余额不足，请联系管理员");
                 } else if (code == 460034) {
+                    emitStreamEvent("model", "error", "status", "输入内容过长，请减少数据量");
                     emit errorOccurred("输入内容过长，请减少数据量");
                 } else {
+                    emitStreamEvent("model", "error", "status",
+                                    QString("错误 %1: %2").arg(code).arg(message));
                     emit errorOccurred(QString("错误 %1: %2").arg(code).arg(message));
                 }
 
-                // 异步清理
                 QTimer::singleShot(0, this, &AiAnalysisService::cleanup);
-            }
-            else if (eventType == "token_stat") {
-                // 处理 token 统计事件
-                int token_count = payload["token_count"].toInt();
-                spdlog::info("Token count: {}", token_count);
-            }
-            else if (eventType == "reference") {
-                // 处理参考来源事件
-                spdlog::info("Received reference event");
-            }
-            else if (eventType == "thought") {
-                // 处理思考事件（DeepSeek-R1 等模型）
-                QString thought_content = payload["content"].toString();
-                spdlog::info("Model thinking: {}", thought_content.toStdString());
-            }
-            else {
-                spdlog::warn("Unknown event type: {}", eventType.toStdString());
             }
         }
     });
@@ -561,10 +536,12 @@ void AiAnalysisService::doCloudRequest(const service::AttendanceStatistics& stat
 
             if (!incremental_buffer_.isEmpty()) {
                 spdlog::info("AI analysis completed (connection closed, {} chars)", incremental_buffer_.length());
+                emitStreamEvent("model", "done", "assistant", QString(), QJsonObject(), true);
                 emit analysisFinished();
             } else {
                 // 没有收到任何数据，视为错误
                 spdlog::warn("SSE connection closed without receiving any data");
+                emitStreamEvent("model", "error", "status", "服务器未返回任何数据");
                 emit errorOccurred("服务器未返回任何数据");
             }
         }
@@ -607,7 +584,9 @@ void AiAnalysisService::requestAgentChat(const QString& user_input) {
 
     agent_running_ = true;
     agent_cancel_requested_ = false;
+    beginStreamRequest();
     emit analysisStarted();
+    emitStreamEvent("agent", "start", "status");
 
     // 创建工作线程
     current_thread_ = new QThread;
@@ -626,10 +605,23 @@ void AiAnalysisService::requestAgentChat(const QString& user_input) {
     });
 
     // 转发信号
-    connect(current_worker_, &agent::AgentWorker::thinkingStarted, this, &AiAnalysisService::agentThinking);
-    connect(current_worker_, &agent::AgentWorker::toolCalling, this, &AiAnalysisService::agentToolCalling);
-    connect(current_worker_, &agent::AgentWorker::toolCompleted, this, &AiAnalysisService::agentToolCompleted);
-    connect(current_worker_, &agent::AgentWorker::chunkReady, this, &AiAnalysisService::analysisResultReady);
+    connect(current_worker_, &agent::AgentWorker::thinkingStarted, this, [this]() {
+        emit agentThinking();
+        emitStreamEvent("agent", "thinking", "status", "思考中");
+    });
+    connect(current_worker_, &agent::AgentWorker::toolCalling, this, [this](const QString& tool_name) {
+        emit agentToolCalling(tool_name);
+        QJsonObject data;
+        data["tool_name"] = tool_name;
+        emitStreamEvent("tool", "tool_call", "status", tool_name, data);
+    });
+    connect(current_worker_, &agent::AgentWorker::toolCompleted, this, [this](const QString& tool_name, const QString& result) {
+        emit agentToolCompleted(tool_name, result);
+        QJsonObject data;
+        data["tool_name"] = tool_name;
+        data["result"] = result;
+        emitStreamEvent("tool", "tool_result", "status", tool_name, data);
+    });
     connect(current_worker_, &agent::AgentWorker::errorOccurred, this, &AiAnalysisService::errorOccurred);
 
     // 完成处理
@@ -642,10 +634,10 @@ void AiAnalysisService::requestAgentChat(const QString& user_input) {
         current_thread_ = nullptr;
 
         if (!agent_cancel_requested_) {
-            // 发送最终答案到 UI
-            if (!answer.isEmpty()) {
-                emit analysisResultReady(answer);
+            if (!stream_has_visible_output_.load() && !answer.isEmpty()) {
+                emitAssistantDelta(answer, "agent", true);
             }
+            emitStreamEvent("agent", "done", "assistant", QString(), QJsonObject(), true);
             emit analysisFinished();
         }
     });
@@ -668,10 +660,13 @@ void AiAnalysisService::requestAgentChat(const QString& user_input) {
 
 void AiAnalysisService::initializeAgent(service::AttendanceService* attendance_svc,
                                          service::UserService* user_svc) {
+    const RemoteProvider provider = detect_remote_provider();
     agent::AgentConfig config;
     config.max_iterations = Config::Agent::MAX_ITERATIONS;
     config.stream_output = Config::Agent::STREAM_OUTPUT;
-    config.skip_system_prompt = Config::Agent::Cloud::PRESET_SYSTEM_PROMPT;
+    config.skip_system_prompt = provider == RemoteProvider::Tencent
+        ? Config::Agent::Cloud::PRESET_SYSTEM_PROMPT
+        : false;
 
     agent_service_ = std::make_unique<agent::AgentService>(config, nullptr);
     if (attendance_svc || user_svc) {
@@ -706,6 +701,8 @@ QString AiAnalysisService::doSyncCloudRequest(const QString& prompt) {
     QString result;
     bool error = false;
     bool cancelled = false;
+    agent::IncrementalResponseParser parser;
+    const RemoteProvider provider = detect_remote_provider();
 
     spdlog::debug("Cloud Agent sync request, prompt length: {}", prompt.length());
 
@@ -716,33 +713,19 @@ QString AiAnalysisService::doSyncCloudRequest(const QString& prompt) {
     QNetworkAccessManager local_manager;
 
     // 同步请求实现，使用 SSE 获取流式输出
-    QUrl url(QString::fromStdString(Config::TencentAI::API_URL));
+    QUrl url(build_remote_url(provider));
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     request.setRawHeader("Accept", "text/event-stream");
-
-    QString session_id = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    QString request_id = QUuid::createUuid().toString(QUuid::WithoutBraces);
-
-    QJsonObject jsonBody;
-    jsonBody["session_id"] = session_id;
-    jsonBody["request_id"] = request_id;
-    jsonBody["bot_app_key"] = QString::fromUtf8(Config::TencentAI::getAppKey());
-    jsonBody["visitor_biz_id"] = QString::fromStdString(Config::TencentAI::VISITOR_BIZ_ID);
-    jsonBody["content"] = prompt;
-    jsonBody["incremental"] = true;
-    jsonBody["streaming_throttle"] = 10;
-    jsonBody["search_network"] = "disable";
-    jsonBody["stream"] = "enable";
-    jsonBody["workflow_status"] = "enable";
-
+    apply_remote_auth(provider, request);
+    QJsonObject jsonBody = build_remote_request(provider, prompt, true);
     QNetworkReply* reply = local_manager.post(request, QJsonDocument(jsonBody).toJson());
 
     QByteArray sse_buffer;
     QTimer timer;
     timer.setSingleShot(true);
 
-    connect(reply, &QNetworkReply::readyRead, &loop, [this, reply, &loop, &sse_buffer, &result, &timer, &cancelled]() {
+    connect(reply, &QNetworkReply::readyRead, &loop, [this, reply, &loop, &sse_buffer, &result, &timer, &cancelled, &error, &parser, provider]() {
         if (agent_cancel_requested_.load()) {
             cancelled = true;
             reply->abort();
@@ -755,64 +738,26 @@ QString AiAnalysisService::doSyncCloudRequest(const QString& prompt) {
         }
         sse_buffer.append(reply->readAll());
 
-        while (true) {
-            int idx = sse_buffer.indexOf("\n\n");
-            int separator_len = 2;
-            if (idx == -1) {
-                idx = sse_buffer.indexOf("\r\n\r\n");
-                separator_len = 4;
-                if (idx == -1) break;
-            }
-
-            QByteArray event_data = sse_buffer.left(idx).trimmed();
-            sse_buffer.remove(0, idx + separator_len);
-
-            if (event_data.isEmpty()) {
+        const auto events = consume_remote_events(provider, sse_buffer);
+        for (const auto& event : events) {
+            if (event.kind == "delta") {
+                result += event.text;
+                const auto parsed = parser.push(event.text);
+                emitAssistantDelta(parsed.assistant_delta, "agent", parsed.answer_finished || event.final);
                 continue;
             }
 
-            QString event_type;
-            QByteArray data_buffer;
-            QList<QByteArray> lines = event_data.split('\n');
-            for (const QByteArray& line : lines) {
-                QByteArray trimmed = line.trimmed();
-                if (trimmed.startsWith("event:") || trimmed.startsWith("event :")) {
-                    int colon_idx = trimmed.indexOf(':');
-                    event_type = QString::fromUtf8(trimmed.mid(colon_idx + 1)).trimmed();
-                } else if (trimmed.startsWith("data:") || trimmed.startsWith("data :")) {
-                    int colon_idx = trimmed.indexOf(':');
-                    QByteArray data_content = trimmed.mid(colon_idx + 1).trimmed();
-                    if (!data_buffer.isEmpty()) {
-                        data_buffer.append(data_content);
-                    } else {
-                        data_buffer = data_content;
-                    }
-                }
-            }
-
-            if (event_type == "workflow_status" || event_type == "workflow") {
+            if (event.kind == "reasoning" && !event.text.isEmpty()) {
+                emitStreamEvent("agent", "reasoning", "reasoning", event.text);
                 continue;
             }
 
-            if (data_buffer.isEmpty()) {
-                continue;
+            if (event.kind == "error") {
+                error = true;
+                reply->abort();
+                loop.quit();
+                return;
             }
-
-            QJsonDocument doc = QJsonDocument::fromJson(data_buffer);
-            if (!doc.isObject()) {
-                continue;
-            }
-
-            QJsonObject root = doc.object();
-            QJsonObject payload = root.contains("payload") ? root["payload"].toObject() : root;
-            QString content = payload["content"].toString();
-            if (content.isEmpty()) {
-                continue;
-            }
-
-            result += content;
-            // 流式输出到 UI（调试用）
-            emit analysisResultReady(content);
         }
     });
 

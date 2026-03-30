@@ -17,6 +17,7 @@
 #include "config/config.h"
 #include "agent/agent_service.h"
 #include "agent/agent_worker.h"
+#include "agent/incremental_response_parser.h"
 #include <spdlog/spdlog.h>
 #include <QEventLoop>
 #include <QTimer>
@@ -33,6 +34,7 @@ LocalAiAnalysisService* LocalAiAnalysisService::instance() {
 LocalAiAnalysisService::LocalAiAnalysisService(QObject* parent)
     : QObject(parent)
     , local_analyzing_(false) {
+    qRegisterMetaType<agent::AgentStreamEvent>("agent::AgentStreamEvent");
     auto local_llm = LocalLLMThread::instance();
     connect(local_llm, &LocalLLMThread::modelReady, this, &LocalAiAnalysisService::onLocalLLMReady);
     connect(local_llm, &LocalLLMThread::modelFailed, this, &LocalAiAnalysisService::onLocalLLMFailed);
@@ -43,6 +45,45 @@ LocalAiAnalysisService::LocalAiAnalysisService(QObject* parent)
 }
 
 LocalAiAnalysisService::~LocalAiAnalysisService() = default;
+
+void LocalAiAnalysisService::beginStreamRequest() {
+    active_stream_request_id_ = ++stream_request_seq_;
+    stream_event_seq_ = 0;
+    stream_has_visible_output_ = false;
+}
+
+void LocalAiAnalysisService::emitStreamEvent(const QString& phase,
+                                             const QString& type,
+                                             const QString& channel,
+                                             const QString& text,
+                                             const QJsonObject& data,
+                                             bool final) {
+    agent::AgentStreamEvent event;
+    event.request_id = active_stream_request_id_;
+    event.seq = ++stream_event_seq_;
+    event.phase = phase;
+    event.type = type;
+    event.channel = channel;
+    event.text = text;
+    event.data = data;
+    event.final = final;
+
+    if (channel == "assistant" && type == "delta" && !text.isEmpty()) {
+        stream_has_visible_output_ = true;
+    }
+
+    emit streamEventReady(event);
+}
+
+void LocalAiAnalysisService::emitAssistantDelta(const QString& text,
+                                                const QString& phase,
+                                                bool final) {
+    if (text.isEmpty()) {
+        return;
+    }
+    emit analysisResultReady(text);
+    emitStreamEvent(phase, "delta", "assistant", text, QJsonObject(), final);
+}
 
 bool LocalAiAnalysisService::initializeLocalLLM(const QString& model_path) {
     return LocalLLMThread::instance()->initModel(
@@ -148,7 +189,9 @@ void LocalAiAnalysisService::requestAnalysis(const service::AttendanceStatistics
         stats, trend_summary, detail_records, user_prompt, range_days);
 
     local_analyzing_ = true;
+    beginStreamRequest();
     emit analysisStarted();
+    emitStreamEvent("model", "start", "status");
     spdlog::info("Sending prompt to local LLM ({} chars)", prompt.length());
     LocalLLMThread::instance()->requestInference(prompt);
 }
@@ -162,6 +205,7 @@ void LocalAiAnalysisService::onLocalLLMReady() {
 
 void LocalAiAnalysisService::onLocalLLMFailed(const QString& error) {
     spdlog::error("Local LLM init failed: {}", error.toStdString());
+    emitStreamEvent("model", "error", "status", "本地模型加载失败: " + error);
     emit errorOccurred("本地模型加载失败: " + error);
 }
 
@@ -171,7 +215,7 @@ void LocalAiAnalysisService::onLocalLLMChunk(const QString& chunk) {
     if (agent_running_ || !local_analyzing_) {
         return;
     }
-    emit analysisResultReady(chunk);
+    emitAssistantDelta(chunk, "model");
 }
 
 void LocalAiAnalysisService::onLocalLLMFinished() {
@@ -180,6 +224,7 @@ void LocalAiAnalysisService::onLocalLLMFinished() {
         return;
     }
     local_analyzing_ = false;
+    emitStreamEvent("model", "done", "assistant", QString(), QJsonObject(), true);
     emit analysisFinished();
 }
 
@@ -189,6 +234,7 @@ void LocalAiAnalysisService::onLocalLLMError(const QString& error) {
         return;
     }
     local_analyzing_ = false;
+    emitStreamEvent("model", "error", "status", error);
     emit errorOccurred(error);
 }
 
@@ -256,7 +302,9 @@ void LocalAiAnalysisService::requestAgentChat(const QString& user_input) {
     local_analyzing_ = true;
     agent_running_ = true;
     agent_cancel_requested_ = false;
+    beginStreamRequest();
     emit analysisStarted();
+    emitStreamEvent("agent", "start", "status");
 
     // 创建工作线程（按需启动，完成后自动销毁）
     QThread* thread = new QThread;
@@ -275,14 +323,23 @@ void LocalAiAnalysisService::requestAgentChat(const QString& user_input) {
     });
 
     // 转发状态信号
-    connect(worker, &agent::AgentWorker::thinkingStarted,
-            this, &LocalAiAnalysisService::agentThinking);
-    connect(worker, &agent::AgentWorker::toolCalling,
-            this, &LocalAiAnalysisService::agentToolCalling);
-    connect(worker, &agent::AgentWorker::toolCompleted,
-            this, &LocalAiAnalysisService::agentToolCompleted);
-    connect(worker, &agent::AgentWorker::chunkReady,
-            this, &LocalAiAnalysisService::analysisResultReady);
+    connect(worker, &agent::AgentWorker::thinkingStarted, this, [this]() {
+        emit agentThinking();
+        emitStreamEvent("agent", "thinking", "status", "思考中");
+    });
+    connect(worker, &agent::AgentWorker::toolCalling, this, [this](const QString& tool_name) {
+        emit agentToolCalling(tool_name);
+        QJsonObject data;
+        data["tool_name"] = tool_name;
+        emitStreamEvent("tool", "tool_call", "status", tool_name, data);
+    });
+    connect(worker, &agent::AgentWorker::toolCompleted, this, [this](const QString& tool_name, const QString& result) {
+        emit agentToolCompleted(tool_name, result);
+        QJsonObject data;
+        data["tool_name"] = tool_name;
+        data["result"] = result;
+        emitStreamEvent("tool", "tool_result", "status", tool_name, data);
+    });
     connect(worker, &agent::AgentWorker::errorOccurred,
             this, &LocalAiAnalysisService::errorOccurred);
 
@@ -294,9 +351,11 @@ void LocalAiAnalysisService::requestAgentChat(const QString& user_input) {
         current_thread_ = nullptr;
 
         if (!agent_cancel_requested_) {
-            if (!answer.isEmpty()) {
+            if (!stream_has_visible_output_.load() && !answer.isEmpty()) {
+                emitAssistantDelta(answer, "agent", true);
                 spdlog::info("Agent chat completed, answer length: {}", answer.length());
             }
+            emitStreamEvent("agent", "done", "assistant", QString(), QJsonObject(), true);
             emit analysisFinished();
         } else {
             spdlog::info("Agent chat was cancelled");
@@ -363,10 +422,7 @@ std::function<QString(const QString&)> LocalAiAnalysisService::createThreadSafeL
         bool cancelled = false;
         QString error_msg;
 
-        // Agent 流式输出过滤状态：
-        // 只有进入 <answer> 标签后才转发给 UI，过滤掉 <tool_call>/<think> 等中间内容
-        bool in_answer = false;
-        QString pending_buf;  // 缓冲区，用于检测跨 chunk 的标签边界
+        agent::IncrementalResponseParser parser;
 
         // 在工作线程中创建事件循环
         QEventLoop loop;
@@ -375,46 +431,12 @@ std::function<QString(const QString&)> LocalAiAnalysisService::createThreadSafeL
 
         // 临时连接：收集 chunks，只转发 <answer> 区域的内容到 UI
         auto conn_chunk = connect(llm, &LocalLLMThread::chunkReady,
-            &loop, [this, &result, &in_answer, &pending_buf](const QString& chunk) {
+            &loop, [this, &result, &parser](const QString& chunk) {
                 result += chunk;
-
-                // 状态机：过滤非 <answer> 区域的内容
-                pending_buf += chunk;
-
-                if (!in_answer) {
-                    // 检测 <answer> 开始标签
-                    int pos = pending_buf.indexOf("<answer>");
-                    if (pos >= 0) {
-                        in_answer = true;
-                        // 取标签之后的内容转发
-                        QString after = pending_buf.mid(pos + 8); // strlen("<answer>") = 8
-                        pending_buf.clear();
-                        if (!after.isEmpty()) {
-                            emit analysisResultReady(after);
-                        }
-                    } else {
-                        // 保留末尾可能的不完整标签（最多 "<answer" = 7 字符）
-                        if (pending_buf.size() > 7) {
-                            pending_buf = pending_buf.right(7);
-                        }
-                    }
-                } else {
-                    // 已在 <answer> 区域，检测 </answer> 结束标签
-                    int pos = pending_buf.indexOf("</answer>");
-                    if (pos >= 0) {
-                        // 转发结束标签之前的内容
-                        QString before = pending_buf.left(pos);
-                        if (!before.isEmpty()) {
-                            emit analysisResultReady(before);
-                        }
-                        in_answer = false;
-                        pending_buf.clear();
-                    } else if (pending_buf.size() > 9) {
-                        // 转发安全部分（保留末尾 9 字符防 </answer> 跨 chunk）
-                        QString safe = pending_buf.left(pending_buf.size() - 9);
-                        pending_buf = pending_buf.right(9);
-                        emit analysisResultReady(safe);
-                    }
+                const auto parsed = parser.push(chunk);
+                emitAssistantDelta(parsed.assistant_delta, "agent", parsed.answer_finished);
+                if (!parsed.reasoning_delta.isEmpty()) {
+                    emitStreamEvent("agent", "reasoning", "reasoning", parsed.reasoning_delta);
                 }
             }, Qt::QueuedConnection);
 
@@ -486,6 +508,7 @@ std::function<QString(const QString&)> LocalAiAnalysisService::createThreadSafeL
             // 超时错误不再发送 errorOccurred 信号，让 Agent 循环自然结束
             // 只有非超时错误才发送信号
             if (error_msg != "LLM 推理超时") {
+                emitStreamEvent("agent", "error", "status", error_msg);
                 emit errorOccurred(error_msg);
             }
             return QString();

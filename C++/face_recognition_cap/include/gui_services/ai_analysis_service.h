@@ -13,6 +13,7 @@
 #include "service/attendance_service.h"
 #include "service/user_service.h"
 #include "agent/agent_service.h"
+#include "agent/stream_event.h"
 
 // 前向声明
 namespace agent {
@@ -58,6 +59,8 @@ public:
 signals:
     // 分析结果信号（增量内容）
     void analysisResultReady(const QString& result);
+    // 统一流式事件
+    void streamEventReady(const agent::AgentStreamEvent& event);
     // 分析完成信号
     void analysisFinished();
     // 错误信号
@@ -135,11 +138,26 @@ private:
     std::atomic<bool> agent_cancel_requested_{false};
     std::atomic<uint64_t> agent_request_seq_{0};
     std::atomic<uint64_t> agent_active_request_id_{0};
+    std::atomic<uint64_t> stream_request_seq_{0};
+    std::atomic<uint64_t> stream_event_seq_{0};
+    std::atomic<bool> stream_has_visible_output_{false};
+    uint64_t active_stream_request_id_ = 0;
     std::unique_ptr<agent::AgentService> agent_service_;
 
     // Agent 工作线程
     QThread* current_thread_ = nullptr;
     agent::AgentWorker* current_worker_ = nullptr;
+
+    void beginStreamRequest();
+    void emitStreamEvent(const QString& phase,
+                         const QString& type,
+                         const QString& channel,
+                         const QString& text = QString(),
+                         const QJsonObject& data = QJsonObject(),
+                         bool final = false);
+    void emitAssistantDelta(const QString& text,
+                            const QString& phase = QStringLiteral("model"),
+                            bool final = false);
 };
 
 #endif // AI_ANALYSIS_SERVICE_H

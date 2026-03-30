@@ -8,6 +8,7 @@
 #include "service/attendance_service.h"
 #include "service/user_service.h"
 #include "agent/agent_service.h"
+#include "agent/stream_event.h"
 
 // 前向声明
 namespace agent {
@@ -49,6 +50,7 @@ public:
 
 signals:
     void analysisResultReady(const QString& result);
+    void streamEventReady(const agent::AgentStreamEvent& event);
     void analysisFinished();
     void errorOccurred(const QString& errorMsg);
     void analysisStarted();
@@ -83,9 +85,24 @@ private:
     bool agent_mode_ = true;  // 默认启用 Agent 模式（与 DashboardPage 保持一致）
     std::atomic<bool> agent_running_{false};       // Agent 推理进行中
     std::atomic<bool> agent_cancel_requested_{false};  // 取消请求标志
+    std::atomic<uint64_t> stream_request_seq_{0};
+    std::atomic<uint64_t> stream_event_seq_{0};
+    std::atomic<bool> stream_has_visible_output_{false};
+    uint64_t active_stream_request_id_ = 0;
     std::unique_ptr<agent::AgentService> agent_service_;
 
     // Agent 工作线程（按需创建，完成后自动销毁）
     QThread* current_thread_ = nullptr;
     agent::AgentWorker* current_worker_ = nullptr;
+
+    void beginStreamRequest();
+    void emitStreamEvent(const QString& phase,
+                         const QString& type,
+                         const QString& channel,
+                         const QString& text = QString(),
+                         const QJsonObject& data = QJsonObject(),
+                         bool final = false);
+    void emitAssistantDelta(const QString& text,
+                            const QString& phase = QStringLiteral("model"),
+                            bool final = false);
 };

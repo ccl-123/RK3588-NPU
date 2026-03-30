@@ -37,12 +37,21 @@ bool ToolRegistry::hasTool(const QString& name) const {
 
 QString ToolRegistry::getToolsJson() const {
     QJsonArray tools_array;
-    for (const auto& pair : tools_) {
-        tools_array.append(pair.second->toToolDefinition());
+    for (const auto& definition : getToolDefinitions()) {
+        tools_array.append(definition.toJson());
     }
     return QString::fromUtf8(
         QJsonDocument(tools_array).toJson(QJsonDocument::Compact)
     );
+}
+
+std::vector<ToolDefinition> ToolRegistry::getToolDefinitions() const {
+    std::vector<ToolDefinition> definitions;
+    definitions.reserve(tools_.size());
+    for (const auto& pair : tools_) {
+        definitions.push_back(pair.second->definition());
+    }
+    return definitions;
 }
 
 std::vector<QString> ToolRegistry::getToolNames() const {

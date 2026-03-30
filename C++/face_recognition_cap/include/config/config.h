@@ -175,4 +175,62 @@ namespace TencentAI {
     }
 }
 
+// ===== 自定义接入（OpenAI 兼容接口）[环境变量] =====
+// 用途：
+//   当设置了 LLAMA_CPP_SERVER_URL 后，远端请求将不再走腾讯云，
+//   而是改为调用 OpenAI 兼容的 /v1/chat/completions 接口。
+//
+// 当前命名沿用历史变量名 LLAMA_CPP_*，但并不强依赖 llama.cpp。
+// 只要服务兼容 OpenAI Chat Completions 基本格式，都可以接入。
+//
+// 需要配置的内容：
+// 1. LLAMA_CPP_SERVER_URL
+//    - 填写服务基地址，不带结尾斜杠
+//    - 代码会自动拼接为: <base_url>/v1/chat/completions
+//    - 例如：
+//        export LLAMA_CPP_SERVER_URL=http://127.0.0.1:8080
+//        export LLAMA_CPP_SERVER_URL=http://192.168.1.10:8000
+//        export LLAMA_CPP_SERVER_URL=https://your-proxy.example.com
+//
+// 2. LLAMA_CPP_SERVER_MODEL
+//    - 填写请求体中的 model 字段
+//    - 该值必须与目标 OpenAI 兼容服务支持的模型名一致
+//    - 例如：
+//        export LLAMA_CPP_SERVER_MODEL=qwen2.5-7b-instruct
+//        export LLAMA_CPP_SERVER_MODEL=gpt-4o-mini
+//        export LLAMA_CPP_SERVER_MODEL=local-llama
+//
+// 3. LLAMA_CPP_SERVER_API_KEY
+//    - 如果你的 OpenAI 兼容服务需要鉴权，就填写这里
+//    - 代码会自动注入请求头:
+//        Authorization: Bearer <API_KEY>
+//    - 例如：
+//        export LLAMA_CPP_SERVER_API_KEY=sk-xxxxxx
+//
+// 注意：
+// - 如果 LLAMA_CPP_SERVER_URL 为空，则默认仍走腾讯云 LKE。
+// - 如果你的服务路径不是标准的 /v1/chat/completions，需要继续扩展这里的配置项。
+namespace LlamaCpp {
+    constexpr const char* BASE_URL_ENV = "LLAMA_CPP_SERVER_URL";
+    constexpr const char* MODEL_ENV = "LLAMA_CPP_SERVER_MODEL";
+    constexpr const char* API_KEY_ENV = "LLAMA_CPP_SERVER_API_KEY";
+    constexpr const char* DEFAULT_BASE_URL = "";
+    constexpr const char* DEFAULT_MODEL = "local-llama";
+
+    inline const char* getBaseUrl() {
+        static const char* v = std::getenv(BASE_URL_ENV);
+        return (v && v[0] != '\0') ? v : DEFAULT_BASE_URL;
+    }
+
+    inline const char* getModel() {
+        static const char* v = std::getenv(MODEL_ENV);
+        return (v && v[0] != '\0') ? v : DEFAULT_MODEL;
+    }
+
+    inline const char* getApiKey() {
+        static const char* v = std::getenv(API_KEY_ENV);
+        return v ? v : "";
+    }
+}
+
 } // namespace Config

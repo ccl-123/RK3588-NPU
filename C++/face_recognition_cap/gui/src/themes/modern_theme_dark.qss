@@ -1811,6 +1811,36 @@ QProgressBar#DashboardRankBar::chunk {
     border: 1px solid #274916;
 }
 
+#AiChatBubble[role="system"] {
+    background: #3a2a00;
+    border: 1px solid #614700;
+}
+
+#AiChatBlock {
+    background: transparent;
+    border-radius: 8px;
+}
+
+#AiChatBlock[blockType="status"] {
+    background: #1f1f1f;
+    border: 1px dashed #434343;
+}
+
+#AiChatBlock[blockType="reasoning"] {
+    background: #22172b;
+    border: 1px solid #3f2a56;
+}
+
+#AiChatBlock[blockType="tool_call"] {
+    background: #2b2111;
+    border: 1px solid #614700;
+}
+
+#AiChatBlock[blockType="tool_result"] {
+    background: #162312;
+    border: 1px solid #274916;
+}
+
 #AiChatText {
     color: #f0f0f0;
     font-size: 14px;

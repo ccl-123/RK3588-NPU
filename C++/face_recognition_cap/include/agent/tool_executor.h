@@ -8,19 +8,10 @@
 #include <QString>
 #include <QJsonObject>
 #include "agent/tool_registry.h"
+#include "agent/tool_types.h"
 
 namespace agent {
-
-/**
- * @brief 工具调用信息
- */
-struct ToolCall {
-    QString name;           ///< 工具名称
-    QJsonObject arguments;  ///< 工具参数
-    bool valid = false;     ///< 是否有效
-
-    QString toString() const;
-};
+using ToolCall = ToolInvocation;
 
 /**
  * @brief 工具执行器 - 解析并执行工具调用
@@ -50,7 +41,7 @@ public:
      * @param call 工具调用信息
      * @return 工具执行结果
      */
-    QString execute(const ToolCall& call);
+    ToolExecutionResult execute(const ToolCall& call);
 
     /**
      * @brief 格式化工具响应供 LLM 继续推理
@@ -58,7 +49,7 @@ public:
      * @param result 工具执行结果
      * @return 格式化后的响应字符串
      */
-    QString formatToolResponse(const QString& tool_name, const QString& result);
+    QString formatToolResponse(const ToolExecutionResult& result);
 
     /**
      * @brief 检测 LLM 输出是否包含工具调用

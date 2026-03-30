@@ -9,6 +9,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include "agent/tool_types.h"
 
 namespace agent {
 
@@ -51,15 +52,43 @@ public:
     virtual QString execute(const QJsonObject& args) = 0;
 
     /**
+     * @brief 使用统一执行结果包装执行工具
+     * @param invocation 工具调用
+     * @return 结构化结果
+     */
+    virtual ToolExecutionResult executeWithResult(const ToolInvocation& invocation) {
+        ToolExecutionResult result;
+        result.call_id = invocation.call_id;
+        result.name = invocation.name.isEmpty() ? name() : invocation.name;
+
+        try {
+            result.display_text = execute(invocation.arguments);
+            result.output["text"] = result.display_text;
+            result.ok = true;
+        } catch (const std::exception& e) {
+            result.ok = false;
+            result.error = QString::fromUtf8(e.what());
+            result.display_text = QString("错误: 工具执行失败 - %1").arg(result.error);
+            result.output["error"] = result.error;
+        }
+
+        return result;
+    }
+
+    ToolDefinition definition() const {
+        ToolDefinition def;
+        def.name = name();
+        def.description = description();
+        def.input_schema = parametersSchema();
+        return def;
+    }
+
+    /**
      * @brief 生成 OpenAI 风格的工具定义 JSON
      * @return 完整的工具定义，用于 rkllm_set_function_tools()
      */
     QJsonObject toToolDefinition() const {
-        QJsonObject tool;
-        tool["name"] = name();
-        tool["description"] = description();
-        tool["parameters"] = parametersSchema();
-        return tool;
+        return definition().toJson();
     }
 
     /**

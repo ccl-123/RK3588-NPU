@@ -12,6 +12,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include "tools/base_tool.h"
+#include "agent/tool_types.h"
 
 namespace agent {
 
@@ -57,6 +58,12 @@ public:
      * @return 用于 rkllm_set_function_tools() 的 JSON
      */
     QString getToolsJson() const;
+
+    /**
+     * @brief 获取所有工具定义
+     * @return 工具定义列表
+     */
+    std::vector<ToolDefinition> getToolDefinitions() const;
 
     /**
      * @brief 获取所有工具名称
