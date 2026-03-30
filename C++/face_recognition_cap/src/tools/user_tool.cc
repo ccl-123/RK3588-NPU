@@ -4,11 +4,64 @@
  */
 
 #include "tools/user_tool.h"
-#include <map>
+
 #include <QJsonArray>
+#include <QJsonObject>
+#include <map>
 #include <spdlog/spdlog.h>
 
 namespace agent {
+
+namespace {
+
+QJsonObject user_to_json(const db::UserInfo& user, int feature_count) {
+    return QJsonObject{
+        {"user_id", user.user_id},
+        {"user_name", QString::fromStdString(user.user_name)},
+        {"employee_id", QString::fromStdString(user.employee_id)},
+        {"department", QString::fromStdString(user.department)},
+        {"position", QString::fromStdString(user.position)},
+        {"status", user.status == db::USER_ENABLED ? "启用" : "禁用"},
+        {"feature_count", feature_count},
+    };
+}
+
+QString format_user_text(const QJsonObject& user) {
+    return QString(
+        "用户信息:\n"
+        "- ID: %1\n"
+        "- 姓名: %2\n"
+        "- 工号: %3\n"
+        "- 部门: %4\n"
+        "- 职位: %5\n"
+        "- 状态: %6\n"
+        "- 人脸特征数: %7"
+    ).arg(user.value("user_id").toInt())
+     .arg(user.value("user_name").toString())
+     .arg(user.value("employee_id").toString().isEmpty() ? "未设置" : user.value("employee_id").toString())
+     .arg(user.value("department").toString().isEmpty() ? "未设置" : user.value("department").toString())
+     .arg(user.value("position").toString().isEmpty() ? "未设置" : user.value("position").toString())
+     .arg(user.value("status").toString())
+     .arg(user.value("feature_count").toInt());
+}
+
+QString format_users_list_text(const QString& title, const QJsonArray& users) {
+    if (users.isEmpty()) {
+        return title + "\n暂无数据";
+    }
+
+    QString text = title;
+    for (const auto& value : users) {
+        const auto user = value.toObject();
+        text += QString("\n- %1 (ID: %2, 部门: %3)")
+            .arg(user.value("user_name").toString())
+            .arg(user.value("user_id").toInt())
+            .arg(user.value("department").toString().isEmpty() ? "未设置" : user.value("department").toString());
+    }
+    return text;
+}
+
+}  // namespace
 
 UserTool::UserTool(service::UserService* service)
     : user_service_(service) {}
@@ -35,164 +88,136 @@ QJsonObject UserTool::parametersSchema() const {
     };
 }
 
-QString UserTool::execute(const QJsonObject& args) {
+ToolExecutionResult UserTool::executeWithResult(const ToolInvocation& invocation) {
+    ToolExecutionResult result;
+    result.call_id = invocation.call_id;
+    result.name = name();
+
     if (!user_service_) {
-        return "错误: 用户服务未初始化";
+        result.ok = false;
+        result.error = "错误: 用户服务未初始化";
+        result.display_text = result.error;
+        result.output["error"] = result.error;
+        return result;
     }
 
-    // 兼容多种参数名: action, query_type, type
-    QString action = args["action"].toString();
-    if (action.isEmpty()) {
-        action = args["query_type"].toString();
-    }
-    if (action.isEmpty()) {
-        action = args["type"].toString();
-    }
-    if (action.isEmpty()) {
-        action = "stats";  // 默认返回统计
-    }
-
-    // 标准化参数值
+    const QJsonObject& args = invocation.arguments;
+    QString action = args.value("action").toString();
+    if (action.isEmpty()) action = args.value("query_type").toString();
+    if (action.isEmpty()) action = args.value("type").toString();
+    if (action.isEmpty()) action = "stats";
     action = action.toLower().trimmed();
 
-    // 兼容多种参数名: name, keyword, search
-    QString name_param = args["name"].toString();
-    if (name_param.isEmpty()) {
-        name_param = args["keyword"].toString();
-    }
-    if (name_param.isEmpty()) {
-        name_param = args["search"].toString();
-    }
+    QString name_param = args.value("name").toString();
+    if (name_param.isEmpty()) name_param = args.value("keyword").toString();
+    if (name_param.isEmpty()) name_param = args.value("search").toString();
+
+    result.output["action"] = action;
+    result.output["user_id"] = args.value("user_id").toInt(args.value("id").toInt());
+    result.output["name"] = name_param;
 
     if (action == "get_by_id" || action == "id") {
-        if (!args.contains("user_id") && !args.contains("id")) {
-            return "错误: 缺少 user_id 参数";
+        const int user_id = args.contains("user_id") ? args.value("user_id").toInt() : args.value("id").toInt();
+        db::UserInfo user;
+        if (!user_service_->get_user(user_id, user)) {
+            result.ok = false;
+            result.error = QString("未找到ID为 %1 的用户").arg(user_id);
+            result.display_text = result.error;
+            result.output["error"] = result.error;
+            return result;
         }
-        int id = args.contains("user_id") ? args["user_id"].toInt() : args["id"].toInt();
-        return queryById(id);
-    } else if (action == "get_by_name" || action == "search" || action == "find") {
+
+        const auto user_json = user_to_json(user, user_service_->get_feature_count(user.user_id));
+        result.ok = true;
+        result.output["mode"] = "single_user";
+        result.output["user"] = user_json;
+        result.display_text = format_user_text(user_json);
+        return result;
+    }
+
+    if (action == "get_by_name" || action == "search" || action == "find") {
         if (name_param.isEmpty()) {
-            return "错误: 缺少 name/keyword 参数";
+            result.ok = false;
+            result.error = "错误: 缺少 name/keyword 参数";
+            result.display_text = result.error;
+            result.output["error"] = result.error;
+            return result;
         }
-        return queryByName(name_param);
-    } else if (action == "list_all" || action == "list" || action == "all") {
-        return queryAll();
-    } else if (action == "stats" || action == "count" || action == "统计") {
-        return queryStats();
-    }
 
-    return QString("错误: 无效的操作 '%1'，支持 get_by_id/get_by_name/list_all/stats").arg(action);
-}
-
-QString UserTool::queryById(int user_id) {
-    spdlog::debug("Querying user by ID: {}", user_id);
-
-    db::UserInfo user;
-    if (!user_service_->get_user(user_id, user)) {
-        return QString("未找到ID为 %1 的用户").arg(user_id);
-    }
-
-    return formatUser(user);
-}
-
-QString UserTool::queryByName(const QString& name) {
-    spdlog::debug("Querying user by name: {}", name.toStdString());
-
-    auto users = user_service_->get_all_users();
-    std::vector<db::UserInfo> matched;
-
-    for (const auto& user : users) {
-        if (QString::fromStdString(user.user_name).contains(name, Qt::CaseInsensitive)) {
-            matched.push_back(user);
+        QJsonArray users_json;
+        auto users = user_service_->get_all_users();
+        for (const auto& user : users) {
+            if (QString::fromStdString(user.user_name).contains(name_param, Qt::CaseInsensitive)) {
+                users_json.append(user_to_json(user, user_service_->get_feature_count(user.user_id)));
+            }
         }
+
+        result.ok = true;
+        result.output["mode"] = "search_users";
+        result.output["users"] = users_json;
+        result.display_text = users_json.isEmpty()
+            ? QString("未找到姓名包含 '%1' 的用户").arg(name_param)
+            : format_users_list_text(QString("找到 %1 个匹配的用户:").arg(users_json.size()), users_json);
+        return result;
     }
 
-    if (matched.empty()) {
-        return QString("未找到姓名包含 '%1' 的用户").arg(name);
+    if (action == "list_all" || action == "list" || action == "all") {
+        QJsonArray users_json;
+        auto users = user_service_->get_all_users();
+        for (const auto& user : users) {
+            users_json.append(user_to_json(user, user_service_->get_feature_count(user.user_id)));
+        }
+
+        result.ok = true;
+        result.output["mode"] = "list_all";
+        result.output["users"] = users_json;
+        result.display_text = users_json.isEmpty()
+            ? "系统中暂无注册用户"
+            : format_users_list_text(QString("共有 %1 个注册用户:").arg(users_json.size()), users_json);
+        return result;
     }
 
-    QString result = QString("找到 %1 个匹配的用户:\n").arg(matched.size());
-    for (const auto& user : matched) {
-        result += "\n" + formatUser(user) + "\n";
+    if (action == "stats" || action == "count" || action == "统计") {
+        auto all_users = user_service_->get_all_users(-1);
+        auto active_users = user_service_->get_all_users(1);
+        QJsonObject departments;
+        std::map<std::string, int> dept_count;
+        for (const auto& user : active_users) {
+            const std::string dept = user.department.empty() ? "未分配" : user.department;
+            dept_count[dept]++;
+        }
+        for (const auto& pair : dept_count) {
+            departments[QString::fromStdString(pair.first)] = pair.second;
+        }
+
+        result.ok = true;
+        result.output["mode"] = "stats";
+        result.output["total"] = static_cast<int>(all_users.size());
+        result.output["active"] = static_cast<int>(active_users.size());
+        result.output["inactive"] = static_cast<int>(all_users.size() - active_users.size());
+        result.output["departments"] = departments;
+
+        QString text = QString(
+            "用户统计信息:\n"
+            "- 总用户数: %1\n"
+            "- 启用用户: %2\n"
+            "- 禁用用户: %3\n"
+            "\n部门分布:"
+        ).arg(result.output.value("total").toInt())
+         .arg(result.output.value("active").toInt())
+         .arg(result.output.value("inactive").toInt());
+        for (auto it = departments.begin(); it != departments.end(); ++it) {
+            text += QString("\n- %1: %2 人").arg(it.key()).arg(it.value().toInt());
+        }
+        result.display_text = text;
+        return result;
     }
 
+    result.ok = false;
+    result.error = QString("错误: 无效的操作 '%1'，支持 get_by_id/get_by_name/list_all/stats").arg(action);
+    result.display_text = result.error;
+    result.output["error"] = result.error;
     return result;
 }
 
-QString UserTool::queryAll() {
-    spdlog::debug("Querying all users");
-
-    auto users = user_service_->get_all_users();
-
-    if (users.empty()) {
-        return "系统中暂无注册用户";
-    }
-
-    QString result = QString("共有 %1 个注册用户:\n").arg(users.size());
-    for (const auto& user : users) {
-        result += QString("\n- %1 (ID: %2, 部门: %3)")
-            .arg(QString::fromStdString(user.user_name))
-            .arg(user.user_id)
-            .arg(QString::fromStdString(user.department.empty() ? "未设置" : user.department));
-    }
-
-    return result;
-}
-
-QString UserTool::queryStats() {
-    spdlog::debug("Querying user stats");
-
-    auto all_users = user_service_->get_all_users(-1);  // 所有状态
-    auto active_users = user_service_->get_all_users(1);  // 仅启用的
-
-    int total = all_users.size();
-    int active = active_users.size();
-    int inactive = total - active;
-
-    // 统计部门分布
-    std::map<std::string, int> dept_count;
-    for (const auto& user : active_users) {
-        std::string dept = user.department.empty() ? "未分配" : user.department;
-        dept_count[dept]++;
-    }
-
-    QString result = QString(
-        "用户统计信息:\n"
-        "- 总用户数: %1\n"
-        "- 启用用户: %2\n"
-        "- 禁用用户: %3\n"
-        "\n部门分布:"
-    ).arg(total).arg(active).arg(inactive);
-
-    for (const auto& pair : dept_count) {
-        result += QString("\n- %1: %2 人")
-            .arg(QString::fromStdString(pair.first))
-            .arg(pair.second);
-    }
-
-    return result;
-}
-
-QString UserTool::formatUser(const db::UserInfo& user) {
-    QString status = user.status == 1 ? "启用" : "禁用";
-    int feature_count = user_service_->get_feature_count(user.user_id);
-
-    return QString(
-        "用户信息:\n"
-        "- ID: %1\n"
-        "- 姓名: %2\n"
-        "- 工号: %3\n"
-        "- 部门: %4\n"
-        "- 职位: %5\n"
-        "- 状态: %6\n"
-        "- 人脸特征数: %7"
-    ).arg(user.user_id)
-     .arg(QString::fromStdString(user.user_name))
-     .arg(QString::fromStdString(user.employee_id.empty() ? "未设置" : user.employee_id))
-     .arg(QString::fromStdString(user.department.empty() ? "未设置" : user.department))
-     .arg(QString::fromStdString(user.position.empty() ? "未设置" : user.position))
-     .arg(status)
-     .arg(feature_count);
-}
-
-} // namespace agent
+}  // namespace agent

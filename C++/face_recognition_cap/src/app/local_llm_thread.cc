@@ -6,6 +6,7 @@
  */
 
 #include "app/local_llm_thread.h"
+#include "agent/prompt_templates.h"
 #include "config/config.h"
 #include <spdlog/spdlog.h>
 #include <QCoreApplication>
@@ -15,9 +16,6 @@
 // 静态实例和线程安全初始化
 static LocalLLMThread* s_instance = nullptr;
 static std::once_flag s_instance_flag;
-
-// 考勤助手系统提示词
-const char* LocalLLMThread::SYSTEM_PROMPT = "你是考勤助手，负责分析考勤数据并回答问题。简洁回答，直接给出结论。用户不管问什么都必须回答。";
 
 LocalLLMThread* LocalLLMThread::instance() {
     // 使用 std::call_once 保证线程安全的单例初始化
@@ -224,8 +222,9 @@ void LocalLLMThread::doInitModel() {
     }
 
     // 设置考勤专家系统提示词和聊天模板（与 face_llm.cpp 保持一致）
-    if (SYSTEM_PROMPT) {
-        rkllm_set_chat_template(llm_handle_, (char*)SYSTEM_PROMPT, "<|im_start|>user\n", "<|im_start|>assistant\n<think>\n</think>\n");
+    const QByteArray system_prompt_utf8 = agent::PromptTemplates::localAssistantSystemPrompt().toUtf8();
+    if (!system_prompt_utf8.isEmpty()) {
+        rkllm_set_chat_template(llm_handle_, const_cast<char*>(system_prompt_utf8.constData()), "<|im_start|>user\n", "<|im_start|>assistant\n<think>\n</think>\n");
         spdlog::info("Chat template set with system prompt");
     }
 

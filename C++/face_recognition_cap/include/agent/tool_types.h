@@ -7,6 +7,7 @@
 
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMetaType>
 #include <QString>
 
 namespace agent {
@@ -58,3 +59,6 @@ struct ToolExecutionResult {
 };
 
 }  // namespace agent
+
+Q_DECLARE_METATYPE(agent::ToolInvocation)
+Q_DECLARE_METATYPE(agent::ToolExecutionResult)

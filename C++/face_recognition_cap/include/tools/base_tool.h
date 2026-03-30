@@ -20,7 +20,7 @@ namespace agent {
  * - name(): 工具名称
  * - description(): 工具描述
  * - parametersSchema(): 参数 JSON Schema
- * - execute(): 执行工具
+ * - executeWithResult(): 执行工具并返回结构化结果
  */
 class BaseTool {
 public:
@@ -45,34 +45,23 @@ public:
     virtual QJsonObject parametersSchema() const = 0;
 
     /**
-     * @brief 执行工具
-     * @param args 参数对象
-     * @return 工具执行结果的文本描述
-     */
-    virtual QString execute(const QJsonObject& args) = 0;
-
-    /**
-     * @brief 使用统一执行结果包装执行工具
+     * @brief 执行工具并返回结构化结果
      * @param invocation 工具调用
      * @return 结构化结果
      */
-    virtual ToolExecutionResult executeWithResult(const ToolInvocation& invocation) {
-        ToolExecutionResult result;
-        result.call_id = invocation.call_id;
-        result.name = invocation.name.isEmpty() ? name() : invocation.name;
+    virtual ToolExecutionResult executeWithResult(const ToolInvocation& invocation) = 0;
 
-        try {
-            result.display_text = execute(invocation.arguments);
-            result.output["text"] = result.display_text;
-            result.ok = true;
-        } catch (const std::exception& e) {
-            result.ok = false;
-            result.error = QString::fromUtf8(e.what());
-            result.display_text = QString("错误: 工具执行失败 - %1").arg(result.error);
-            result.output["error"] = result.error;
-        }
-
-        return result;
+    /**
+     * @brief 兼容旧接口：返回展示文本
+     * @param args 参数对象
+     * @return 工具执行结果文本
+     */
+    QString execute(const QJsonObject& args) {
+        ToolInvocation invocation;
+        invocation.name = name();
+        invocation.arguments = args;
+        invocation.valid = true;
+        return executeWithResult(invocation).display_text;
     }
 
     ToolDefinition definition() const {

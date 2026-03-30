@@ -12,6 +12,7 @@
 #include "agent/tool_registry.h"
 #include "agent/tool_executor.h"
 #include "agent/conversation_memory.h"
+#include "agent/tool_types.h"
 
 namespace agent {
 
@@ -108,11 +109,23 @@ signals:
     void toolCalling(const QString& tool_name);
 
     /**
+     * @brief 结构化工具调用事件
+     * @param invocation 工具调用
+     */
+    void toolInvocationReady(const ToolInvocation& invocation);
+
+    /**
      * @brief 工具调用完成
      * @param tool_name 工具名称
      * @param result 工具结果
      */
     void toolCompleted(const QString& tool_name, const QString& result);
+
+    /**
+     * @brief 结构化工具结果事件
+     * @param result 工具执行结果
+     */
+    void toolResultReady(const ToolExecutionResult& result);
 
     /**
      * @brief 最终答案就绪

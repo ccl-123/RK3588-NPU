@@ -48,8 +48,12 @@ void AgentWorker::process(const QString& input) {
                                   this, &AgentWorker::thinkingStarted);
     auto conn_tool_calling = connect(service_, &AgentService::toolCalling,
                                       this, &AgentWorker::toolCalling);
+    auto conn_tool_invocation = connect(service_, &AgentService::toolInvocationReady,
+                                         this, &AgentWorker::toolInvocationReady);
     auto conn_tool_completed = connect(service_, &AgentService::toolCompleted,
                                         this, &AgentWorker::toolCompleted);
+    auto conn_tool_result = connect(service_, &AgentService::toolResultReady,
+                                     this, &AgentWorker::toolResultReady);
 
     // 包装 LLM 回调，添加停止检查
     auto wrapped_callback = [this](const QString& prompt) -> QString {
@@ -72,7 +76,9 @@ void AgentWorker::process(const QString& input) {
     // 断开信号连接
     disconnect(conn_thinking);
     disconnect(conn_tool_calling);
+    disconnect(conn_tool_invocation);
     disconnect(conn_tool_completed);
+    disconnect(conn_tool_result);
 
     if (stop_requested_.load()) {
         spdlog::info("AgentWorker::process cancelled");

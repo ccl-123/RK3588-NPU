@@ -43,12 +43,12 @@ public:
         };
     }
 
-    QString execute(const QJsonObject& args) override;
+    ToolExecutionResult executeWithResult(const ToolInvocation& invocation) override;
 
 private:
-    QString getDateTime();
-    QString getSystemStatus();
-    QString getAttendanceConfig();
+    QJsonObject buildDateTimeData();
+    QJsonObject buildSystemStatusData();
+    QJsonObject buildAttendanceConfigData();
 };
 
 /**
@@ -79,7 +79,7 @@ public:
         };
     }
 
-    QString execute(const QJsonObject& args) override;
+    ToolExecutionResult executeWithResult(const ToolInvocation& invocation) override;
 };
 
 /**
@@ -109,7 +109,7 @@ public:
         };
     }
 
-    QString execute(const QJsonObject& args) override;
+    ToolExecutionResult executeWithResult(const ToolInvocation& invocation) override;
 
 private:
     double evaluateSimple(const QString& expr);

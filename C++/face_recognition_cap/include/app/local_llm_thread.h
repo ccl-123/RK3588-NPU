@@ -133,8 +133,6 @@ private:
     int max_new_tokens_;
     int max_context_len_;
     
-    // 系统提示词（考勤分析专家）
-    static const char* SYSTEM_PROMPT;
 };
 
 #endif // LOCAL_LLM_THREAD_H

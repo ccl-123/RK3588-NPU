@@ -4,6 +4,7 @@
  */
 
 #include "agent/react_agent.h"
+#include "agent/prompt_templates.h"
 #include <QRegularExpression>
 #include <spdlog/spdlog.h>
 
@@ -83,13 +84,18 @@ QString ReactAgent::run(const QString& user_input,
                 auto call = executor_.parseToolCall(llm_output);
                 if (call.valid) {
                     emit toolCalling(call.name);
+                    emit toolInvocationReady(call);
+                    if (memory_) {
+                        memory_->addToolInvocationMessage(call);
+                    }
 
                     ToolExecutionResult result = executor_.execute(call);
 
                     if (memory_) {
-                        memory_->addToolMessage(call.name, result.promptText());
+                        memory_->addToolResultMessage(result);
                     }
                     emit toolCompleted(call.name, result.promptText());
+                    emit toolResultReady(result);
 
                     // 将工具结果反馈给 LLM
                     // 注意：keep_history=1 时 RKLLM 内部 KV Cache 已缓存之前的输出，
@@ -251,92 +257,17 @@ QString ReactAgent::extractContent(const QString& output, const QString& tag) {
 }
 
 QString ReactAgent::buildPrompt(const QString& user_input, const QString& context) {
-    QString prompt;
-
-    // 云端 LLM 已在服务端预设系统提示，跳过
-    if (!config_.skip_system_prompt) {
-        prompt = getSystemPrompt() + "\n\n";
-
-        // 添加工具定义
-        if (tools_ && tools_->size() > 0) {
-            prompt += "## 可用工具\n";
-            prompt += tools_->getToolsJson() + "\n\n";
-        }
-    }
-
-    // 添加上下文
-    if (!context.isEmpty()) {
-        prompt += "## 对话历史\n" + context + "\n\n";
-    }
-
-    // 添加当前问题
-    if (config_.skip_system_prompt) {
-        // 云端模式：只发送用户问题
-        prompt += user_input;
-    } else {
-        prompt += "## 当前问题\n用户: " + user_input + "\n\n";
-    }
-
-    return prompt;
+    const QString tools_json = (tools_ && tools_->size() > 0) ? tools_->getToolsJson() : QString();
+    return PromptTemplates::buildAgentPrompt(
+        getSystemPrompt(),
+        tools_json,
+        context,
+        user_input,
+        config_.skip_system_prompt);
 }
 
 QString ReactAgent::getDefaultSystemPrompt() const {
-    return R"(你是一个智能考勤助手，运行在人脸识别考勤终端上。
-
-## 核心能力
-1. 考勤查询：查询今日、本周、本月的考勤统计，支持日期范围查询
-2. 用户管理：查询员工信息、搜索用户
-3. 系统信息：获取当前时间、考勤规则
-
-## 工具调用规范
-当需要查询数据时，你必须使用以下格式调用工具：
-
-<tool_call>{"name":"工具名","arguments":{"参数名":"参数值"}}</tool_call>
-
-可用工具：
-1. query_attendance - 查询考勤数据
-   参数:
-   - query_type: stats(统计)、records(详细记录)、late(迟到名单)、early_leave(早退名单)
-   - date_range: today/week/month (预设范围)
-   - date: YYYY-MM-DD (指定单日)
-   - start_date: YYYY-MM-DD (开始日期，与end_date配合使用)
-   - end_date: YYYY-MM-DD (结束日期，与start_date配合使用)
-   - filter: all(全部记录)、anomaly(仅异常:迟到+早退)，默认all
-   示例:
-   - 查今日统计: {"name":"query_attendance","arguments":{"date_range":"today"}}
-   - 查今日迟到名单: {"name":"query_attendance","arguments":{"query_type":"late","date_range":"today"}}
-   - 查某天详细记录: {"name":"query_attendance","arguments":{"query_type":"records","date":"2026-01-10"}}
-   - 查日期范围统计: {"name":"query_attendance","arguments":{"start_date":"2026-01-01","end_date":"2026-01-10"}}
-   - 查日期范围异常记录: {"name":"query_attendance","arguments":{"query_type":"records","start_date":"2026-01-01","end_date":"2026-01-10","filter":"anomaly"}}
-
-2. query_user - 查询用户信息
-   参数: action (get_by_id/get_by_name/list_all/stats), user_id, name
-
-3. get_system_info - 获取系统信息
-   参数: info_type (time/config/status)
-
-## 回答格式
-- 需要数据时：<tool_call>{"name":"query_attendance","arguments":{"date_range":"today"}}</tool_call>
-- 给出答案时：<answer>最终回答内容</answer>
-
-## 示例
-用户：今天有多少人打卡？
-助手：<tool_call>{"name":"query_attendance","arguments":{"date_range":"today"}}</tool_call>
-
-用户：今天谁迟到了？
-助手：<tool_call>{"name":"query_attendance","arguments":{"query_type":"late","date_range":"today"}}</tool_call>
-
-用户：查询上周所有异常考勤
-助手：<tool_call>{"name":"query_attendance","arguments":{"query_type":"records","start_date":"2026-01-06","end_date":"2026-01-10","filter":"anomaly"}}</tool_call>
-
-用户：系统里有几个人？
-助手：<tool_call>{"name":"query_user","arguments":{"action":"stats"}}</tool_call>
-
-## 重要规则
-1. 必须先调用工具获取数据，不要猜测
-2. 每次只调用一个工具
-3. 收到工具结果后，用 <answer>...</answer> 给出最终回答
-4. 回答简洁，使用中文)";
+    return PromptTemplates::buildAgentSystemPrompt();
 }
 
 } // namespace agent

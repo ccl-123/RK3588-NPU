@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QMap>
 #include <QWidget>
 #include "agent/stream_event.h"
 
@@ -51,6 +52,7 @@ private:
         QLabel* placeholder_label = nullptr;
         QLabel* latest_text_block = nullptr;
         QLabel* latest_reasoning_block = nullptr;
+        QMap<QString, QLabel*> tool_blocks;
         bool active = false;
     };
 
@@ -64,6 +66,7 @@ private:
     void appendAssistantTextBlock(const QString& text, bool append);
     void appendAssistantReasoningBlock(const QString& text, bool append);
     void appendAssistantToolBlock(const QString& block_type,
+                                  const QString& call_id,
                                   const QString& title,
                                   const QString& detail = QString());
     void finishAssistantRenderMessage();
@@ -137,10 +140,6 @@ private slots:
     void on_local_llm_progress(int percent);
     void on_local_llm_released();
 
-    // Agent 状态相关
-    void on_agent_thinking();
-    void on_agent_tool_calling(const QString& tool_name);
-    void on_agent_tool_completed(const QString& tool_name, const QString& result);
     void on_agent_mode_toggled(bool checked);
 
 private:

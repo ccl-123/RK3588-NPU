@@ -7,8 +7,10 @@
 
 #include <QString>
 #include <QDateTime>
+#include <QJsonObject>
 #include <vector>
 #include <mutex>
+#include "agent/tool_types.h"
 
 namespace agent {
 
@@ -16,14 +18,17 @@ namespace agent {
  * @brief 对话消息
  */
 struct Message {
-    QString role;           ///< 角色: "user", "assistant", "tool"
-    QString content;        ///< 消息内容
-    QDateTime timestamp;    ///< 时间戳
-    QString tool_name;      ///< 工具名称（仅当 role == "tool" 时有效）
+    QString role;             ///< 角色: "user", "assistant", "tool"
+    QString kind;             ///< user / assistant / tool_call / tool_result
+    QString content;          ///< 消息内容
+    QDateTime timestamp;      ///< 时间戳
+    QString tool_name;        ///< 工具名称（仅当 role == "tool" 时有效）
+    QString tool_call_id;     ///< 工具调用 ID
+    QJsonObject metadata;     ///< 附加结构化元信息
 
     Message() = default;
     Message(const QString& r, const QString& c)
-        : role(r), content(c), timestamp(QDateTime::currentDateTime()) {}
+        : role(r), kind(r), content(c), timestamp(QDateTime::currentDateTime()) {}
 };
 
 /**
@@ -61,6 +66,18 @@ public:
      * @param result 工具执行结果
      */
     void addToolMessage(const QString& tool_name, const QString& result);
+
+    /**
+     * @brief 添加工具调用消息
+     * @param invocation 工具调用
+     */
+    void addToolInvocationMessage(const ToolInvocation& invocation);
+
+    /**
+     * @brief 添加工具结果消息
+     * @param result 工具执行结果
+     */
+    void addToolResultMessage(const ToolExecutionResult& result);
 
     /**
      * @brief 获取上下文（格式化的对话历史）

@@ -119,6 +119,8 @@ AiAnalysisService::AiAnalysisService(QObject* parent)
     , is_incremental_(false)
     , agent_mode_(true) {
     qRegisterMetaType<agent::AgentStreamEvent>("agent::AgentStreamEvent");
+    qRegisterMetaType<agent::ToolInvocation>("agent::ToolInvocation");
+    qRegisterMetaType<agent::ToolExecutionResult>("agent::ToolExecutionResult");
     network_manager_ = new QNetworkAccessManager(this);
 
     // 检查环境变量是否已设置
@@ -609,18 +611,26 @@ void AiAnalysisService::requestAgentChat(const QString& user_input) {
         emit agentThinking();
         emitStreamEvent("agent", "thinking", "status", "思考中");
     });
-    connect(current_worker_, &agent::AgentWorker::toolCalling, this, [this](const QString& tool_name) {
-        emit agentToolCalling(tool_name);
+    connect(current_worker_, &agent::AgentWorker::toolCalling, this, &AiAnalysisService::agentToolCalling);
+    connect(current_worker_, &agent::AgentWorker::toolCompleted, this, &AiAnalysisService::agentToolCompleted);
+    connect(current_worker_, &agent::AgentWorker::toolInvocationReady, this, [this](const agent::ToolInvocation& invocation) {
         QJsonObject data;
-        data["tool_name"] = tool_name;
-        emitStreamEvent("tool", "tool_call", "status", tool_name, data);
+        data["tool_name"] = invocation.name;
+        data["call_id"] = invocation.call_id;
+        data["arguments"] = invocation.arguments;
+        emitStreamEvent("tool", "tool_call", "status", invocation.name, data);
     });
-    connect(current_worker_, &agent::AgentWorker::toolCompleted, this, [this](const QString& tool_name, const QString& result) {
-        emit agentToolCompleted(tool_name, result);
+    connect(current_worker_, &agent::AgentWorker::toolResultReady, this, [this](const agent::ToolExecutionResult& result) {
         QJsonObject data;
-        data["tool_name"] = tool_name;
-        data["result"] = result;
-        emitStreamEvent("tool", "tool_result", "status", tool_name, data);
+        data["tool_name"] = result.name;
+        data["call_id"] = result.call_id;
+        data["result"] = result.promptText();
+        data["ok"] = result.ok;
+        data["output"] = result.output;
+        if (!result.error.isEmpty()) {
+            data["error"] = result.error;
+        }
+        emitStreamEvent("tool", "tool_result", "status", result.name, data);
     });
     connect(current_worker_, &agent::AgentWorker::errorOccurred, this, &AiAnalysisService::errorOccurred);
 

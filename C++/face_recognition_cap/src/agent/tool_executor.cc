@@ -4,9 +4,11 @@
  */
 
 #include "agent/tool_executor.h"
+#include "agent/prompt_templates.h"
 #include <QJsonDocument>
 #include <QJsonParseError>
 #include <QRegularExpression>
+#include <QUuid>
 #include <spdlog/spdlog.h>
 
 namespace agent {
@@ -42,6 +44,9 @@ ToolCall ToolExecutor::parseToolCall(const QString& llm_output) {
     call.arguments = obj["arguments"].toObject();
     call.raw_text = llm_output;
     call.valid = !call.name.isEmpty();
+    if (call.valid && call.call_id.isEmpty()) {
+        call.call_id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    }
 
     if (call.valid) {
         spdlog::debug("Parsed tool call: {}", call.toString().toStdString());
@@ -93,8 +98,7 @@ ToolExecutionResult ToolExecutor::execute(const ToolCall& call) {
 }
 
 QString ToolExecutor::formatToolResponse(const ToolExecutionResult& result) {
-    return QString("<|tool_response|>\n[%1 返回结果]\n%2\n<|/tool_response|>")
-        .arg(result.name, result.promptText());
+    return PromptTemplates::buildToolObservationPrompt(result);
 }
 
 bool ToolExecutor::hasToolCall(const QString& llm_output) const {

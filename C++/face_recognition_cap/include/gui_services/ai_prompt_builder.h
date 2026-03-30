@@ -3,6 +3,7 @@
 
 #include <QString>
 #include "service/attendance_service.h"
+#include "agent/prompt_templates.h"
 
 class AiPromptBuilder {
 public:

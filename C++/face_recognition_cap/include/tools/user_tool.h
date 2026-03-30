@@ -34,44 +34,10 @@ public:
     }
 
     QJsonObject parametersSchema() const override;
-
-    QString execute(const QJsonObject& args) override;
+    ToolExecutionResult executeWithResult(const ToolInvocation& invocation) override;
 
 private:
     service::UserService* user_service_;
-
-    /**
-     * @brief 按ID查询用户
-     * @param user_id 用户ID
-     * @return 查询结果
-     */
-    QString queryById(int user_id);
-
-    /**
-     * @brief 按姓名查询用户
-     * @param name 用户姓名
-     * @return 查询结果
-     */
-    QString queryByName(const QString& name);
-
-    /**
-     * @brief 查询所有用户
-     * @return 用户列表
-     */
-    QString queryAll();
-
-    /**
-     * @brief 查询用户统计
-     * @return 统计信息
-     */
-    QString queryStats();
-
-    /**
-     * @brief 格式化用户信息
-     * @param user 用户信息
-     * @return 格式化的字符串
-     */
-    QString formatUser(const db::UserInfo& user);
 };
 
 } // namespace agent

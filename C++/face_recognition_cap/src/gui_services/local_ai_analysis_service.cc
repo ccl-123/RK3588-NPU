@@ -35,6 +35,8 @@ LocalAiAnalysisService::LocalAiAnalysisService(QObject* parent)
     : QObject(parent)
     , local_analyzing_(false) {
     qRegisterMetaType<agent::AgentStreamEvent>("agent::AgentStreamEvent");
+    qRegisterMetaType<agent::ToolInvocation>("agent::ToolInvocation");
+    qRegisterMetaType<agent::ToolExecutionResult>("agent::ToolExecutionResult");
     auto local_llm = LocalLLMThread::instance();
     connect(local_llm, &LocalLLMThread::modelReady, this, &LocalAiAnalysisService::onLocalLLMReady);
     connect(local_llm, &LocalLLMThread::modelFailed, this, &LocalAiAnalysisService::onLocalLLMFailed);
@@ -327,18 +329,26 @@ void LocalAiAnalysisService::requestAgentChat(const QString& user_input) {
         emit agentThinking();
         emitStreamEvent("agent", "thinking", "status", "思考中");
     });
-    connect(worker, &agent::AgentWorker::toolCalling, this, [this](const QString& tool_name) {
-        emit agentToolCalling(tool_name);
+    connect(worker, &agent::AgentWorker::toolCalling, this, &LocalAiAnalysisService::agentToolCalling);
+    connect(worker, &agent::AgentWorker::toolCompleted, this, &LocalAiAnalysisService::agentToolCompleted);
+    connect(worker, &agent::AgentWorker::toolInvocationReady, this, [this](const agent::ToolInvocation& invocation) {
         QJsonObject data;
-        data["tool_name"] = tool_name;
-        emitStreamEvent("tool", "tool_call", "status", tool_name, data);
+        data["tool_name"] = invocation.name;
+        data["call_id"] = invocation.call_id;
+        data["arguments"] = invocation.arguments;
+        emitStreamEvent("tool", "tool_call", "status", invocation.name, data);
     });
-    connect(worker, &agent::AgentWorker::toolCompleted, this, [this](const QString& tool_name, const QString& result) {
-        emit agentToolCompleted(tool_name, result);
+    connect(worker, &agent::AgentWorker::toolResultReady, this, [this](const agent::ToolExecutionResult& result) {
         QJsonObject data;
-        data["tool_name"] = tool_name;
-        data["result"] = result;
-        emitStreamEvent("tool", "tool_result", "status", tool_name, data);
+        data["tool_name"] = result.name;
+        data["call_id"] = result.call_id;
+        data["result"] = result.promptText();
+        data["ok"] = result.ok;
+        data["output"] = result.output;
+        if (!result.error.isEmpty()) {
+            data["error"] = result.error;
+        }
+        emitStreamEvent("tool", "tool_result", "status", result.name, data);
     });
     connect(worker, &agent::AgentWorker::errorOccurred,
             this, &LocalAiAnalysisService::errorOccurred);

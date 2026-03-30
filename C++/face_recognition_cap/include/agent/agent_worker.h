@@ -12,6 +12,7 @@
 #include <QObject>
 #include <atomic>
 #include <functional>
+#include "agent/tool_types.h"
 
 namespace agent {
 
@@ -70,6 +71,7 @@ signals:
      * @param tool_name 工具名称
      */
     void toolCalling(const QString& tool_name);
+    void toolInvocationReady(const ToolInvocation& invocation);
 
     /**
      * @brief 工具调用完成
@@ -77,6 +79,7 @@ signals:
      * @param result 工具返回结果
      */
     void toolCompleted(const QString& tool_name, const QString& result);
+    void toolResultReady(const ToolExecutionResult& result);
 
     /**
      * @brief 处理完成

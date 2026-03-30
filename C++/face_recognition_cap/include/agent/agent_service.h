@@ -11,6 +11,7 @@
 #include "agent/react_agent.h"
 #include "agent/tool_registry.h"
 #include "agent/conversation_memory.h"
+#include "agent/tool_types.h"
 #include "service/attendance_service.h"
 #include "service/user_service.h"
 
@@ -118,6 +119,7 @@ signals:
      * @param tool_name 工具名称
      */
     void toolCalling(const QString& tool_name);
+    void toolInvocationReady(const ToolInvocation& invocation);
 
     /**
      * @brief 工具调用完成
@@ -125,6 +127,7 @@ signals:
      * @param result 工具结果
      */
     void toolCompleted(const QString& tool_name, const QString& result);
+    void toolResultReady(const ToolExecutionResult& result);
 
     /**
      * @brief 最终答案就绪

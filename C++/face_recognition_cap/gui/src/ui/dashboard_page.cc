@@ -22,6 +22,7 @@
 #include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QJsonDocument>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMap>
@@ -580,6 +581,7 @@ void DashboardPage::appendAssistantReasoningBlock(const QString& text, bool appe
 }
 
 void DashboardPage::appendAssistantToolBlock(const QString& block_type,
+                                             const QString& call_id,
                                              const QString& title,
                                              const QString& detail) {
     if (!current_assistant_message_.active) {
@@ -590,7 +592,21 @@ void DashboardPage::appendAssistantToolBlock(const QString& block_type,
     if (!detail.isEmpty()) {
         text += "\n" + detail;
     }
-    appendRenderBlock(current_assistant_message_, block_type, text, false);
+
+    if (!call_id.isEmpty() && current_assistant_message_.tool_blocks.contains(call_id)) {
+        auto* label = current_assistant_message_.tool_blocks.value(call_id);
+        label->setText(text);
+        if (auto* block = qobject_cast<QWidget*>(label->parentWidget())) {
+            apply_state_property(block, "blockType", block_type.toUtf8().constData());
+        }
+        scrollChatToBottom();
+        return;
+    }
+
+    auto* label = appendRenderBlock(current_assistant_message_, block_type, text, false);
+    if (!call_id.isEmpty() && label) {
+        current_assistant_message_.tool_blocks.insert(call_id, label);
+    }
 }
 
 void DashboardPage::finishAssistantRenderMessage() {
@@ -598,6 +614,7 @@ void DashboardPage::finishAssistantRenderMessage() {
     current_assistant_message_.placeholder_label = nullptr;
     current_assistant_message_.latest_text_block = nullptr;
     current_assistant_message_.latest_reasoning_block = nullptr;
+    current_assistant_message_.tool_blocks.clear();
 }
 
 void DashboardPage::scrollChatToBottom() {
@@ -872,15 +889,19 @@ void DashboardPage::on_ai_stream_event(const agent::AgentStreamEvent& event) {
 
     if (event.type == "tool_call") {
         const QString tool_name = event.data.value("tool_name").toString(event.text);
+        const QString call_id = event.data.value("call_id").toString();
         agent_status_label_->setText(tr("[查询数据: %1]").arg(tool_name));
         apply_state_property(agent_status_label_, "agentState", "tool");
         agent_status_label_->show();
-        appendAssistantToolBlock("tool_call", tr("[工具调用] %1").arg(tool_name));
+        const QString args_text = QString::fromUtf8(
+            QJsonDocument(event.data.value("arguments").toObject()).toJson(QJsonDocument::Compact));
+        appendAssistantToolBlock("tool_call", call_id, tr("[工具调用] %1").arg(tool_name), args_text);
         return;
     }
 
     if (event.type == "tool_result") {
         const QString tool_name = event.data.value("tool_name").toString(event.text);
+        const QString call_id = event.data.value("call_id").toString();
         QString detail = event.data.value("result").toString();
         if (detail.length() > 240) {
             detail = detail.left(240) + tr("\n...(结果已截断)");
@@ -888,7 +909,7 @@ void DashboardPage::on_ai_stream_event(const agent::AgentStreamEvent& event) {
         agent_status_label_->setText(tr("[%1 完成]").arg(tool_name));
         apply_state_property(agent_status_label_, "agentState", "success");
         agent_status_label_->show();
-        appendAssistantToolBlock("tool_result", tr("[工具结果] %1").arg(tool_name), detail);
+        appendAssistantToolBlock("tool_result", call_id, tr("[工具结果] %1").arg(tool_name), detail);
     }
 }
 
@@ -1975,36 +1996,6 @@ void DashboardPage::on_local_llm_released() {
     }
 
     spdlog::info("Dashboard: Local LLM released, button switched to cloud mode");
-}
-
-// ==================== Agent 状态处理 ====================
-
-void DashboardPage::on_agent_thinking() {
-    if (agent_status_label_) {
-        agent_status_label_->setText(tr("[思考中...]"));
-        apply_state_property(agent_status_label_, "agentState", "thinking");
-        agent_status_label_->show();
-    }
-    spdlog::debug("Agent: thinking started");
-}
-
-void DashboardPage::on_agent_tool_calling(const QString& tool_name) {
-    if (agent_status_label_) {
-        agent_status_label_->setText(tr("[查询数据: %1]").arg(tool_name));
-        apply_state_property(agent_status_label_, "agentState", "tool");
-        agent_status_label_->show();
-    }
-    spdlog::debug("Agent: calling tool {}", tool_name.toStdString());
-}
-
-void DashboardPage::on_agent_tool_completed(const QString& tool_name, const QString& result) {
-    if (agent_status_label_) {
-        agent_status_label_->setText(tr("[%1 完成]").arg(tool_name));
-        apply_state_property(agent_status_label_, "agentState", "success");
-        agent_status_label_->show();
-    }
-    spdlog::debug("Agent: tool {} completed, result length: {}",
-        tool_name.toStdString(), result.length());
 }
 
 void DashboardPage::on_agent_mode_toggled(bool checked) {

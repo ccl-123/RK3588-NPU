@@ -107,8 +107,14 @@ void AgentService::connectSignals() {
     connect(agent_.get(), &ReactAgent::toolCalling,
             this, &AgentService::toolCalling);
 
+    connect(agent_.get(), &ReactAgent::toolInvocationReady,
+            this, &AgentService::toolInvocationReady);
+
     connect(agent_.get(), &ReactAgent::toolCompleted,
             this, &AgentService::toolCompleted);
+
+    connect(agent_.get(), &ReactAgent::toolResultReady,
+            this, &AgentService::toolResultReady);
 
     connect(agent_.get(), &ReactAgent::answerReady,
             this, &AgentService::answerReady);

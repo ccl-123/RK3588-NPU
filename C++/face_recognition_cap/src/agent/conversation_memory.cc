@@ -4,6 +4,7 @@
  */
 
 #include "agent/conversation_memory.h"
+#include <QJsonDocument>
 #include <spdlog/spdlog.h>
 
 namespace agent {
@@ -30,11 +31,38 @@ void ConversationMemory::addAssistantMessage(const QString& content) {
 void ConversationMemory::addToolMessage(const QString& tool_name, const QString& result) {
     std::lock_guard<std::mutex> lock(mutex_);
     Message msg("tool", result);
+    msg.kind = "tool_result";
     msg.tool_name = tool_name;
     messages_.push_back(msg);
     trimMessages();
     spdlog::debug("Added tool message from '{}', total: {}",
         tool_name.toStdString(), messages_.size());
+}
+
+void ConversationMemory::addToolInvocationMessage(const ToolInvocation& invocation) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    Message msg("tool", invocation.toString());
+    msg.kind = "tool_call";
+    msg.tool_name = invocation.name;
+    msg.tool_call_id = invocation.call_id;
+    msg.metadata["arguments"] = invocation.arguments;
+    messages_.push_back(msg);
+    trimMessages();
+}
+
+void ConversationMemory::addToolResultMessage(const ToolExecutionResult& result) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    Message msg("tool", result.promptText());
+    msg.kind = "tool_result";
+    msg.tool_name = result.name;
+    msg.tool_call_id = result.call_id;
+    msg.metadata["ok"] = result.ok;
+    msg.metadata["output"] = result.output;
+    if (!result.error.isEmpty()) {
+        msg.metadata["error"] = result.error;
+    }
+    messages_.push_back(msg);
+    trimMessages();
 }
 
 QString ConversationMemory::getContext(int max_turns) const {
@@ -67,8 +95,17 @@ QString ConversationMemory::getContext(int max_turns) const {
         } else if (msg.role == "assistant") {
             context += QString("助手: %1\n").arg(msg.content);
         } else if (msg.role == "tool") {
-            context += QString("[工具 %1 返回]: %2\n")
-                .arg(msg.tool_name, msg.content);
+            if (msg.kind == "tool_call") {
+                context += QString("[工具调用 %1 id=%2]: %3\n")
+                    .arg(msg.tool_name,
+                         msg.tool_call_id.isEmpty() ? "-" : msg.tool_call_id,
+                         QString::fromUtf8(QJsonDocument(msg.metadata.value("arguments").toObject()).toJson(QJsonDocument::Compact)));
+            } else {
+                context += QString("[工具结果 %1 id=%2]: %3\n")
+                    .arg(msg.tool_name,
+                         msg.tool_call_id.isEmpty() ? "-" : msg.tool_call_id,
+                         msg.content);
+            }
         }
     }
 

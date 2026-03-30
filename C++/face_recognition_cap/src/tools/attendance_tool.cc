@@ -4,12 +4,127 @@
  */
 
 #include "tools/attendance_tool.h"
+
 #include <QDate>
 #include <QDateTime>
 #include <QJsonArray>
 #include <spdlog/spdlog.h>
 
 namespace agent {
+
+namespace {
+
+QString attendance_status_text(int status) {
+    switch (status) {
+        case db::STATUS_NORMAL: return "正常";
+        case db::STATUS_LATE: return "迟到";
+        case db::STATUS_EARLY_LEAVE: return "早退";
+        default: return "未知";
+    }
+}
+
+QString check_type_text(int type) {
+    return type == db::CHECK_IN ? "签到" : "签退";
+}
+
+QJsonObject stats_to_json(const service::AttendanceStatistics& stats) {
+    return QJsonObject{
+        {"date", QString::fromStdString(stats.date)},
+        {"total_count", stats.total_count},
+        {"check_in_count", stats.check_in_count},
+        {"check_out_count", stats.check_out_count},
+        {"late_count", stats.late_count},
+        {"early_leave_count", stats.early_leave_count},
+        {"normal_count", stats.normal_count},
+    };
+}
+
+QJsonObject record_to_json(const db::AttendanceRecord& record) {
+    const QDateTime dt = QDateTime::fromSecsSinceEpoch(record.check_time);
+    return QJsonObject{
+        {"record_id", record.record_id},
+        {"user_id", record.user_id},
+        {"user_name", QString::fromStdString(record.user_name)},
+        {"check_time", dt.toString(Qt::ISODate)},
+        {"check_type", check_type_text(record.check_type)},
+        {"status", attendance_status_text(record.status)},
+        {"similarity", record.similarity},
+        {"device_id", QString::fromStdString(record.device_id)},
+        {"location", QString::fromStdString(record.location)},
+        {"remark", QString::fromStdString(record.remark)},
+    };
+}
+
+QString format_stats_text(const QJsonObject& obj, const QString& title_prefix) {
+    if (obj.value("total_count").toInt() == 0) {
+        return QString("%1 暂无考勤记录").arg(obj.value("date").toString());
+    }
+
+    return QString(
+        "%1 (%2):\n"
+        "- 总打卡人数: %3\n"
+        "- 签到人数: %4\n"
+        "- 签退人数: %5\n"
+        "- 正常: %6 人\n"
+        "- 迟到: %7 人\n"
+        "- 早退: %8 人"
+    ).arg(title_prefix)
+     .arg(obj.value("date").toString())
+     .arg(obj.value("total_count").toInt())
+     .arg(obj.value("check_in_count").toInt())
+     .arg(obj.value("check_out_count").toInt())
+     .arg(obj.value("normal_count").toInt())
+     .arg(obj.value("late_count").toInt())
+     .arg(obj.value("early_leave_count").toInt());
+}
+
+QString format_records_text(const QString& title,
+                            const QJsonArray& records,
+                            bool grouped_by_date = false) {
+    if (records.isEmpty()) {
+        return title + "\n暂无记录";
+    }
+
+    QString text = title + "\n";
+    QString current_date;
+    for (const auto& value : records) {
+        const auto obj = value.toObject();
+        const QString iso_time = obj.value("check_time").toString();
+        const QDateTime dt = QDateTime::fromString(iso_time, Qt::ISODate);
+        const QString date = dt.date().toString("yyyy-MM-dd");
+
+        if (grouped_by_date && date != current_date) {
+            current_date = date;
+            text += QString("\n[%1]\n").arg(date);
+        }
+
+        text += QString("- %1: %2 %3 (%4)\n")
+            .arg(obj.value("user_name").toString())
+            .arg(dt.time().toString("HH:mm:ss"))
+            .arg(obj.value("check_type").toString())
+            .arg(obj.value("status").toString());
+    }
+    return text.trimmed();
+}
+
+QString format_names_text(const QString& date, const QString& label, const QJsonArray& names) {
+    if (names.isEmpty()) {
+        return QString("%1 没有人%2").arg(date, label);
+    }
+
+    QStringList list;
+    for (const auto& value : names) {
+        list.append(value.toString());
+    }
+
+    return QString("%1 %2人员 (%3人):\n- %4")
+        .arg(date)
+        .arg(label)
+        .arg(list.size())
+        .arg(list.join("\n- "));
+}
+
+}  // namespace
 
 AttendanceTool::AttendanceTool(service::AttendanceService* service)
     : attendance_service_(service) {}
@@ -50,387 +165,291 @@ QJsonObject AttendanceTool::parametersSchema() const {
     };
 }
 
-QString AttendanceTool::execute(const QJsonObject& args) {
+ToolExecutionResult AttendanceTool::executeWithResult(const ToolInvocation& invocation) {
+    ToolExecutionResult result;
+    result.call_id = invocation.call_id;
+    result.name = name();
+
     if (!attendance_service_) {
-        return "错误: 考勤服务未初始化";
+        result.ok = false;
+        result.error = "错误: 考勤服务未初始化";
+        result.display_text = result.error;
+        result.output["error"] = result.error;
+        return result;
     }
 
-    // 获取查询类型
-    QString query_type = args["query_type"].toString().toLower().trimmed();
+    const QJsonObject& args = invocation.arguments;
+    QString query_type = args.value("query_type").toString().toLower().trimmed();
     if (query_type.isEmpty()) {
-        query_type = "stats";  // 默认统计查询
+        query_type = "stats";
     }
 
-    // 获取过滤条件
-    QString filter = args["filter"].toString().toLower().trimmed();
-    bool anomaly_only = (filter == "anomaly");
+    QString filter = args.value("filter").toString().toLower().trimmed();
+    const bool anomaly_only = (filter == "anomaly");
+    QString start_date = args.value("start_date").toString().trimmed();
+    QString end_date = args.value("end_date").toString().trimmed();
+    QString date = args.value("date").toString().trimmed();
+    QString date_range = args.value("date_range").toString().toLower().trimmed();
 
-    // 检查是否使用日期范围查询
-    QString start_date = args["start_date"].toString().trimmed();
-    QString end_date = args["end_date"].toString().trimmed();
+    result.output["query_type"] = query_type;
+    result.output["filter"] = filter;
+    result.output["date"] = date;
+    result.output["date_range"] = date_range;
+    result.output["start_date"] = start_date;
+    result.output["end_date"] = end_date;
 
     if (!start_date.isEmpty() && !end_date.isEmpty()) {
-        // 日期范围查询
-        spdlog::info("Date range query: {} to {}, filter={}",
-            start_date.toStdString(), end_date.toStdString(), filter.toStdString());
-
-        if (query_type == "stats" || query_type == "统计") {
-            // 日期范围统计
-            auto stats_list = attendance_service_->get_statistics_range(
+        if (query_type == "stats") {
+            const auto stats_list = attendance_service_->get_statistics_range(
                 start_date.toStdString(), end_date.toStdString());
 
-            if (stats_list.empty()) {
-                return QString("日期范围 (%1 至 %2) 暂无考勤记录").arg(start_date, end_date);
-            }
-
-            // 汇总统计
-            int total_count = 0, check_in_count = 0, late_count = 0;
-            int early_leave_count = 0, normal_count = 0;
-
+            QJsonArray days;
+            int total_count = 0, check_in_count = 0, check_out_count = 0;
+            int late_count = 0, early_leave_count = 0, normal_count = 0;
             for (const auto& stats : stats_list) {
+                days.append(stats_to_json(stats));
                 total_count += stats.total_count;
                 check_in_count += stats.check_in_count;
+                check_out_count += stats.check_out_count;
                 late_count += stats.late_count;
                 early_leave_count += stats.early_leave_count;
                 normal_count += stats.normal_count;
             }
 
-            return QString(
+            result.ok = true;
+            result.output["mode"] = "range_stats";
+            result.output["days"] = days;
+            result.output["summary"] = QJsonObject{
+                {"start_date", start_date},
+                {"end_date", end_date},
+                {"days_count", static_cast<int>(stats_list.size())},
+                {"total_count", total_count},
+                {"check_in_count", check_in_count},
+                {"check_out_count", check_out_count},
+                {"late_count", late_count},
+                {"early_leave_count", early_leave_count},
+                {"normal_count", normal_count},
+            };
+            result.display_text = QString(
                 "考勤统计 (%1 至 %2):\n"
                 "- 统计天数: %3 天\n"
                 "- 总打卡次数: %4\n"
                 "- 签到次数: %5\n"
-                "- 正常打卡: %6 次\n"
-                "- 迟到: %7 次\n"
-                "- 早退: %8 次"
+                "- 签退次数: %6\n"
+                "- 正常打卡: %7 次\n"
+                "- 迟到: %8 次\n"
+                "- 早退: %9 次"
             ).arg(start_date, end_date)
              .arg(stats_list.size())
              .arg(total_count)
              .arg(check_in_count)
+             .arg(check_out_count)
              .arg(normal_count)
              .arg(late_count)
              .arg(early_leave_count);
-        } else {
-            // 日期范围记录查询
-            return queryRecordsRange(start_date, end_date, anomaly_only);
+            return result;
         }
+
+        auto records = attendance_service_->query_records_range(start_date.toStdString(), end_date.toStdString());
+        std::vector<db::AttendanceRecord> filtered;
+        if (anomaly_only) {
+            for (const auto& record : records) {
+                if (record.status == db::STATUS_LATE || record.status == db::STATUS_EARLY_LEAVE) {
+                    filtered.push_back(record);
+                }
+            }
+        } else {
+            filtered = std::move(records);
+        }
+
+        QJsonArray items;
+        for (const auto& record : filtered) {
+            items.append(record_to_json(record));
+        }
+
+        result.ok = true;
+        result.output["mode"] = "range_records";
+        result.output["records"] = items;
+        result.output["anomaly_only"] = anomaly_only;
+        result.display_text = format_records_text(
+            anomaly_only
+                ? QString("异常考勤记录 (%1 至 %2, 共 %3 条):").arg(start_date, end_date).arg(items.size())
+                : QString("考勤详细记录 (%1 至 %2, 共 %3 条):").arg(start_date, end_date).arg(items.size()),
+            items,
+            true);
+        return result;
     }
 
-    // 获取单日日期
-    QString date = args["date"].toString();
     if (date.isEmpty()) {
-        QString range = args["date_range"].toString().toLower().trimmed();
-        if (range.isEmpty() || range == "today" || range == "今日" || range == "今天") {
+        if (date_range.isEmpty() || date_range == "today" || date_range == "今日" || date_range == "今天") {
             date = getTodayDate();
-        } else if (range == "week" || range == "本周") {
-            // 对于周/月统计，使用原有逻辑
-            if (query_type == "stats") {
-                return queryWeek();
-            }
-            date = getTodayDate();  // 其他查询类型使用今日
-        } else if (range == "month" || range == "本月") {
-            if (query_type == "stats") {
-                return queryMonth();
-            }
+        } else if (date_range == "week" || date_range == "本周") {
+            date = getTodayDate();
+        } else if (date_range == "month" || date_range == "本月") {
             date = getTodayDate();
         } else {
             date = getTodayDate();
         }
+        result.output["date"] = date;
     }
 
-    // 根据查询类型执行
-    if (query_type == "stats" || query_type == "统计") {
-        return queryDate(date);
-    } else if (query_type == "records" || query_type == "记录" || query_type == "详细") {
-        return queryRecords(date);
-    } else if (query_type == "late" || query_type == "迟到") {
-        return queryLateList(date);
-    } else if (query_type == "early_leave" || query_type == "早退") {
-        return queryEarlyLeaveList(date);
-    }
-
-    return QString("错误: 无效的查询类型 '%1'，支持 stats/records/late/early_leave").arg(query_type);
-}
-
-QString AttendanceTool::queryToday() {
-    QString date = getTodayDate();
-    spdlog::debug("Querying today's attendance: {}", date.toStdString());
-
-    auto stats = attendance_service_->get_statistics(date.toStdString());
-    return formatStatistics(stats);
-}
-
-QString AttendanceTool::queryWeek() {
-    QString start_date = getWeekStartDate();
-    QString end_date = getTodayDate();
-    spdlog::debug("Querying week attendance: {} to {}",
-        start_date.toStdString(), end_date.toStdString());
-
-    auto stats_list = attendance_service_->get_statistics_range(
-        start_date.toStdString(), end_date.toStdString());
-
-    if (stats_list.empty()) {
-        return QString("本周 (%1 至 %2) 暂无考勤记录").arg(start_date, end_date);
-    }
-
-    // 汇总统计
-    int total_count = 0;
-    int check_in_count = 0;
-    int late_count = 0;
-    int early_leave_count = 0;
-    int normal_count = 0;
-
-    for (const auto& stats : stats_list) {
-        total_count += stats.total_count;
-        check_in_count += stats.check_in_count;
-        late_count += stats.late_count;
-        early_leave_count += stats.early_leave_count;
-        normal_count += stats.normal_count;
-    }
-
-    return QString(
-        "本周考勤统计 (%1 至 %2):\n"
-        "- 统计天数: %3 天\n"
-        "- 总打卡次数: %4\n"
-        "- 签到次数: %5\n"
-        "- 正常打卡: %6 次\n"
-        "- 迟到: %7 次\n"
-        "- 早退: %8 次"
-    ).arg(start_date, end_date)
-     .arg(stats_list.size())
-     .arg(total_count)
-     .arg(check_in_count)
-     .arg(normal_count)
-     .arg(late_count)
-     .arg(early_leave_count);
-}
-
-QString AttendanceTool::queryMonth() {
-    QString start_date = getMonthStartDate();
-    QString end_date = getTodayDate();
-    spdlog::debug("Querying month attendance: {} to {}",
-        start_date.toStdString(), end_date.toStdString());
-
-    auto stats_list = attendance_service_->get_statistics_range(
-        start_date.toStdString(), end_date.toStdString());
-
-    if (stats_list.empty()) {
-        return QString("本月 (%1 至 %2) 暂无考勤记录").arg(start_date, end_date);
-    }
-
-    // 汇总统计
-    int total_count = 0;
-    int check_in_count = 0;
-    int late_count = 0;
-    int early_leave_count = 0;
-    int normal_count = 0;
-
-    for (const auto& stats : stats_list) {
-        total_count += stats.total_count;
-        check_in_count += stats.check_in_count;
-        late_count += stats.late_count;
-        early_leave_count += stats.early_leave_count;
-        normal_count += stats.normal_count;
-    }
-
-    return QString(
-        "本月考勤统计 (%1 至 %2):\n"
-        "- 统计天数: %3 天\n"
-        "- 总打卡次数: %4\n"
-        "- 签到次数: %5\n"
-        "- 正常打卡: %6 次\n"
-        "- 迟到: %7 次\n"
-        "- 早退: %8 次"
-    ).arg(start_date, end_date)
-     .arg(stats_list.size())
-     .arg(total_count)
-     .arg(check_in_count)
-     .arg(normal_count)
-     .arg(late_count)
-     .arg(early_leave_count);
-}
-
-QString AttendanceTool::queryDate(const QString& date) {
-    spdlog::debug("Querying attendance for date: {}", date.toStdString());
-
-    auto stats = attendance_service_->get_statistics(date.toStdString());
-    return formatStatistics(stats);
-}
-
-QString AttendanceTool::queryRecords(const QString& date) {
-    spdlog::debug("Querying attendance records for date: {}", date.toStdString());
-
-    auto records = attendance_service_->query_records_by_date(date.toStdString());
-
-    if (records.empty()) {
-        return QString("%1 暂无考勤记录").arg(date);
-    }
-
-    QString result = QString("考勤详细记录 (%1):\n").arg(date);
-    for (const auto& record : records) {
-        QString status_str;
-        switch (record.status) {
-            case 1: status_str = "正常"; break;
-            case 2: status_str = "迟到"; break;
-            case 3: status_str = "早退"; break;
-            default: status_str = "未知"; break;
-        }
-
-        QString type_str = record.check_type == 1 ? "签到" : "签退";
-        QDateTime check_time = QDateTime::fromSecsSinceEpoch(record.check_time);
-
-        result += QString("- %1: %2 %3 (%4)\n")
-            .arg(QString::fromStdString(record.user_name))
-            .arg(check_time.toString("HH:mm:ss"))
-            .arg(type_str)
-            .arg(status_str);
-    }
-
-    return result;
-}
-
-QString AttendanceTool::queryLateList(const QString& date) {
-    spdlog::debug("Querying late list for date: {}", date.toStdString());
-
-    auto records = attendance_service_->query_records_by_date(date.toStdString());
-
-    QStringList late_names;
-    for (const auto& record : records) {
-        if (record.status == 2) {  // 2 = 迟到
-            QString name = QString::fromStdString(record.user_name);
-            if (!late_names.contains(name)) {
-                late_names.append(name);
+    if (query_type == "stats") {
+        if (date_range == "week" || date_range == "本周") {
+            const QString week_start = getWeekStartDate();
+            const auto stats_list = attendance_service_->get_statistics_range(
+                week_start.toStdString(), getTodayDate().toStdString());
+            QJsonArray days;
+            int total_count = 0, check_in_count = 0, check_out_count = 0;
+            int late_count = 0, early_leave_count = 0, normal_count = 0;
+            for (const auto& stats : stats_list) {
+                days.append(stats_to_json(stats));
+                total_count += stats.total_count;
+                check_in_count += stats.check_in_count;
+                check_out_count += stats.check_out_count;
+                late_count += stats.late_count;
+                early_leave_count += stats.early_leave_count;
+                normal_count += stats.normal_count;
             }
+            result.ok = true;
+            result.output["mode"] = "preset_week_stats";
+            result.output["days"] = days;
+            result.output["summary"] = QJsonObject{
+                {"start_date", week_start},
+                {"end_date", getTodayDate()},
+                {"days_count", static_cast<int>(stats_list.size())},
+                {"total_count", total_count},
+                {"check_in_count", check_in_count},
+                {"check_out_count", check_out_count},
+                {"late_count", late_count},
+                {"early_leave_count", early_leave_count},
+                {"normal_count", normal_count},
+            };
+            result.display_text = QString(
+                "本周考勤统计 (%1 至 %2):\n"
+                "- 统计天数: %3 天\n"
+                "- 总打卡次数: %4\n"
+                "- 签到次数: %5\n"
+                "- 签退次数: %6\n"
+                "- 正常打卡: %7 次\n"
+                "- 迟到: %8 次\n"
+                "- 早退: %9 次"
+            ).arg(week_start, getTodayDate())
+             .arg(stats_list.size())
+             .arg(total_count)
+             .arg(check_in_count)
+             .arg(check_out_count)
+             .arg(normal_count)
+             .arg(late_count)
+             .arg(early_leave_count);
+            return result;
         }
-    }
 
-    if (late_names.empty()) {
-        return QString("%1 没有人迟到").arg(date);
-    }
-
-    return QString("%1 迟到人员 (%2人):\n- %3")
-        .arg(date)
-        .arg(late_names.size())
-        .arg(late_names.join("\n- "));
-}
-
-QString AttendanceTool::queryEarlyLeaveList(const QString& date) {
-    spdlog::debug("Querying early leave list for date: {}", date.toStdString());
-
-    auto records = attendance_service_->query_records_by_date(date.toStdString());
-
-    QStringList early_leave_names;
-    for (const auto& record : records) {
-        if (record.status == 3) {  // 3 = 早退
-            QString name = QString::fromStdString(record.user_name);
-            if (!early_leave_names.contains(name)) {
-                early_leave_names.append(name);
+        if (date_range == "month" || date_range == "本月") {
+            const QString month_start = getMonthStartDate();
+            const auto stats_list = attendance_service_->get_statistics_range(
+                month_start.toStdString(), getTodayDate().toStdString());
+            QJsonArray days;
+            int total_count = 0, check_in_count = 0, check_out_count = 0;
+            int late_count = 0, early_leave_count = 0, normal_count = 0;
+            for (const auto& stats : stats_list) {
+                days.append(stats_to_json(stats));
+                total_count += stats.total_count;
+                check_in_count += stats.check_in_count;
+                check_out_count += stats.check_out_count;
+                late_count += stats.late_count;
+                early_leave_count += stats.early_leave_count;
+                normal_count += stats.normal_count;
             }
+            result.ok = true;
+            result.output["mode"] = "preset_month_stats";
+            result.output["days"] = days;
+            result.output["summary"] = QJsonObject{
+                {"start_date", month_start},
+                {"end_date", getTodayDate()},
+                {"days_count", static_cast<int>(stats_list.size())},
+                {"total_count", total_count},
+                {"check_in_count", check_in_count},
+                {"check_out_count", check_out_count},
+                {"late_count", late_count},
+                {"early_leave_count", early_leave_count},
+                {"normal_count", normal_count},
+            };
+            result.display_text = QString(
+                "本月考勤统计 (%1 至 %2):\n"
+                "- 统计天数: %3 天\n"
+                "- 总打卡次数: %4\n"
+                "- 签到次数: %5\n"
+                "- 签退次数: %6\n"
+                "- 正常打卡: %7 次\n"
+                "- 迟到: %8 次\n"
+                "- 早退: %9 次"
+            ).arg(month_start, getTodayDate())
+             .arg(stats_list.size())
+             .arg(total_count)
+             .arg(check_in_count)
+             .arg(check_out_count)
+             .arg(normal_count)
+             .arg(late_count)
+             .arg(early_leave_count);
+            return result;
         }
+
+        const auto stats = attendance_service_->get_statistics(date.toStdString());
+        result.ok = true;
+        result.output["mode"] = "single_day_stats";
+        result.output["statistics"] = stats_to_json(stats);
+        result.display_text = format_stats_text(stats_to_json(stats), "考勤统计");
+        return result;
     }
 
-    if (early_leave_names.empty()) {
-        return QString("%1 没有人早退").arg(date);
-    }
-
-    return QString("%1 早退人员 (%2人):\n- %3")
-        .arg(date)
-        .arg(early_leave_names.size())
-        .arg(early_leave_names.join("\n- "));
-}
-
-QString AttendanceTool::queryRecordsRange(const QString& start_date,
-                                           const QString& end_date,
-                                           bool anomaly_only) {
-    spdlog::info("Querying records range: {} to {}, anomaly_only={}",
-        start_date.toStdString(), end_date.toStdString(), anomaly_only);
-
-    auto records = attendance_service_->query_records_range(
-        start_date.toStdString(), end_date.toStdString());
-
-    if (records.empty()) {
-        return QString("日期范围 (%1 至 %2) 暂无考勤记录").arg(start_date, end_date);
-    }
-
-    // 过滤记录
-    std::vector<db::AttendanceRecord> filtered_records;
-    if (anomaly_only) {
+    if (query_type == "records") {
+        auto records = attendance_service_->query_records_by_date(date.toStdString());
+        QJsonArray items;
         for (const auto& record : records) {
-            if (record.status == 2 || record.status == 3) {  // 2=迟到, 3=早退
-                filtered_records.push_back(record);
+            items.append(record_to_json(record));
+        }
+        result.ok = true;
+        result.output["mode"] = "single_day_records";
+        result.output["records"] = items;
+        result.display_text = format_records_text(
+            QString("考勤详细记录 (%1):").arg(date),
+            items,
+            false);
+        return result;
+    }
+
+    if (query_type == "late" || query_type == "early_leave") {
+        auto records = attendance_service_->query_records_by_date(date.toStdString());
+        QJsonArray names;
+        const int target_status = (query_type == "late") ? db::STATUS_LATE : db::STATUS_EARLY_LEAVE;
+        for (const auto& record : records) {
+            if (record.status == target_status) {
+                const QString user_name = QString::fromStdString(record.user_name);
+                bool exists = false;
+                for (const auto& value : names) {
+                    if (value.toString() == user_name) {
+                        exists = true;
+                        break;
+                    }
+                }
+                if (!exists) {
+                    names.append(user_name);
+                }
             }
         }
-    } else {
-        filtered_records = records;
+
+        result.ok = true;
+        result.output["mode"] = query_type == "late" ? "late_list" : "early_leave_list";
+        result.output["names"] = names;
+        result.display_text = format_names_text(date, query_type == "late" ? "迟到" : "早退", names);
+        return result;
     }
 
-    if (filtered_records.empty()) {
-        return QString("日期范围 (%1 至 %2) 没有异常考勤记录").arg(start_date, end_date);
-    }
-
-    // 按日期分组显示
-    QString result;
-    if (anomaly_only) {
-        result = QString("异常考勤记录 (%1 至 %2, 共 %3 条):\n")
-            .arg(start_date, end_date)
-            .arg(filtered_records.size());
-    } else {
-        result = QString("考勤详细记录 (%1 至 %2, 共 %3 条):\n")
-            .arg(start_date, end_date)
-            .arg(filtered_records.size());
-    }
-
-    QString current_date;
-    for (const auto& record : filtered_records) {
-        QDateTime check_time = QDateTime::fromSecsSinceEpoch(record.check_time);
-        QString record_date = check_time.toString("yyyy-MM-dd");
-
-        // 日期变化时添加日期标题
-        if (record_date != current_date) {
-            current_date = record_date;
-            result += QString("\n[%1]\n").arg(record_date);
-        }
-
-        QString status_str;
-        switch (record.status) {
-            case 1: status_str = "正常"; break;
-            case 2: status_str = "迟到"; break;
-            case 3: status_str = "早退"; break;
-            default: status_str = "未知"; break;
-        }
-
-        QString type_str = record.check_type == 1 ? "签到" : "签退";
-
-        result += QString("- %1: %2 %3 (%4)\n")
-            .arg(QString::fromStdString(record.user_name))
-            .arg(check_time.toString("HH:mm:ss"))
-            .arg(type_str)
-            .arg(status_str);
-    }
-
+    result.ok = false;
+    result.error = QString("错误: 无效的查询类型 '%1'，支持 stats/records/late/early_leave").arg(query_type);
+    result.display_text = result.error;
+    result.output["error"] = result.error;
     return result;
-}
-
-QString AttendanceTool::formatStatistics(const service::AttendanceStatistics& stats) {
-    if (stats.total_count == 0) {
-        return QString("%1 暂无考勤记录").arg(QString::fromStdString(stats.date));
-    }
-
-    return QString(
-        "考勤统计 (%1):\n"
-        "- 总打卡人数: %2\n"
-        "- 签到人数: %3\n"
-        "- 签退人数: %4\n"
-        "- 正常: %5 人\n"
-        "- 迟到: %6 人\n"
-        "- 早退: %7 人"
-    ).arg(QString::fromStdString(stats.date))
-     .arg(stats.total_count)
-     .arg(stats.check_in_count)
-     .arg(stats.check_out_count)
-     .arg(stats.normal_count)
-     .arg(stats.late_count)
-     .arg(stats.early_leave_count);
 }
 
 QString AttendanceTool::getTodayDate() {
@@ -439,7 +458,6 @@ QString AttendanceTool::getTodayDate() {
 
 QString AttendanceTool::getWeekStartDate() {
     QDate today = QDate::currentDate();
-    // dayOfWeek(): Monday = 1, Sunday = 7
     int daysToMonday = today.dayOfWeek() - 1;
     return today.addDays(-daysToMonday).toString("yyyy-MM-dd");
 }
@@ -449,4 +467,4 @@ QString AttendanceTool::getMonthStartDate() {
     return QDate(today.year(), today.month(), 1).toString("yyyy-MM-dd");
 }
 
-} // namespace agent
+}  // namespace agent
