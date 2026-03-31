@@ -5,6 +5,7 @@
 
 #include "agent/agent_service.h"
 #include "tools/attendance_tool.h"
+#include "tools/user_attendance_tool.h"
 #include "tools/user_tool.h"
 #include "tools/system_tool.h"
 #include "config/config.h"
@@ -48,6 +49,11 @@ void AgentService::registerBuiltinTools(service::AttendanceService* attendance,
     if (attendance) {
         tools_->registerTool(std::make_unique<AttendanceTool>(attendance));
         spdlog::info("Registered AttendanceTool");
+    }
+
+    if (attendance && user) {
+        tools_->registerTool(std::make_unique<UserAttendanceTool>(attendance, user));
+        spdlog::info("Registered UserAttendanceTool");
     }
 
     if (user) {

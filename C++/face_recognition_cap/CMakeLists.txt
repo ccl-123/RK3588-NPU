@@ -171,6 +171,7 @@ set(AGENT_SOURCES
 # Agent 工具源文件
 set(TOOLS_SOURCES
     src/tools/attendance_tool.cc
+    src/tools/user_attendance_tool.cc
     src/tools/user_tool.cc
     src/tools/system_tool.cc
 )

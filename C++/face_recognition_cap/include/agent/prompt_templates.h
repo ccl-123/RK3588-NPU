@@ -222,7 +222,32 @@ public:
  * <tool_call>{"name":"query_attendance","arguments":{"query_type":"records","start_date":"2026-03-01","end_date":"2026-03-30","filter":"anomaly"}}</tool_call>
  *
  * ----------------------------------------------------------------------
- * 2. query_user
+ * 2. lookup_user_attendance
+ * ----------------------------------------------------------------------
+ * 功能：
+ * - 查询单个员工在今日/本周/本月/指定区间内的考勤摘要
+ * - 查询单个员工的详细打卡记录
+ * - 查询单个员工最近一次打卡
+ * - 查询单个员工的异常打卡
+ *
+ * 关键参数：
+ * - query_type:
+ *   - summary
+ *   - records
+ *   - latest
+ *   - anomaly
+ * - user_id / name:
+ *   - 二选一，用于定位员工
+ * - date_range / date / start_date + end_date:
+ *   - 查询范围
+ *
+ * 示例：
+ * <tool_call>{"name":"lookup_user_attendance","arguments":{"name":"张三","query_type":"summary","date_range":"week"}}</tool_call>
+ * <tool_call>{"name":"lookup_user_attendance","arguments":{"user_id":1001,"query_type":"latest","date_range":"month"}}</tool_call>
+ * <tool_call>{"name":"lookup_user_attendance","arguments":{"name":"李四","query_type":"anomaly","start_date":"2026-03-01","end_date":"2026-03-31"}}</tool_call>
+ *
+ * ----------------------------------------------------------------------
+ * 3. query_user
  * ----------------------------------------------------------------------
  * 功能：
  * - 查询用户统计
@@ -248,7 +273,7 @@ public:
  * <tool_call>{"name":"query_user","arguments":{"action":"list_all"}}</tool_call>
  *
  * ----------------------------------------------------------------------
- * 3. system_info
+ * 4. system_info
  * ----------------------------------------------------------------------
  * 功能：
  * - 查询当前日期时间
@@ -270,7 +295,7 @@ public:
  * <tool_call>{"name":"system_info","arguments":{"query_type":"all"}}</tool_call>
  *
  * ----------------------------------------------------------------------
- * 4. help
+ * 5. help
  * ----------------------------------------------------------------------
  * 功能：
  * - 查询全部帮助
@@ -292,7 +317,7 @@ public:
  * <tool_call>{"name":"help","arguments":{"topic":"user"}}</tool_call>
  *
  * ----------------------------------------------------------------------
- * 5. calculator
+ * 6. calculator
  * ----------------------------------------------------------------------
  * 功能：
  * - 执行简单数学表达式

@@ -176,9 +176,10 @@ ToolExecutionResult HelpTool::executeWithResult(const ToolInvocation& invocation
     if (topic == "tools" || topic == "all") {
         help += "【可用工具】\n";
         help += "1. query_attendance - 查询考勤数据\n";
-        help += "2. query_user - 查询用户信息\n";
-        help += "3. system_info - 获取系统信息\n";
-        help += "4. calculator - 数学计算\n\n";
+        help += "2. lookup_user_attendance - 查询单个员工的考勤情况\n";
+        help += "3. query_user - 查询用户信息\n";
+        help += "4. system_info - 获取系统信息\n";
+        help += "5. calculator - 数学计算\n\n";
     }
     if (topic == "attendance" || topic == "all") {
         help += "【考勤功能说明】\n";
@@ -191,6 +192,7 @@ ToolExecutionResult HelpTool::executeWithResult(const ToolInvocation& invocation
         help += "- 支持列出所有注册用户\n";
         help += "- 支持按姓名搜索用户\n";
         help += "- 支持统计用户总数\n";
+        help += "- 支持查询单个员工的考勤情况\n";
     }
 
     result.display_text = help.trimmed();
