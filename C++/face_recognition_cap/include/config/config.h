@@ -131,13 +131,13 @@ namespace LocalLLM {
         return (env_path && env_path[0] != '\0') ? env_path : MODEL_PATH;
     }
     constexpr int MAX_NEW_TOKENS = 1028;        // 单次最大生成长度
-    constexpr int MAX_CONTEXT_LEN = 1024 * 6;   // 上下文窗口 (tokens)
+    constexpr int MAX_CONTEXT_LEN = 1024 * 8;   // 上下文窗口 (tokens)
 }
 
 // ===== Agent 配置 [固定] =====
 // ReAct Agent 智能助手配置
 namespace Agent {
-    constexpr int MAX_ITERATIONS = 5;           // ReAct 最大循环次数
+    constexpr int MAX_ITERATIONS = 10;           // ReAct 最大循环次数
     constexpr int CONVERSATION_HISTORY = 10;    // 对话历史保留轮数
     constexpr int LLM_TIMEOUT_MS = 200000;       // LLM 推理超时 (毫秒，200秒)
     constexpr bool STREAM_OUTPUT = true;        // 流式输出模式
