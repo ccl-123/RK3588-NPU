@@ -189,23 +189,23 @@ namespace TencentAI {
 //    - 代码会自动拼接为: <base_url>/v1/chat/completions
 //    - 例如：
 //        export LLAMA_CPP_SERVER_URL=http://127.0.0.1:8080
-//        export LLAMA_CPP_SERVER_URL=http://192.168.1.10:8000
+//        export LLAMA_CPP_SERVER_URL=http://10.35.105.23:8317
 //        export LLAMA_CPP_SERVER_URL=https://your-proxy.example.com
 //
 // 2. LLAMA_CPP_SERVER_MODEL
 //    - 填写请求体中的 model 字段
 //    - 该值必须与目标 OpenAI 兼容服务支持的模型名一致
 //    - 例如：
-//        export LLAMA_CPP_SERVER_MODEL=qwen2.5-7b-instruct
-//        export LLAMA_CPP_SERVER_MODEL=gpt-4o-mini
-//        export LLAMA_CPP_SERVER_MODEL=local-llama
+//        export LLAMA_CPP_SERVER_MODEL=gpt-5.4
+//        export LLAMA_CPP_SERVER_MODEL=gpt-5.2
+//        export LLAMA_CPP_SERVER_MODEL=gpt-5.1
 //
 // 3. LLAMA_CPP_SERVER_API_KEY
 //    - 如果你的 OpenAI 兼容服务需要鉴权，就填写这里
 //    - 代码会自动注入请求头:
 //        Authorization: Bearer <API_KEY>
 //    - 例如：
-//        export LLAMA_CPP_SERVER_API_KEY=sk-xxxxxx
+//        export LLAMA_CPP_SERVER_API_KEY=sk-123321
 //
 // 注意：
 // - 如果 LLAMA_CPP_SERVER_URL 为空，则默认仍走腾讯云 LKE。
