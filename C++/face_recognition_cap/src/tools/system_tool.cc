@@ -176,16 +176,20 @@ ToolExecutionResult HelpTool::executeWithResult(const ToolInvocation& invocation
     if (topic == "tools" || topic == "all") {
         help += "【可用工具】\n";
         help += "1. query_attendance - 查询考勤数据\n";
-        help += "2. lookup_user_attendance - 查询单个员工的考勤情况\n";
-        help += "3. query_user - 查询用户信息\n";
-        help += "4. system_info - 获取系统信息\n";
-        help += "5. calculator - 数学计算\n\n";
+        help += "2. lookup_department_attendance - 查询部门考勤情况\n";
+        help += "3. lookup_attendance_ranking - 查询考勤排名\n";
+        help += "4. lookup_missing_attendance - 查询缺卡缺勤情况\n";
+        help += "5. lookup_user_attendance - 查询单个员工的考勤情况\n";
+        help += "6. query_user - 查询用户信息\n";
+        help += "7. system_info - 获取系统信息\n";
+        help += "8. calculator - 数学计算\n\n";
     }
     if (topic == "attendance" || topic == "all") {
         help += "【考勤功能说明】\n";
         help += "- 支持查询今日、本周、本月的考勤数据\n";
         help += "- 可以统计出勤率、迟到早退情况\n";
-        help += "- 支持按日期范围查询历史记录\n\n";
+        help += "- 支持按日期范围查询历史记录\n";
+        help += "- 支持查询部门考勤、排名和缺卡情况\n\n";
     }
     if (topic == "user" || topic == "all") {
         help += "【用户管理说明】\n";

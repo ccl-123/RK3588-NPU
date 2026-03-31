@@ -85,9 +85,10 @@ public:
         return QString::fromUtf8(R"(你是一个智能考勤助手，运行在人脸识别考勤终端上。
 
 ## 核心能力
-1. 考勤查询：查询今日、本周、本月的考勤统计，支持日期范围查询
-2. 用户管理：查询员工信息、搜索用户
-3. 系统信息：获取当前时间、考勤规则
+1. 考勤查询：查询今日、本周、本月、指定区间的考勤统计和详细记录
+2. 深度分析：查询单个员工、指定部门、缺卡缺勤和各类排行
+3. 用户管理：查询员工信息、搜索用户
+4. 系统信息：获取当前时间、考勤规则
 
 ## 工具来源
 本轮真正可用的工具会在后文「可用工具」章节以 JSON 形式给出。
@@ -247,7 +248,98 @@ public:
  * <tool_call>{"name":"lookup_user_attendance","arguments":{"name":"李四","query_type":"anomaly","start_date":"2026-03-01","end_date":"2026-03-31"}}</tool_call>
  *
  * ----------------------------------------------------------------------
- * 3. query_user
+ * 3. lookup_department_attendance
+ * ----------------------------------------------------------------------
+ * 功能：
+ * - 查询指定部门的考勤摘要
+ * - 查询指定部门的异常记录
+ * - 查询指定部门的缺勤人员
+ * - 查询指定部门的全部打卡记录
+ *
+ * 关键参数：
+ * - department:
+ *   - 部门名称或关键词
+ * - query_type:
+ *   - summary / anomaly / missing / records
+ * - date_range / date / start_date + end_date:
+ *   - 查询范围
+ *
+ * 示例：
+ * <tool_call>{"name":"lookup_department_attendance","arguments":{"department":"研发部","query_type":"summary","date_range":"today"}}</tool_call>
+ * <tool_call>{"name":"lookup_department_attendance","arguments":{"department":"销售","query_type":"anomaly","date_range":"month"}}</tool_call>
+ * <tool_call>{"name":"lookup_department_attendance","arguments":{"department":"行政","query_type":"missing","date":"2026-04-01"}}</tool_call>
+ *
+ * ----------------------------------------------------------------------
+ * 4. lookup_attendance_ranking
+ * ----------------------------------------------------------------------
+ * 功能：
+ * - 查询员工或部门的考勤排行
+ * - 支持迟到、早退、异常、异常率、出勤覆盖率等指标
+ *
+ * 关键参数：
+ * - scope:
+ *   - user / department
+ * - ranking_type:
+ *   - late / early_leave / anomaly / anomaly_rate / attendance_rate
+ * - limit:
+ *   - 返回前 N 名
+ * - order:
+ *   - desc / asc
+ * - department:
+ *   - 可选，仅对 user 排行做部门过滤
+ *
+ * 示例：
+ * <tool_call>{"name":"lookup_attendance_ranking","arguments":{"scope":"user","ranking_type":"late","date_range":"month","limit":5}}</tool_call>
+ * <tool_call>{"name":"lookup_attendance_ranking","arguments":{"scope":"department","ranking_type":"anomaly_rate","date_range":"week","limit":3}}</tool_call>
+ *
+ * ----------------------------------------------------------------------
+ * 5. lookup_missing_attendance
+ * ----------------------------------------------------------------------
+ * 功能：
+ * - 查询完全缺勤人员
+ * - 查询未签到人员
+ * - 查询只签到未签退人员
+ * - 查询连续多天未打卡人员
+ *
+ * 关键参数：
+ * - query_type:
+ *   - absent / missing_check_in / missing_check_out / consecutive_absent
+ * - date:
+ *   - 目标日期
+ * - department:
+ *   - 可选，部门过滤
+ * - days:
+ *   - consecutive_absent 时使用
+ *
+ * 示例：
+ * <tool_call>{"name":"lookup_missing_attendance","arguments":{"query_type":"missing_check_in","date":"2026-04-01"}}</tool_call>
+ * <tool_call>{"name":"lookup_missing_attendance","arguments":{"query_type":"missing_check_out","department":"研发部","date":"2026-04-01"}}</tool_call>
+ * <tool_call>{"name":"lookup_missing_attendance","arguments":{"query_type":"consecutive_absent","days":2,"date":"2026-04-01"}}</tool_call>
+ *
+ * ----------------------------------------------------------------------
+ * 6. lookup_user_attendance
+ * ----------------------------------------------------------------------
+ * 功能：
+ * - 查询单个员工在今日/本周/本月/指定区间内的考勤摘要
+ * - 查询单个员工的详细打卡记录
+ * - 查询单个员工最近一次打卡
+ * - 查询单个员工的异常打卡
+ *
+ * 关键参数：
+ * - query_type:
+ *   - summary / records / latest / anomaly
+ * - user_id / name:
+ *   - 二选一，用于定位员工
+ * - date_range / date / start_date + end_date:
+ *   - 查询范围
+ *
+ * 示例：
+ * <tool_call>{"name":"lookup_user_attendance","arguments":{"name":"张三","query_type":"summary","date_range":"week"}}</tool_call>
+ * <tool_call>{"name":"lookup_user_attendance","arguments":{"user_id":1001,"query_type":"latest","date_range":"month"}}</tool_call>
+ * <tool_call>{"name":"lookup_user_attendance","arguments":{"name":"李四","query_type":"anomaly","start_date":"2026-03-01","end_date":"2026-03-31"}}</tool_call>
+ *
+ * ----------------------------------------------------------------------
+ * 7. query_user
  * ----------------------------------------------------------------------
  * 功能：
  * - 查询用户统计
@@ -273,7 +365,7 @@ public:
  * <tool_call>{"name":"query_user","arguments":{"action":"list_all"}}</tool_call>
  *
  * ----------------------------------------------------------------------
- * 4. system_info
+ * 8. system_info
  * ----------------------------------------------------------------------
  * 功能：
  * - 查询当前日期时间
@@ -295,7 +387,7 @@ public:
  * <tool_call>{"name":"system_info","arguments":{"query_type":"all"}}</tool_call>
  *
  * ----------------------------------------------------------------------
- * 5. help
+ * 9. help
  * ----------------------------------------------------------------------
  * 功能：
  * - 查询全部帮助
@@ -317,7 +409,7 @@ public:
  * <tool_call>{"name":"help","arguments":{"topic":"user"}}</tool_call>
  *
  * ----------------------------------------------------------------------
- * 6. calculator
+ * 10. calculator
  * ----------------------------------------------------------------------
  * 功能：
  * - 执行简单数学表达式

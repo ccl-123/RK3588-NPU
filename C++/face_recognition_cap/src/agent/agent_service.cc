@@ -5,6 +5,9 @@
 
 #include "agent/agent_service.h"
 #include "tools/attendance_tool.h"
+#include "tools/department_attendance_tool.h"
+#include "tools/attendance_ranking_tool.h"
+#include "tools/missing_attendance_tool.h"
 #include "tools/user_attendance_tool.h"
 #include "tools/user_tool.h"
 #include "tools/system_tool.h"
@@ -49,6 +52,15 @@ void AgentService::registerBuiltinTools(service::AttendanceService* attendance,
     if (attendance) {
         tools_->registerTool(std::make_unique<AttendanceTool>(attendance));
         spdlog::info("Registered AttendanceTool");
+    }
+
+    if (attendance && user) {
+        tools_->registerTool(std::make_unique<DepartmentAttendanceTool>(attendance, user));
+        spdlog::info("Registered DepartmentAttendanceTool");
+        tools_->registerTool(std::make_unique<AttendanceRankingTool>(attendance, user));
+        spdlog::info("Registered AttendanceRankingTool");
+        tools_->registerTool(std::make_unique<MissingAttendanceTool>(attendance, user));
+        spdlog::info("Registered MissingAttendanceTool");
     }
 
     if (attendance && user) {
