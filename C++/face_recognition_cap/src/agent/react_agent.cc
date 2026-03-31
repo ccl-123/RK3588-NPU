@@ -226,8 +226,8 @@ ReactAgent::StepType ReactAgent::parseStepType(const QString& output) {
         match = re_tool.match(output, match.capturedEnd());
     }
 
-    // 检测思考标签
-    QRegularExpression re_thought(R"(<\|?thought\|?>)");
+    // 检测思考标签，兼容 <thought> 和 <think>
+    QRegularExpression re_thought(R"(<\|?(?:thought|think)\|?>)");
     match = re_thought.match(output);
     while (match.hasMatch()) {
         thought_pos = match.capturedStart();

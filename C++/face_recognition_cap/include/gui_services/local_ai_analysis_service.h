@@ -85,6 +85,7 @@ private:
     bool agent_mode_ = true;  // 默认启用 Agent 模式（与 DashboardPage 保持一致）
     std::atomic<bool> agent_running_{false};       // Agent 推理进行中
     std::atomic<bool> agent_cancel_requested_{false};  // 取消请求标志
+    std::atomic<bool> agent_failed_{false};        // Agent 本轮执行是否已失败
     std::atomic<uint64_t> stream_request_seq_{0};
     std::atomic<uint64_t> stream_event_seq_{0};
     std::atomic<bool> stream_has_visible_output_{false};

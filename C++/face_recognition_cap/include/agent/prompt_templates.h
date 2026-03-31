@@ -107,7 +107,9 @@ public:
 
 ## 工具结果输入
 系统在工具执行后，会额外提供一段"工具执行结果"观察信息。
-收到结果后直接输出 <answer>最终回答</answer>，不要重复调用相同工具。
+你必须基于该观察信息继续判断：
+1. 是否还需要继续调用其他工具
+2. 还是已经可以直接输出 <answer>最终回答</answer>
 
 ## 回答格式
 - 需要数据时：<tool_call>{"name":"query_attendance","arguments":{"date_range":"today"}}</tool_call>
@@ -116,7 +118,7 @@ public:
 ## 重要规则
 1. 必须先调用工具获取数据，不要猜测
 2. 每次只调用一个工具
-3. 收到工具结果后，直接用 <answer>...</answer> 给出最终回答
+3. 收到工具结果后，根据需要继续调用下一个工具，或输出 <answer>...</answer>
 4. 回答简洁，使用中文
 5. 思考过程尽量简短，快速做出决定)");
     }
@@ -159,7 +161,9 @@ public:
             "- tool: %2\n"
             "- status: %3\n"
             "- output: %4\n\n"
-            "请直接基于以上数据输出 <answer>最终回答</answer>，不要重复调用工具，不要过多分析。"
+            "请基于以上工具结果继续回答用户问题。"
+            "如果还需要额外信息，可以继续调用一个合适的工具；"
+            "如果信息已经足够，请输出 <answer>最终回答</answer>。"
         ).arg(result.call_id.isEmpty() ? QStringLiteral("-") : result.call_id,
               result.name,
               result.ok ? QStringLiteral("ok") : QStringLiteral("error"),

@@ -136,6 +136,7 @@ private:
     bool agent_mode_ = true;
     std::atomic<bool> agent_running_{false};
     std::atomic<bool> agent_cancel_requested_{false};
+    std::atomic<bool> agent_failed_{false};
     std::atomic<uint64_t> agent_request_seq_{0};
     std::atomic<uint64_t> agent_active_request_id_{0};
     std::atomic<uint64_t> stream_request_seq_{0};

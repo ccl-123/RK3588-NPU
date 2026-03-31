@@ -27,6 +27,7 @@ private:
     bool in_reasoning_ = false;
     QString answer_pending_;
     QString reasoning_pending_;
+    QString reasoning_close_tag_ = "</think>";
 
     ParsedResponseDelta consumeTaggedChunk(const QString& chunk,
                                            const QString& open_tag,
@@ -36,6 +37,7 @@ private:
                                            bool record_start,
                                            bool* started,
                                            bool* finished);
+    ParsedResponseDelta consumeReasoningChunk(const QString& chunk);
 };
 
 }  // namespace agent

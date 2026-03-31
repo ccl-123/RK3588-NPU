@@ -307,6 +307,7 @@ void LocalAiAnalysisService::requestAgentChat(const QString& user_input) {
     local_analyzing_ = true;
     agent_running_ = true;
     agent_cancel_requested_ = false;
+    agent_failed_ = false;
     beginStreamRequest();
     emit analysisStarted();
     emitStreamEvent("agent", "start", "status");
@@ -353,8 +354,11 @@ void LocalAiAnalysisService::requestAgentChat(const QString& user_input) {
         }
         emitStreamEvent("tool", "tool_result", "status", result.name, data);
     });
-    connect(worker, &agent::AgentWorker::errorOccurred,
-            this, &LocalAiAnalysisService::errorOccurred);
+    connect(worker, &agent::AgentWorker::errorOccurred, this, [this](const QString& error) {
+        agent_failed_ = true;
+        emitStreamEvent("agent", "error", "status", error);
+        emit errorOccurred(error);
+    });
 
     // 完成后处理
     connect(worker, &agent::AgentWorker::finished, this, [this](const QString& answer) {
@@ -363,15 +367,17 @@ void LocalAiAnalysisService::requestAgentChat(const QString& user_input) {
         current_worker_ = nullptr;
         current_thread_ = nullptr;
 
-        if (!agent_cancel_requested_) {
+        if (agent_cancel_requested_) {
+            spdlog::info("Agent chat was cancelled");
+        } else if (agent_failed_.load()) {
+            spdlog::warn("Agent chat finished after failure, skipping success completion");
+        } else {
             if (!stream_has_visible_output_.load() && !answer.isEmpty()) {
                 emitAssistantDelta(answer, "agent", true);
                 spdlog::info("Agent chat completed, answer length: {}", answer.length());
             }
             emitStreamEvent("agent", "done", "assistant", QString(), QJsonObject(), true);
             emit analysisFinished();
-        } else {
-            spdlog::info("Agent chat was cancelled");
         }
     });
 
@@ -524,12 +530,9 @@ std::function<QString(const QString&)> LocalAiAnalysisService::createThreadSafeL
 
         if (error_occurred) {
             spdlog::error("LLM callback error: {}", error_msg.toStdString());
-            // 超时错误不再发送 errorOccurred 信号，让 Agent 循环自然结束
-            // 只有非超时错误才发送信号
-            if (error_msg != "LLM 推理超时") {
-                emitStreamEvent("agent", "error", "status", error_msg);
-                emit errorOccurred(error_msg);
-            }
+            agent_failed_ = true;
+            emitStreamEvent("agent", "error", "status", error_msg);
+            emit errorOccurred(error_msg);
             return QString();
         }
 

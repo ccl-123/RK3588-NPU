@@ -80,11 +80,69 @@ ParsedResponseDelta IncrementalResponseParser::push(const QString& chunk) {
         return answer_delta;
     }
 
-    ParsedResponseDelta think_delta = consumeTaggedChunk(
-        chunk, "<think>", "</think>", in_reasoning_, reasoning_pending_, false,
-        nullptr, nullptr);
-    answer_delta.reasoning_delta = think_delta.assistant_delta;
+    ParsedResponseDelta reasoning_delta = consumeReasoningChunk(chunk);
+    answer_delta.reasoning_delta = reasoning_delta.reasoning_delta;
     return answer_delta;
+}
+
+ParsedResponseDelta IncrementalResponseParser::consumeReasoningChunk(const QString& chunk) {
+    ParsedResponseDelta delta;
+    reasoning_pending_ += chunk;
+
+    if (!in_reasoning_) {
+        const int think_pos = reasoning_pending_.indexOf("<think>");
+        const int thought_pos = reasoning_pending_.indexOf("<thought>");
+
+        int open_pos = -1;
+        QString open_tag;
+        if (think_pos >= 0 && (thought_pos < 0 || think_pos <= thought_pos)) {
+            open_pos = think_pos;
+            open_tag = "<think>";
+            reasoning_close_tag_ = "</think>";
+        } else if (thought_pos >= 0) {
+            open_pos = thought_pos;
+            open_tag = "<thought>";
+            reasoning_close_tag_ = "</thought>";
+        }
+
+        if (open_pos >= 0) {
+            in_reasoning_ = true;
+            const QString after = reasoning_pending_.mid(open_pos + open_tag.size());
+            reasoning_pending_.clear();
+            const int close_pos = after.indexOf(reasoning_close_tag_);
+            if (close_pos >= 0) {
+                delta.reasoning_delta = after.left(close_pos);
+                in_reasoning_ = false;
+                reasoning_close_tag_ = "</think>";
+            } else {
+                delta.reasoning_delta = after;
+            }
+            return delta;
+        }
+
+        const int keep = QStringLiteral("<thought>").size() - 1;
+        if (reasoning_pending_.size() > keep) {
+            reasoning_pending_ = reasoning_pending_.right(keep);
+        }
+        return delta;
+    }
+
+    const int close_pos = reasoning_pending_.indexOf(reasoning_close_tag_);
+    if (close_pos >= 0) {
+        delta.reasoning_delta = reasoning_pending_.left(close_pos);
+        reasoning_pending_.clear();
+        in_reasoning_ = false;
+        reasoning_close_tag_ = "</think>";
+        return delta;
+    }
+
+    const int keep = qMax(0, reasoning_close_tag_.size() - 1);
+    if (reasoning_pending_.size() > keep) {
+        delta.reasoning_delta = reasoning_pending_.left(reasoning_pending_.size() - keep);
+        reasoning_pending_ = reasoning_pending_.right(keep);
+    }
+
+    return delta;
 }
 
 void IncrementalResponseParser::reset() {
@@ -92,6 +150,7 @@ void IncrementalResponseParser::reset() {
     in_reasoning_ = false;
     answer_pending_.clear();
     reasoning_pending_.clear();
+    reasoning_close_tag_ = "</think>";
 }
 
 }  // namespace agent

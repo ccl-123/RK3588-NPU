@@ -586,6 +586,7 @@ void AiAnalysisService::requestAgentChat(const QString& user_input) {
 
     agent_running_ = true;
     agent_cancel_requested_ = false;
+    agent_failed_ = false;
     beginStreamRequest();
     emit analysisStarted();
     emitStreamEvent("agent", "start", "status");
@@ -632,7 +633,14 @@ void AiAnalysisService::requestAgentChat(const QString& user_input) {
         }
         emitStreamEvent("tool", "tool_result", "status", result.name, data);
     });
-    connect(current_worker_, &agent::AgentWorker::errorOccurred, this, &AiAnalysisService::errorOccurred);
+    connect(current_worker_, &agent::AgentWorker::errorOccurred, this, [this, request_id](const QString& error) {
+        if (agent_active_request_id_.load() != request_id) {
+            return;
+        }
+        agent_failed_ = true;
+        emitStreamEvent("agent", "error", "status", error);
+        emit errorOccurred(error);
+    });
 
     // 完成处理
     connect(current_worker_, &agent::AgentWorker::finished, this, [this, request_id](const QString& answer) {
@@ -643,7 +651,11 @@ void AiAnalysisService::requestAgentChat(const QString& user_input) {
         current_worker_ = nullptr;
         current_thread_ = nullptr;
 
-        if (!agent_cancel_requested_) {
+        if (agent_cancel_requested_) {
+            spdlog::info("Cloud Agent chat was cancelled");
+        } else if (agent_failed_.load()) {
+            spdlog::warn("Cloud Agent chat finished after failure, skipping success completion");
+        } else {
             if (!stream_has_visible_output_.load() && !answer.isEmpty()) {
                 emitAssistantDelta(answer, "agent", true);
             }
@@ -711,6 +723,8 @@ QString AiAnalysisService::doSyncCloudRequest(const QString& prompt) {
     QString result;
     bool error = false;
     bool cancelled = false;
+    bool error_reported = false;
+    QString error_msg;
     agent::IncrementalResponseParser parser;
     const RemoteProvider provider = detect_remote_provider();
 
@@ -735,7 +749,7 @@ QString AiAnalysisService::doSyncCloudRequest(const QString& prompt) {
     QTimer timer;
     timer.setSingleShot(true);
 
-    connect(reply, &QNetworkReply::readyRead, &loop, [this, reply, &loop, &sse_buffer, &result, &timer, &cancelled, &error, &parser, provider]() {
+    connect(reply, &QNetworkReply::readyRead, &loop, [this, reply, &loop, &sse_buffer, &result, &timer, &cancelled, &error, &error_reported, &error_msg, &parser, provider]() {
         if (agent_cancel_requested_.load()) {
             cancelled = true;
             reply->abort();
@@ -764,6 +778,18 @@ QString AiAnalysisService::doSyncCloudRequest(const QString& prompt) {
 
             if (event.kind == "error") {
                 error = true;
+                const QJsonObject err = event.data.value("error").toObject();
+                const int code = err.value("code").toInt();
+                const QString message = err.value("message").toString(event.text);
+                error_msg = code > 0
+                    ? QString("云端 LLM 错误 %1: %2").arg(code).arg(message)
+                    : (message.isEmpty() ? QStringLiteral("云端 LLM 返回错误") : message);
+                agent_failed_ = true;
+                if (!error_reported) {
+                    emitStreamEvent("agent", "error", "status", error_msg);
+                    emit errorOccurred(error_msg);
+                    error_reported = true;
+                }
                 reply->abort();
                 loop.quit();
                 return;
@@ -778,8 +804,15 @@ QString AiAnalysisService::doSyncCloudRequest(const QString& prompt) {
     });
 
     // 超时处理
-    connect(&timer, &QTimer::timeout, &loop, [&loop, &error, reply]() {
+    connect(&timer, &QTimer::timeout, &loop, [this, &loop, &error, &error_reported, &error_msg, reply]() {
         error = true;
+        error_msg = "云端 LLM 请求超时";
+        agent_failed_ = true;
+        if (!error_reported) {
+            emitStreamEvent("agent", "error", "status", error_msg);
+            emit errorOccurred(error_msg);
+            error_reported = true;
+        }
         reply->abort();
         loop.quit();
     });
@@ -813,10 +846,23 @@ QString AiAnalysisService::doSyncCloudRequest(const QString& prompt) {
             spdlog::warn("Cloud Agent: SSE finished without content");
         }
     } else {
-        if (error) {
+        if (!error_msg.isEmpty()) {
+            spdlog::error("Sync Cloud Agent request failed: {}", error_msg.toStdString());
+        } else if (error) {
             spdlog::error("Sync Cloud Agent request timeout after {}ms", Config::Agent::LLM_TIMEOUT_MS);
         } else {
             spdlog::error("Sync Cloud Agent request failed: {}", reply->errorString().toStdString());
+        }
+
+        if (!error_reported) {
+            if (error_msg.isEmpty()) {
+                error_msg = error
+                    ? QStringLiteral("云端 LLM 请求失败")
+                    : QString("云端 LLM 请求失败: %1").arg(reply->errorString());
+            }
+            agent_failed_ = true;
+            emitStreamEvent("agent", "error", "status", error_msg);
+            emit errorOccurred(error_msg);
         }
     }
 

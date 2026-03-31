@@ -143,6 +143,12 @@ private:
      * @brief 裁剪消息到最大轮数
      */
     void trimMessages();
+
+    /**
+     * @brief 查找最近 N 个用户轮次对应的起始消息下标
+     * @note 仅在已持有 mutex_ 时调用
+     */
+    size_t findStartIndexForRecentTurnsLocked(int turns) const;
 };
 
 } // namespace agent

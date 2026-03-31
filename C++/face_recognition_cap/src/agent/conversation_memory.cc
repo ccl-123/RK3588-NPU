@@ -4,6 +4,7 @@
  */
 
 #include "agent/conversation_memory.h"
+#include <cstddef>
 #include <QJsonDocument>
 #include <spdlog/spdlog.h>
 
@@ -81,10 +82,7 @@ QString ConversationMemory::getContext(int max_turns) const {
     }
 
     // 计算起始位置
-    int start = 0;
-    if (static_cast<int>(messages_.size()) > turns * 2) {
-        start = messages_.size() - turns * 2;
-    }
+    const size_t start = findStartIndexForRecentTurnsLocked(turns);
 
     // 格式化消息
     for (size_t i = start; i < messages_.size(); ++i) {
@@ -161,13 +159,33 @@ void ConversationMemory::setMaxTurns(int max_turns) {
 }
 
 void ConversationMemory::trimMessages() {
-    // 保留最近 max_turns * 2 条消息（用户 + 助手各一条算一轮）
-    int max_messages = max_turns_ * 2 + 5;  // 额外保留一些工具消息
-    if (static_cast<int>(messages_.size()) > max_messages) {
-        int to_remove = messages_.size() - max_messages;
-        messages_.erase(messages_.begin(), messages_.begin() + to_remove);
-        spdlog::debug("Trimmed {} old messages", to_remove);
+    if (max_turns_ <= 0 || messages_.empty()) {
+        return;
     }
+
+    const size_t start = findStartIndexForRecentTurnsLocked(max_turns_);
+    if (start > 0) {
+        messages_.erase(messages_.begin(), messages_.begin() + static_cast<std::ptrdiff_t>(start));
+        spdlog::debug("Trimmed {} old messages", start);
+    }
+}
+
+size_t ConversationMemory::findStartIndexForRecentTurnsLocked(int turns) const {
+    if (turns <= 0 || messages_.empty()) {
+        return 0;
+    }
+
+    int retained_turns = 0;
+    for (size_t i = messages_.size(); i-- > 0;) {
+        if (messages_[i].role == "user") {
+            ++retained_turns;
+            if (retained_turns >= turns) {
+                return i;
+            }
+        }
+    }
+
+    return 0;
 }
 
 } // namespace agent
