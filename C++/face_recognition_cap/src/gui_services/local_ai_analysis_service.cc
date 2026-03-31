@@ -37,6 +37,9 @@ LocalAiAnalysisService::LocalAiAnalysisService(QObject* parent)
     qRegisterMetaType<agent::AgentStreamEvent>("agent::AgentStreamEvent");
     qRegisterMetaType<agent::ToolInvocation>("agent::ToolInvocation");
     qRegisterMetaType<agent::ToolExecutionResult>("agent::ToolExecutionResult");
+    // MOC 在 namespace 内生成的信号签名使用不带命名空间的类型名，需同时注册短名
+    qRegisterMetaType<agent::ToolInvocation>("ToolInvocation");
+    qRegisterMetaType<agent::ToolExecutionResult>("ToolExecutionResult");
     auto local_llm = LocalLLMThread::instance();
     connect(local_llm, &LocalLLMThread::modelReady, this, &LocalAiAnalysisService::onLocalLLMReady);
     connect(local_llm, &LocalLLMThread::modelFailed, this, &LocalAiAnalysisService::onLocalLLMFailed);
@@ -439,12 +442,18 @@ std::function<QString(const QString&)> LocalAiAnalysisService::createThreadSafeL
 
         auto* llm = LocalLLMThread::instance();
 
-        // 临时连接：收集 chunks，只转发 <answer> 区域的内容到 UI
+        // 临时连接：收集 chunks，转发到 UI 实现流式输出
         auto conn_chunk = connect(llm, &LocalLLMThread::chunkReady,
             &loop, [this, &result, &parser](const QString& chunk) {
                 result += chunk;
                 const auto parsed = parser.push(chunk);
-                emitAssistantDelta(parsed.assistant_delta, "agent", parsed.answer_finished);
+                
+                // 流式转发 answer 内容（如最终回答或工具调用前的引导语）
+                if (!parsed.assistant_delta.isEmpty()) {
+                    emitAssistantDelta(parsed.assistant_delta, "agent", parsed.answer_finished);
+                }
+                
+                // 流式转发 reasoning 内容（思考过程）
                 if (!parsed.reasoning_delta.isEmpty()) {
                     emitStreamEvent("agent", "reasoning", "reasoning", parsed.reasoning_delta);
                 }

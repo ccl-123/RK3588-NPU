@@ -103,12 +103,11 @@ public:
 2. `arguments` 必须是合法 JSON 对象
 3. 参数名必须来自该工具的 `parameters` schema
 4. 如果问题可以直接回答，则不要调用工具
+5. 调用工具时不要同时输出 <answer>，等工具返回后再回答
 
 ## 工具结果输入
-系统在工具执行后，会额外提供一段“工具执行结果”观察信息。
-你必须基于该观察信息继续推理，并决定：
-1. 是否还要继续调用工具
-2. 还是已经可以直接输出 <answer>...</answer>
+系统在工具执行后，会额外提供一段"工具执行结果"观察信息。
+收到结果后直接输出 <answer>最终回答</answer>，不要重复调用相同工具。
 
 ## 回答格式
 - 需要数据时：<tool_call>{"name":"query_attendance","arguments":{"date_range":"today"}}</tool_call>
@@ -117,8 +116,9 @@ public:
 ## 重要规则
 1. 必须先调用工具获取数据，不要猜测
 2. 每次只调用一个工具
-3. 收到工具结果后，用 <answer>...</answer> 给出最终回答
-4. 回答简洁，使用中文)");
+3. 收到工具结果后，直接用 <answer>...</answer> 给出最终回答
+4. 回答简洁，使用中文
+5. 思考过程尽量简短，快速做出决定)");
     }
 
     static QString buildAgentPrompt(const QString& system_prompt,
@@ -159,7 +159,7 @@ public:
             "- tool: %2\n"
             "- status: %3\n"
             "- output: %4\n\n"
-            "请基于以上工具执行结果继续回答用户问题。如果信息已经足够，请直接输出 <answer>...</answer>。"
+            "请直接基于以上数据输出 <answer>最终回答</answer>，不要重复调用工具，不要过多分析。"
         ).arg(result.call_id.isEmpty() ? QStringLiteral("-") : result.call_id,
               result.name,
               result.ok ? QStringLiteral("ok") : QStringLiteral("error"),

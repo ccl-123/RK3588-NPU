@@ -508,6 +508,15 @@ QLabel* DashboardPage::appendRenderBlock(ChatRenderMessage& message,
         return nullptr;
     }
 
+    // 如果当前有占位符块（比如 "正在思考中..."），且当前准备添加实际内容块，
+    // 则直接删除占位符块。从而保证后续添加的文本、思考、工具块都乖乖排在最下方。
+    if (block_type != "status" && message.placeholder_label) {
+        if (auto* p_block = qobject_cast<QWidget*>(message.placeholder_label->parentWidget())) {
+            p_block->deleteLater();
+        }
+        message.placeholder_label = nullptr;
+    }
+
     QLabel* existing_label = nullptr;
     if (append_to_existing) {
         if (block_type == "text") {
@@ -554,17 +563,6 @@ void DashboardPage::appendAssistantTextBlock(const QString& text, bool append) {
     }
     if (!current_assistant_message_.active) {
         beginAssistantRenderMessage(QString());
-    }
-
-    if (current_assistant_message_.placeholder_label) {
-        current_assistant_message_.placeholder_label->setText(text);
-        if (auto* block = qobject_cast<QWidget*>(current_assistant_message_.placeholder_label->parentWidget())) {
-            apply_state_property(block, "blockType", "text");
-        }
-        current_assistant_message_.latest_text_block = current_assistant_message_.placeholder_label;
-        current_assistant_message_.placeholder_label = nullptr;
-        scrollChatToBottom();
-        return;
     }
 
     appendRenderBlock(current_assistant_message_, "text", text, append);
