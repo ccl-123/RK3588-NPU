@@ -2,6 +2,7 @@
 #include "gui_services/ai_analysis_service.h"
 #include "gui_services/local_ai_analysis_service.h"
 #include "gui_services/ai_prompt_builder.h"
+#include "app/local_llm_thread.h"
 #include "config/config.h"
 
 #include "database/database_types.h"
@@ -1285,6 +1286,14 @@ void DashboardPage::setup_ui() {
         finishAssistantRenderMessage();
         ai_chat_spacer_ = new QSpacerItem(0, 0, QSizePolicy::Minimum, QSizePolicy::Expanding);
         ai_chat_layout_->addItem(ai_chat_spacer_);
+
+        // ★ 清除 Agent 对话记忆
+        if (auto* local_svc = LocalAiAnalysisService::instance()) {
+            local_svc->clearAgentHistory();
+        }
+        // ★ 清除 RKLLM KV Cache，避免残留上下文干扰下一次对话
+        LocalLLMThread::instance()->resetContext();
+
         appendChatMessage("assistant", tr("对话已清空，输入问题即可开始新的分析。"));
     });
     quick_layout->addWidget(clear_btn);

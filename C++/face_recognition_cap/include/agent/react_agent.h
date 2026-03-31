@@ -147,6 +147,11 @@ private:
     AgentConfig config_;
     std::atomic<bool> running_{false};
 
+    // 循环检测状态
+    QString last_tool_call_key_;        ///< 上一次工具调用签名 (name|args)
+    int consecutive_same_call_ = 0;     ///< 连续相同工具调用次数
+    QString last_tool_result_text_;     ///< 上一次工具执行结果文本（用于循环短路时返回）
+
     /**
      * @brief 步骤类型
      */

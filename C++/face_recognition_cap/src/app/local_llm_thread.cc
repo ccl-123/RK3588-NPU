@@ -224,7 +224,7 @@ void LocalLLMThread::doInitModel() {
     // 设置考勤专家系统提示词和聊天模板（与 face_llm.cpp 保持一致）
     const QByteArray system_prompt_utf8 = agent::PromptTemplates::localAssistantSystemPrompt().toUtf8();
     if (!system_prompt_utf8.isEmpty()) {
-        rkllm_set_chat_template(llm_handle_, const_cast<char*>(system_prompt_utf8.constData()), "<|im_start|>user\n", "<|im_start|>assistant\n<think>\n</think>\n");
+        rkllm_set_chat_template(llm_handle_, const_cast<char*>(system_prompt_utf8.constData()), "<|im_start|>user\n", "<|im_start|>assistant\n");
         spdlog::info("Chat template set with system prompt");
     }
 

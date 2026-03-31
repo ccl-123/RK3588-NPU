@@ -24,10 +24,15 @@ QString ReactAgent::run(const QString& user_input,
                         std::function<QString(const QString&)> llm_callback) {
     running_ = true;
 
-    // 获取上下文
+    // 重置循环检测状态
+    last_tool_call_key_.clear();
+    consecutive_same_call_ = 0;
+    last_tool_result_text_.clear();
+
+    // 获取上下文（历史对话，不含当前这轮）
     QString context = memory_ ? memory_->getContext() : QString();
 
-    // 构建初始 Prompt
+    // 构建初始 Prompt（完整版，包含系统提示 + 工具定义 + 历史 + 用户问题）
     QString prompt = buildPrompt(user_input, context);
 
     // 记录用户消息
@@ -45,7 +50,7 @@ QString ReactAgent::run(const QString& user_input,
         iteration++;
         spdlog::info("ReAct iteration {}/{}", iteration, config_.max_iterations);
 
-        // 调用 LLM
+        // 调用 LLM（第一轮传完整 prompt，后续轮次传增量，KV Cache 自动缓存历史）
         QString llm_output = llm_callback(prompt);
 
         if (llm_output.isEmpty()) {
@@ -83,6 +88,32 @@ QString ReactAgent::run(const QString& user_input,
                 // 工具调用
                 auto call = executor_.parseToolCall(llm_output);
                 if (call.valid) {
+                    // ★ 循环检测：检查是否与上次调用完全相同
+                    QString call_key = call.name + "|" +
+                        QString::fromUtf8(QJsonDocument(call.arguments)
+                            .toJson(QJsonDocument::Compact));
+                    if (call_key == last_tool_call_key_) {
+                        consecutive_same_call_++;
+                        if (consecutive_same_call_ >= 2) {
+                            spdlog::warn("Detected identical tool-call loop for '{}' with args "
+                                "{}. Short-circuiting with tool result.",
+                                call.name.toStdString(),
+                                QString::fromUtf8(QJsonDocument(call.arguments)
+                                    .toJson(QJsonDocument::Compact)).toStdString());
+                            // 使用上一次的工具结果直接作为答案
+                            final_answer = last_tool_result_text_;
+                            if (memory_) {
+                                memory_->addAssistantMessage(final_answer);
+                            }
+                            emit answerReady(final_answer);
+                            running_ = false;
+                            break;
+                        }
+                    } else {
+                        consecutive_same_call_ = 1;
+                        last_tool_call_key_ = call_key;
+                    }
+
                     emit toolCalling(call.name);
                     emit toolInvocationReady(call);
                     if (memory_) {
@@ -97,15 +128,16 @@ QString ReactAgent::run(const QString& user_input,
                     emit toolCompleted(call.name, result.promptText());
                     emit toolResultReady(result);
 
-                    // 将工具结果反馈给 LLM
-                    // 注意：keep_history=1 时 RKLLM 内部 KV Cache 已缓存之前的输出，
-                    // 只需传工具结果（增量），不要重复拼接 llm_output 造成 prompt 膨胀
+                    // 保存工具结果用于循环短路
+                    last_tool_result_text_ = result.promptText();
+
+                    // 将工具结果反馈给 LLM（增量追加到 KV Cache）
+                    // keep_history=1 时 chat_template 会自动包装为新的对话轮次
                     QString observation = executor_.formatToolResponse(result);
-                    prompt = observation + "\n\n请根据工具返回的结果继续回答用户问题。如果已经可以回答，请用 <answer>...</answer> 格式给出最终答案。\n";
+                    prompt = observation;
                 } else {
                     spdlog::warn("Failed to parse tool call from: {}",
                         llm_output.left(100).toStdString());
-                    // 作为普通输出处理 — KV Cache 已缓存，只传引导语
                     prompt = "请用正确格式重试。\n";
                 }
                 break;
@@ -141,7 +173,12 @@ QString ReactAgent::run(const QString& user_input,
     }
 
     if (iteration >= config_.max_iterations && final_answer.isEmpty()) {
-        final_answer = "抱歉，我无法在有限的步骤内完成这个任务。请尝试简化问题或分步询问。";
+        // 超过最大迭代次数，如有工具结果则返回它，否则给出默认提示
+        if (!last_tool_result_text_.isEmpty()) {
+            final_answer = last_tool_result_text_;
+        } else {
+            final_answer = "抱歉，我无法在有限的步骤内完成这个任务。请尝试简化问题或分步询问。";
+        }
         if (memory_) {
             memory_->addAssistantMessage(final_answer);
         }
@@ -168,8 +205,7 @@ void ReactAgent::setSystemPrompt(const QString& prompt) {
 }
 
 ReactAgent::StepType ReactAgent::parseStepType(const QString& output) {
-    // 查找各标签最后出现的位置，优先使用最后出现的标签
-    // 这样可以正确处理包含历史内容的输出
+    // 查找各标签最后出现的位置
     int answer_pos = -1;
     int tool_call_pos = -1;
     int thought_pos = -1;
@@ -196,6 +232,16 @@ ReactAgent::StepType ReactAgent::parseStepType(const QString& output) {
     while (match.hasMatch()) {
         thought_pos = match.capturedStart();
         match = re_thought.match(output, match.capturedEnd());
+    }
+
+    // ★ 当 tool_call 和 answer 同时出现时，优先执行 tool_call
+    // 因为模型可能在尚未获得工具结果时就生成了占位式 answer，
+    // 必须先执行工具获取真实数据，再让模型生成最终答案
+    if (tool_call_pos >= 0 && answer_pos >= 0) {
+        spdlog::info("Both <tool_call> and <answer> found in same output, "
+            "prioritizing tool_call (tool@{}, answer@{})",
+            tool_call_pos, answer_pos);
+        return StepType::ToolCall;
     }
 
     // 返回最后出现的标签类型
