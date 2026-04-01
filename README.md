@@ -39,6 +39,7 @@ The system no longer just records clock-ins; it integrates **On-Device Offline L
   - **Offline Operation**: No internet required, data never leaves the device, ensuring high privacy.
   - **NPU Acceleration**: Fully utilizes NPU computing power, with fast inference (~10 token/s) and < 200ms first-token latency.
 - **Cloud LLM (Cloud Mode)**: Seamless integration with standard Cloud LLM APIs for complex general knowledge queries.
+- **OpenAI-Compatible Remote LLM**: When `LLAMA_CPP_SERVER_URL` is set, the remote path automatically switches from Tencent LKE to an OpenAI-compatible `/v1/chat/completions` backend.
 - **One-Click Switch**: Unique NPU resource scheduling mechanism allows smooth switching between "Face Recognition Mode" and "LLM Analysis Mode".
 
 ### 📊 Full Data Intelligent Diagnosis
@@ -95,6 +96,36 @@ cd C++/face_recognition_cap
 ./build/build_linux_aarch64/face_recognition_cap
 ```
 
+### 3. Configure LLM Backends
+
+#### Local RKLLM
+
+```bash
+export LOCAL_LLM_MODEL_PATH=/path/to/your_model.rkllm
+```
+
+#### Tencent LKE
+
+```bash
+export TENCENT_APP_KEY=your_app_key
+export TENCENT_SECRET_ID=your_secret_id
+export TENCENT_SECRET_KEY=your_secret_key
+```
+
+#### OpenAI-Compatible Remote API
+
+```bash
+export LLAMA_CPP_SERVER_URL=http://127.0.0.1:8080
+export LLAMA_CPP_SERVER_MODEL=gpt-4o-mini
+export LLAMA_CPP_SERVER_API_KEY=sk-your-key
+```
+
+Notes:
+
+- `LLAMA_CPP_SERVER_URL` should be the base URL only; the code appends `/v1/chat/completions`
+- The variable name keeps the historical `LLAMA_CPP_*` prefix, but the backend only needs to be OpenAI-compatible, not necessarily llama.cpp
+- When `LLAMA_CPP_SERVER_URL` is set, remote Agent traffic no longer goes to Tencent LKE
+
 ---
 
 ## Documentation
@@ -103,6 +134,8 @@ cd C++/face_recognition_cap
 *   [Architecture Design](C++/face_recognition_cap/docs/开发文档/README.md) - System architecture, pipeline design, and core module explanation.
 *   [API Documentation](C++/face_recognition_cap/docs/开发文档/API文档.md) - Secondary development and integration interfaces.
 *   [User Manual](C++/face_recognition_cap/docs/用户文档/用户使用手册.md) - GUI function operation guide.
+*   [Agent Module Guide](C++/face_recognition_cap/docs/开发文档/Agent模块说明.md) - Current Agent architecture, toolset, and OpenAI-compatible remote integration.
+*   [OpenAI-Compatible Integration Guide](C++/face_recognition_cap/docs/开发文档/OpenAI兼容接口接入说明.md) - Environment variables and remote custom model access.
 
 ---
 

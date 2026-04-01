@@ -39,6 +39,7 @@
   - **离线运行**: 无需联网，数据完全不出域，隐私性极高。
   - **NPU 加速**: 充分利用 NPU 算力，推理速度快（~10 token/s），首字延迟 < 200ms。
 - **云端大模型 (Cloud LLM)**: 无缝对接云端标准大模型 API，支持更复杂的通识类问答。
+- **OpenAI 兼容自定义大模型接口**: 当设置 `LLAMA_CPP_SERVER_URL` 后，远端路径会自动从腾讯云切换到 OpenAI 兼容 `/v1/chat/completions`。
 - **一键切换**: 独创的 NPU 资源调度机制，支持在"人脸识别模式"和"LLM分析模式"间流畅切换。
 
 ### 📊 全量数据智能诊断
@@ -95,6 +96,37 @@ cd C++/face_recognition_cap
 ./build/build_linux_aarch64/face_recognition_cap
 ```
 
+### 3. 配置大模型后端
+
+#### 本地 RKLLM
+
+```bash
+export LOCAL_LLM_MODEL_PATH=/path/to/your_model.rkllm
+```
+
+#### 腾讯云 LKE
+
+```bash
+export TENCENT_APP_KEY=your_app_key
+export TENCENT_SECRET_ID=your_secret_id
+export TENCENT_SECRET_KEY=your_secret_key
+```
+
+#### OpenAI 兼容自定义远端接口
+
+```bash
+export LLAMA_CPP_SERVER_URL=http://127.0.0.1:8080
+export LLAMA_CPP_SERVER_MODEL=gpt-4o-mini
+export LLAMA_CPP_SERVER_API_KEY=sk-your-key
+```
+
+说明：
+
+- `LLAMA_CPP_SERVER_URL` 只写基地址，代码会自动补 `/v1/chat/completions`
+- 变量名沿用历史 `LLAMA_CPP_*`，但并不要求后端必须是 llama.cpp
+- 只要兼容 OpenAI Chat Completions，就可以作为远端 Agent 接口
+- 当 `LLAMA_CPP_SERVER_URL` 非空时，远端请求将不再走腾讯云
+
 ---
 
 ## 文档中心
@@ -103,6 +135,8 @@ cd C++/face_recognition_cap
 *   [架构设计文档](C++/face_recognition_cap/docs/开发文档/README.md) - 系统架构、流水线设计与核心模块说明。
 *   [API 接口文档](C++/face_recognition_cap/docs/开发文档/API文档.md) - 二次开发与集成接口。
 *   [用户使用手册](C++/face_recognition_cap/docs/用户文档/用户使用手册.md) - GUI 功能操作指南。
+*   [Agent 模块说明](C++/face_recognition_cap/docs/开发文档/Agent模块说明.md) - 当前 Agent 架构、工具集与 OpenAI 兼容远端接入说明。
+*   [OpenAI 兼容接口接入说明](C++/face_recognition_cap/docs/开发文档/OpenAI兼容接口接入说明.md) - 环境变量与自定义大模型接口配置方法。
 
 ---
 

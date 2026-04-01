@@ -1,158 +1,240 @@
 # API 文档
 
-本文档基于 C++17 源代码详细介绍系统各模块的接口和使用方法。
+> 版本: v2.4
+> 更新日期: 2026-04-01
 
-## 目录
+本文档按当前代码实现，概览项目中最常用的核心 API。
 
-- [App 层 API](#app-层-api)
-  - [FaceRecognitionApp](#facerecognitionapp)
-  - [ModelManager](#modelmanager)
-  - [FeatureLibrary](#featurelibrary)
-  - [PreprocessingThread](#preprocessingthread)
-  - [PostprocessThread](#postprocessthread)
-  - [RecognitionThread](#recognitionthread)
-  - [PerformanceMonitor](#performancemonitor)
-- [Core 层 API](#core-层-api)
-- [Service 层 API](#service-层-api)
-- [Hardware 层 API](#hardware-层-api)
-
----
-
-## App 层 API
+## App 层
 
 ### FaceRecognitionApp
 
-**文件**: `include/app/face_recognition_app.h`
+文件：
 
-应用控制中枢，负责多线程流水线的编排与生命周期管理。
+- `include/app/face_recognition_app.h`
 
-#### 配置结构 `AppConfig`
+主要职责：
 
-```cpp
-struct AppConfig {
-    std::string retinaface_model_path;  // YOLOv8-face 模型路径
-    std::string facenet_model_path;     // FaceNet 模型路径
-    std::string camera_type;            // "usb" (默认)
-    std::string device_number;          // /dev/videoX 的索引
-    std::string feature_lib_path;       // 文件系统模式路径
-    std::string database_path;          // SQLite 数据库路径
-    bool use_database;                  // 是否启用数据库模式
-    int camera_width;                   // 采集宽度
-    int camera_height;                  // 采集高度
-    float box_conf_threshold;           // 检测置信度
-    float nms_threshold;                // 非极大值抑制阈值
-    float facenet_threshold;            // 人脸识别相似度阈值
-    bool use_async_usb;                 // 始终为 true (mmap 零拷贝)
-    int perf_report_interval;           // 性能报告帧数间隔
-};
-```
+- 初始化算法模型与线程流水线
+- 控制识别主循环
+- 提供帧回调与识别结果回调
 
-#### 主要接口
+关键接口：
 
 ```cpp
-// 初始化流水线与模型
 int initialize(const AppConfig& config);
-
-// 启动检测主循环 (线程2)
 int run();
-
-// 设置识别成功回调 (用于业务处理)
 void set_recognition_callback(RecognitionCallback callback);
-
-// 设置帧回调 (用于 GUI 渲染)
 void set_frame_callback(FrameCallback callback);
-
-// 动态重置摄像头 (支持热切换)
 bool reinitialize_camera(const std::string& device_number);
-
-// GUI 注册接口：一站式获取特征
 bool extract_feature_from_frame(const cv::Mat& frame, std::vector<float>& feature, cv::Rect* face_box = nullptr);
 ```
 
----
+### LocalLLMThread
 
-### ModelManager
+文件：
 
-**文件**: `include/app/model_manager.h`
+- `include/app/local_llm_thread.h`
 
-管理 RKNN 句柄与内存，支持 NPU 卸载。
+主要职责：
 
-- `init_face_detector(path)`: 加载 YOLOv8-face。
-- `init_facenet(path)`: 加载 MobileFaceNet。
-- `get_face_detector_ctx()`: 获取 NPU 上下文。
+- 封装 RKLLM C API
+- 异步初始化本地模型
+- 流式回调本地大模型输出
 
----
+关键接口：
 
-### FeatureLibrary
+```cpp
+bool initModel(const QString& model_path, int max_new_tokens, int max_context_len);
+void requestInference(const QString& prompt);
+void abortInference();
+void resetContext();
+void releaseModelAsync();
+```
 
-**文件**: `include/app/feature_library.h`
-
-基于 `std::shared_mutex` 实现的高并发特征库。
-
-- `load_from_database(db_manager)`: 从数据库同步特征。
-- `match_feature_with_id(...)`: 返回 `user_id` 的匹配接口。
-
----
-
-### 流水线线程类
-
-#### 1. PreprocessingThread (线程1)
-**职责**: 持续采集 USB 视频流 (mmap 零拷贝)，使用 RGA 硬件进行镜像和正方形填充。
-
-#### 2. PostprocessThread (线程2.5)
-**职责**: 在 CPU 上执行 YOLOv8 输出张量的解码、DFL 与 NMS，将检测框推送到识别线程。
-
-#### 3. RecognitionThread (线程3)
-**职责**: 人脸对齐 (similarTransform)、FaceNet NPU 推理、特征比对、以及通过回调通知渲染。
-
----
-
-## Core 层 API
-
-### YOLOv8-face
-- `yolov8_face_run(...)`: 执行 NPU 推理。
-- `yolov8_face_postprocess(...)`: DFL/NMS 算法实现。
-
-### FaceNet
-- `facenet_inference(...)`: 提取 512 维归一化特征。
-
----
-
-## Service 层 API
+## Service 层
 
 ### AttendanceService
-**文件**: `include/service/attendance_service.h`
 
-- `auto_determine_check_type(...)`: 根据工作时间配置自动判断签到/签退。
-- `record_attendance(...)`: 记录带状态 (正常/迟到/早退) 的考勤。
-- `set_work_schedule(...)`: 配置弹性上下班时间规则。
+文件：
+
+- `include/service/attendance_service.h`
+
+主要职责：
+
+- 记录考勤
+- 自动判断签到 / 签退
+- 判定正常 / 迟到 / 早退
+- 查询单用户、单日、区间考勤记录与统计
+
+关键接口：
+
+```cpp
+int record_attendance(int user_id, const std::string& user_name, float similarity, const std::string& face_image_path = "", int check_type = 1);
+bool has_today_check_record(int user_id, int check_type);
+int auto_determine_check_type(int user_id, std::time_t current_time);
+int determine_status(std::time_t check_time, int check_type);
+std::vector<db::AttendanceRecord> query_user_records(int user_id, const std::string& start_date, const std::string& end_date);
+std::vector<db::AttendanceRecord> query_records_by_date(const std::string& date);
+std::vector<db::AttendanceRecord> query_records_range(const std::string& start_date, const std::string& end_date);
+AttendanceStatistics get_statistics(const std::string& date);
+std::vector<AttendanceStatistics> get_statistics_range(const std::string& start_date, const std::string& end_date);
+```
 
 ### UserService
-**文件**: `include/service/user_service.h`
 
-- `register_user(...)`: 注册人员信息。
-- `add_face_feature(...)`: 绑定人脸特征向量。
+文件：
+
+- `include/service/user_service.h`
+
+主要职责：
+
+- 注册与维护用户
+- 管理人脸特征
+- 查询用户列表与统计
+
+关键接口：
+
+```cpp
+RegistrationResult register_user(const std::string& user_name, ...);
+int add_face_feature(int user_id, const std::vector<float>& feature_vector, float quality = 0.0f, const std::string& source_image = "");
+bool get_user(int user_id, db::UserInfo& user);
+std::vector<db::UserInfo> get_all_users(int status = -1);
+int get_feature_count(int user_id);
+bool set_user_status(int user_id, bool enabled);
+```
+
+## Agent / AI 服务层
+
+### AgentService
+
+文件：
+
+- `include/agent/agent_service.h`
+
+主要职责：
+
+- 注册内置工具
+- 持有 `ReactAgent`
+- 对外暴露统一 `chat()` 入口
+
+关键接口：
+
+```cpp
+void registerBuiltinTools(service::AttendanceService* attendance, service::UserService* user);
+QString chat(const QString& user_input, std::function<QString(const QString&)> llm_callback);
+void clearHistory();
+ToolRegistry* getToolRegistry();
+ConversationMemory* getMemory();
+QString getToolsJson() const;
+```
 
 ### AiAnalysisService
-**文件**: `gui/include/services/ai_analysis_service.h`
 
-- `requestAnalysis(...)`: 发送考勤数据至 LLM，支持多维度（今日/近7日/近30日）分析。
-- `cancelAnalysis()`: 取消正在进行的推理请求。
-- `signals`: 提供 `analysisResultReady` (增量流式输出)、`analysisFinished` 等信号。
+文件：
 
----
+- `include/gui_services/ai_analysis_service.h`
 
-## Hardware 层 API
+主要职责：
 
-### Camera Util
-**文件**: `include/hardware/camera_util.h`
+- 管理远端 AI 请求
+- 默认支持腾讯云 LKE
+- 当设置 `LLAMA_CPP_SERVER_URL` 时切到 OpenAI 兼容接口
+- 负责远端 Agent 调用与流式事件输出
 
-- `read_usb_frame(cv::Mat *img)`: **零拷贝接口**。利用 `shared_ptr` 引用计数浅拷贝，直接访问 mmap 映射的内存。
-- `start_usb_capture_thread()`: 启动独立采集线程。
+关键接口：
 
----
+```cpp
+void requestAnalysis(const service::AttendanceStatistics& stats, const QString& trend_summary, const QString& detail_records = "", const QString& user_prompt = "", int range_days = 1);
+void requestAgentChat(const QString& user_input);
+void initializeAgent(service::AttendanceService* attendance_svc, service::UserService* user_svc);
+void cancelAnalysis();
+bool isAnalyzing() const;
+```
 
-## 常量与数据结构
+关键 signals：
 
-- `FACENET_FEATURE_DIM`: 512
-- `RecognitionResult`: 包含 `user_id`, `user_name`, `similarity`, `face_image`, `timestamp`。
+```cpp
+void streamEventReady(const agent::AgentStreamEvent& event);
+void analysisFinished();
+void errorOccurred(const QString& errorMsg);
+void agentThinking();
+void agentToolCalling(const QString& tool_name);
+void agentToolCompleted(const QString& tool_name, const QString& result);
+```
+
+### LocalAiAnalysisService
+
+文件：
+
+- `include/gui_services/local_ai_analysis_service.h`
+
+主要职责：
+
+- 管理本地 RKLLM 模型生命周期
+- 管理本地 Agent / Chat 模式切换
+- 输出统一流式事件
+
+关键接口：
+
+```cpp
+bool initializeLocalLLM(const QString& model_path);
+void requestAnalysis(const service::AttendanceStatistics& stats, const QString& trend_summary, const QString& detail_records = "", const QString& user_prompt = "", int range_days = 1);
+void requestAgentChat(const QString& user_input);
+void initializeAgent(service::AttendanceService* attendance_svc, service::UserService* user_svc);
+void setAgentMode(bool enabled);
+void cancelAnalysis();
+```
+
+## 当前内置工具 API
+
+### 全局考勤
+
+- `query_attendance`
+
+### 单员工考勤
+
+- `lookup_user_attendance`
+
+### 部门考勤
+
+- `lookup_department_attendance`
+
+### 排名分析
+
+- `lookup_attendance_ranking`
+
+### 缺卡 / 缺勤
+
+- `lookup_missing_attendance`
+
+### 用户信息
+
+- `query_user`
+
+### 系统信息
+
+- `system_info`
+
+### 辅助工具
+
+- `help`
+- `calculator`
+
+## 配置入口
+
+主要配置集中在：
+
+- [config.h](/home/cl/EC-A3588Q/face_attendance/RK3588-NPU/C++/face_recognition_cap/include/config/config.h)
+
+常用环境变量：
+
+```bash
+export LOCAL_LLM_MODEL_PATH=/path/to/your_model.rkllm
+export TENCENT_APP_KEY=your_app_key
+export TENCENT_SECRET_ID=your_secret_id
+export TENCENT_SECRET_KEY=your_secret_key
+export LLAMA_CPP_SERVER_URL=http://127.0.0.1:8080
+export LLAMA_CPP_SERVER_MODEL=gpt-4o-mini
+export LLAMA_CPP_SERVER_API_KEY=sk-your-key
+```

@@ -2,8 +2,8 @@
 
 > **适用平台**: Rockchip RK3588 (NPU)  
 > **模型格式**: RKLLM (W8A8/W4A16 量化)  
-> **文档版本**: v1.1  
-> **最后更新**: 2025-12-25
+> **文档版本**: v1.3
+> **最后更新**: 2026-04-01
 
 ## 1. 为什么选择本地部署？(核心优势)
 
@@ -46,22 +46,16 @@ scp qwen3-vl-2b-instruct_w8a8_rk3588.rkllm firefly@192.168.1.103:/home/firefly/o
 ```
 
 ### 步骤 2: 配置模型路径
-修改项目配置文件 `include/config/config.h`，指向你实际的模型路径。
+推荐直接使用环境变量，而不是手改代码常量：
 
-```cpp
-// include/config/config.h
-
-namespace Config {
-    namespace LocalLLM {
-        // 修改为您设备上的实际路径
-        inline const char* MODEL_PATH = "/home/firefly/open_project/qwen3-vl-2b-instruct_w8a8_rk3588.rkllm";
-        
-        // 推理参数配置
-        constexpr int MAX_NEW_TOKENS = 512;    // 单次回复最大长度
-        constexpr int MAX_CONTEXT_LEN = 4096;  // 上下文窗口限制 (取决于模型转换时的设置)
-    }
-}
+```bash
+export LOCAL_LLM_MODEL_PATH=/home/firefly/open_project/qwen3-vl-2b-instruct_w8a8_rk3588.rkllm
 ```
+
+说明：
+
+- 代码优先读取 `LOCAL_LLM_MODEL_PATH`
+- 只有环境变量为空时，才会回退到 `config.h` 默认值
 
 ### 步骤 3: 编译项目
 使用提供的交叉编译脚本进行构建。构建脚本会自动处理库文件的链接。
@@ -94,6 +88,22 @@ export LD_LIBRARY_PATH=./lib:$LD_LIBRARY_PATH
 
 # 启动 GUI 程序
 ./face_recognition_cap_gui -platform xcb
+```
+
+## 4.1 与远端模式的关系
+
+本地模式与远端模式可以共存：
+
+- 本地模式依赖 `LOCAL_LLM_MODEL_PATH`
+- 远端模式默认走腾讯云
+- 如果设置了 `LLAMA_CPP_SERVER_URL`，远端模式会切到 OpenAI 兼容接口
+
+远端模式示例：
+
+```bash
+export LLAMA_CPP_SERVER_URL=http://127.0.0.1:8080
+export LLAMA_CPP_SERVER_MODEL=gpt-4o-mini
+export LLAMA_CPP_SERVER_API_KEY=sk-your-key
 ```
 
 ---
