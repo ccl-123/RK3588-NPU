@@ -43,6 +43,7 @@
 #include <QDate>
 #include <QTableWidgetItem>
 #include <QMenu>
+#include <QStringList>
 #include <QtConcurrent>
 #include <ctime>
 #include <spdlog/spdlog.h>
@@ -128,7 +129,6 @@ MainWindow::MainWindow(QWidget* parent)
     , rknn_release_watcher_(nullptr)
     , rknn_reload_watcher_(nullptr)
     , current_date_(QDate::currentDate())  // 初始化当前日期（用于跨日检测）
-    , user_detection_{false, 0, "", 0.0f, std::chrono::steady_clock::now(), std::chrono::steady_clock::now(), false}
     , last_displayed_user_id_(-1)
     , user_confirm_duration_ms_(1000)  // 默认1秒，从配置加载
     , stranger_detection_{false, std::chrono::steady_clock::now(), std::chrono::steady_clock::now()}
@@ -288,12 +288,6 @@ bool MainWindow::finish_initialization_after_core() {
         
         // ==================== 陌生人检测（基于持续时间 2秒） ====================
         if (is_stranger) {
-            // 重置用户检测状态
-            if (user_detection_.is_detecting) {
-                spdlog::trace("Switched from user to stranger, reset user detection");
-                user_detection_.is_detecting = false;
-            }
-            
             // 检查是否已经在检测陌生人
             if (stranger_detection_.is_detecting) {
                 // 检查距离上次检测是否超时
@@ -345,29 +339,20 @@ bool MainWindow::finish_initialization_after_core() {
             spdlog::trace("Switched from stranger to user, reset stranger detection");
         }
             
-        // 检查是否是同一个人的连续识别
-        bool is_same_person = user_detection_.is_detecting && 
-                             (result.user_id == user_detection_.user_id) && 
+        auto& user_detection = user_detections_[result.user_id];
+        bool is_same_person = user_detection.is_detecting && 
+                             (result.user_id == user_detection.user_id) && 
                              (result.user_id > 0);
         
         if (!is_same_person) {
             // 不是同一个人，开始新的检测
-            user_detection_.is_detecting = true;
-            user_detection_.user_id = result.user_id;
-            user_detection_.user_name = result.user_name;
-            user_detection_.max_similarity = result.similarity;
-            user_detection_.first_seen = now;
-            user_detection_.last_seen = now;
-            user_detection_.attendance_recorded = false;
-            
-            // 第一次识别时更新显示，但不签到
-            QMetaObject::invokeMethod(this, "on_recognition_result", Qt::QueuedConnection,
-                                      Q_ARG(int, result.user_id),
-                                      Q_ARG(QString, QString::fromStdString(result.user_name)),
-                                      Q_ARG(float, result.similarity),
-                                      Q_ARG(bool, false),
-                                      Q_ARG(int, 1), // check_type 默认为1
-                                      Q_ARG(int, 1)); // status 默认为1
+            user_detection.is_detecting = true;
+            user_detection.user_id = result.user_id;
+            user_detection.user_name = result.user_name;
+            user_detection.max_similarity = result.similarity;
+            user_detection.first_seen = now;
+            user_detection.last_seen = now;
+            user_detection.attendance_recorded = false;
             
             spdlog::trace("User detection started: {} (similarity: {:.2f})", 
                           result.user_name, result.similarity);
@@ -376,40 +361,32 @@ bool MainWindow::finish_initialization_after_core() {
         
         // 是同一个人，检查是否超时
         auto since_last = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now - user_detection_.last_seen).count();
+            now - user_detection.last_seen).count();
         
         if (since_last > USER_DETECTION_TIMEOUT_MS) {
             // 超时了，重新开始检测
-            user_detection_.first_seen = now;
-            user_detection_.last_seen = now;
-            user_detection_.max_similarity = result.similarity;
-            user_detection_.attendance_recorded = false;
+            user_detection.first_seen = now;
+            user_detection.last_seen = now;
+            user_detection.max_similarity = result.similarity;
+            user_detection.attendance_recorded = false;
             spdlog::trace("User detection restarted (timeout after {}ms)", since_last);
             // 继续执行下面的 UI 更新，不要 return
         } else {
             // 没超时，更新检测状态
-            user_detection_.last_seen = now;
-            user_detection_.max_similarity = std::max(user_detection_.max_similarity, result.similarity);
+            user_detection.last_seen = now;
+            user_detection.max_similarity = std::max(user_detection.max_similarity, result.similarity);
         }
         
         // 计算检测持续时间
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now - user_detection_.first_seen).count();
+            now - user_detection.first_seen).count();
         
         const int confirm_duration_ms = user_confirm_duration_ms_.load(std::memory_order_acquire);
         spdlog::trace("User detection continued: {} (duration: {}ms / {}ms)", 
                       result.user_name, duration, confirm_duration_ms);
         
-        // 更新显示（使用实时相似度，不触发签到）
-        QMetaObject::invokeMethod(this, "on_recognition_result", Qt::QueuedConnection,
-                                  Q_ARG(int, result.user_id),
-                                  Q_ARG(QString, QString::fromStdString(result.user_name)),
-                                  Q_ARG(float, result.similarity),  // 使用实时值
-                                  Q_ARG(bool, false),
-                                  Q_ARG(int, 1));
-        
         // 只有达到确认时长且未记录过考勤才真正签到
-        if (duration >= confirm_duration_ms && !user_detection_.attendance_recorded) {
+        if (duration >= confirm_duration_ms && !user_detection.attendance_recorded) {
             bool is_new_attendance = false;
             
             // 重要：在 record_attendance 之前确定 check_type
@@ -428,16 +405,18 @@ bool MainWindow::finish_initialization_after_core() {
                 int record_id = attendance_service_->record_attendance(
                     result.user_id,
                     result.user_name,
-                    user_detection_.max_similarity);
+                    user_detection.max_similarity,
+                    "",
+                    check_type);
                 is_new_attendance = (record_id > 0);
             }
             
             // 标记本次检测已记录考勤
-            user_detection_.attendance_recorded = true;
+            user_detection.attendance_recorded = true;
             
             const char* type_str = (check_type == 2) ? "签退" : "签到";
             spdlog::info("User confirmed after {}ms: {} (similarity: {:.2f}, type: {}, is_new: {})",
-                        duration, result.user_name, user_detection_.max_similarity, type_str, is_new_attendance);
+                        duration, result.user_name, user_detection.max_similarity, type_str, is_new_attendance);
 
             // 如果是新考勤记录（签到或签退），显示提示
             if (is_new_attendance) {
@@ -452,7 +431,7 @@ bool MainWindow::finish_initialization_after_core() {
                 QMetaObject::invokeMethod(this, "on_recognition_result", Qt::QueuedConnection,
                                           Q_ARG(int, result.user_id),
                                           Q_ARG(QString, QString::fromStdString(result.user_name)),
-                                          Q_ARG(float, user_detection_.max_similarity),
+                                          Q_ARG(float, user_detection.max_similarity),
                                           Q_ARG(bool, true),
                                           Q_ARG(int, check_type),
                                           Q_ARG(int, attendance_status));
@@ -1054,7 +1033,7 @@ void MainWindow::start_recognition() {
         return;
     }
 
-    user_detection_ = {false, 0, "", 0.0f, std::chrono::steady_clock::now(), std::chrono::steady_clock::now(), false};
+    user_detections_.clear();
     stranger_detection_ = {false, std::chrono::steady_clock::now(), std::chrono::steady_clock::now()};
     is_running_.store(true, std::memory_order_release);
     if (recognition_page_) {
@@ -1228,6 +1207,10 @@ void MainWindow::on_frame_ready(const cv::Mat& frame, const std::vector<Recognit
     face_results.reserve(results.size());
     const int dup_interval = ConfigManager::instance()->getDuplicateCheckInterval();
     const std::time_t current_time = std::time(nullptr);
+    const RecognitionResult* single_recognized_result = nullptr;
+    int single_recognized_check_type = 1;
+    int recognized_count = 0;
+    QStringList recognized_names;
     for (const auto& result : results) {
         FaceResult fr;
         fr.box = result.face_box;
@@ -1244,6 +1227,13 @@ void MainWindow::on_frame_ready(const cv::Mat& frame, const std::vector<Recognit
             fr.check_type = attendance_service_->auto_determine_check_type(result.user_id, current_time);
         }
 
+        if (result.user_id > 0) {
+            recognized_count++;
+            recognized_names << QString::fromStdString(result.user_name);
+            single_recognized_result = &result;
+            single_recognized_check_type = fr.check_type;
+        }
+
         face_results.push_back(fr);
     }
     if (video_widget_) {
@@ -1253,6 +1243,43 @@ void MainWindow::on_frame_ready(const cv::Mat& frame, const std::vector<Recognit
     // 更新状态栏的人脸检测数量
     if (recognition_page_) {
         recognition_page_->updateFaceCount(static_cast<int>(results.size()));
+
+        if (recognized_count == 0) {
+            if (results.empty()) {
+                recognition_page_->setRecognitionSummary(tr("等待识别"));
+                recognition_page_->updateDetectionStatus(tr("等待识别"), 0);
+                last_displayed_user_id_ = -1;
+                recognition_page_->setUserName(tr("未识别"));
+                recognition_page_->setUserSimilarity(-1.0f);
+                recognition_page_->resetUserMeta();
+            } else {
+                recognition_page_->setRecognitionSummary(
+                    tr("检测到 %1 张人脸，未识别").arg(results.size()));
+                recognition_page_->updateDetectionStatus(tr("未识别用户"), -1);
+                last_displayed_user_id_ = -1;
+                recognition_page_->setUserName(tr("未识别"));
+                recognition_page_->setUserSimilarity(-1.0f);
+                recognition_page_->resetUserMeta();
+            }
+        } else if (recognized_count == 1 && single_recognized_result) {
+            on_recognition_result(single_recognized_result->user_id,
+                                  QString::fromStdString(single_recognized_result->user_name),
+                                  single_recognized_result->similarity,
+                                  false,
+                                  single_recognized_check_type,
+                                  1);
+        } else {
+            recognition_page_->setRecognitionSummary(
+                tr("识别到 %1 位用户: %2").arg(recognized_count).arg(recognized_names.join("、")));
+            recognition_page_->updateDetectionStatus(tr("多人识别中: %1 位").arg(recognized_count), -1);
+
+            if (last_displayed_user_id_ != -2) {
+                last_displayed_user_id_ = -2;
+                recognition_page_->setUserName(tr("多人识别"));
+                recognition_page_->setUserSimilarity(-1.0f);
+                recognition_page_->resetUserMeta();
+            }
+        }
     }
 
     // 每秒更新一次 FPS
@@ -1398,14 +1425,14 @@ void MainWindow::on_recognition_result(int user_id, const QString& name, float s
         }
     }
 
-    // 更新用户信息面板（现代化卡片布局）- 轻量更新，只更新文字
-    if (recognition_page_) {
+    const bool keep_multi_user_card = is_new_attendance && last_displayed_user_id_ == -2;
+    if (!keep_multi_user_card && recognition_page_) {
         recognition_page_->setUserName(name);
         recognition_page_->setUserSimilarity(similarity);
     }
     
     // 只在用户ID变化时获取用户详细信息（减少数据库查询）
-    if (user_id > 0 && user_id != last_displayed_user_id_) {
+    if (!keep_multi_user_card && user_id > 0 && user_id != last_displayed_user_id_) {
         last_displayed_user_id_ = user_id;
         
         if (user_service_) {
@@ -1427,7 +1454,7 @@ void MainWindow::on_recognition_result(int user_id, const QString& name, float s
                 }
             }
         }
-    } else if (user_id <= 0) {
+    } else if (!keep_multi_user_card && user_id <= 0) {
         last_displayed_user_id_ = -1;
         if (recognition_page_) {
             recognition_page_->resetUserMeta();

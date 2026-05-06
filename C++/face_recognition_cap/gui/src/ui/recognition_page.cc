@@ -210,8 +210,12 @@ void RecognitionPage::setUserName(const QString& name) {
 
 void RecognitionPage::setUserSimilarity(float similarity) {
     if (user_similarity_label_) {
-        user_similarity_label_->setText(
-            QString("%1%").arg(QString::number(similarity * 100, 'f', 1)));
+        if (similarity < 0.0f) {
+            user_similarity_label_->setText(tr("--"));
+        } else {
+            user_similarity_label_->setText(
+                QString("%1%").arg(QString::number(similarity * 100, 'f', 1)));
+        }
     }
 }
 

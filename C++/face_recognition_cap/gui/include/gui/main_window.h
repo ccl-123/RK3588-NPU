@@ -21,6 +21,7 @@
 #include <atomic>
 #include <mutex>
 #include <QString>
+#include <unordered_map>
 
 #include "app/face_recognition_app.h"
 #include "database/database_manager.h"
@@ -205,7 +206,7 @@ private:
         std::chrono::steady_clock::time_point last_seen;        // 最后一次检测到用户的时间
         bool attendance_recorded;                               // 本次检测是否已记录考勤
     };
-    UserDetection user_detection_;
+    std::unordered_map<int, UserDetection> user_detections_;
     int last_displayed_user_id_;
     std::atomic<int> user_confirm_duration_ms_;                 // 用户确认时长（可配置，默认1秒）
     bool restart_recognition_after_camera_recovery_ = false;    // 摄像头异常恢复后自动重启识别
