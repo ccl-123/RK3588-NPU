@@ -185,12 +185,12 @@ namespace TencentAI {
 //
 // 需要配置的内容：
 // 1. LLAMA_CPP_SERVER_URL
-//    - 填写服务基地址，不带结尾斜杠
-//    - 代码会自动拼接为: <base_url>/v1/chat/completions
+//    - 服务地址。支持以下格式：
+//        a) 基地址 (如 http://127.0.0.1:8080) -> 自动拼接 /v1/chat/completions
+//        b) 带版本的地址 (如 https://.../v1) -> 自动拼接 /chat/completions
+//        c) 完整 Endpoint (如 https://.../v1/chat/completions) -> 保持原样
 //    - 例如：
-//        export LLAMA_CPP_SERVER_URL=http://127.0.0.1:8080
-//        export LLAMA_CPP_SERVER_URL=http://10.35.105.23:8317
-//        export LLAMA_CPP_SERVER_URL=https://your-proxy.example.com
+//        export LLAMA_CPP_SERVER_URL=https://token-plan-cn.xiaomimimo.com/v1
 //
 // 2. LLAMA_CPP_SERVER_MODEL
 //    - 填写请求体中的 model 字段

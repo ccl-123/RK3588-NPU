@@ -43,11 +43,26 @@ RemoteProvider detect_remote_provider() {
 
 QUrl build_remote_url(RemoteProvider provider) {
     if (provider == RemoteProvider::LlamaCpp) {
-        QString base = QString::fromUtf8(Config::LlamaCpp::getBaseUrl()).trimmed();
-        if (base.endsWith('/')) {
-            base.chop(1);
+        QString url = QString::fromUtf8(Config::LlamaCpp::getBaseUrl()).trimmed();
+        
+        // 1. 如果用户提供了完整路径（包含 /chat/completions），则直接使用
+        if (url.contains("/chat/completions")) {
+            return QUrl(url);
         }
-        return QUrl(base + "/v1/chat/completions");
+
+        // 2. 去掉结尾斜杠，方便后续统一拼接
+        if (url.endsWith('/')) {
+            url.chop(1);
+        }
+
+        // 3. 智能拼接：
+        // 如果 URL 以 /v1 结尾，说明用户已经指定了 API 版本，只需追加功能路径
+        if (url.endsWith("/v1")) {
+            return QUrl(url + "/chat/completions");
+        }
+        
+        // 4. 默认行为：视为基地址，追加完整路径
+        return QUrl(url + "/v1/chat/completions");
     }
     return QUrl(QString::fromStdString(Config::TencentAI::API_URL));
 }
