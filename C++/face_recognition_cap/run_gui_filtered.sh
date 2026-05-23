@@ -5,6 +5,12 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN="${ROOT_DIR}/install/face_recognition_cap/face_recognition_cap_gui"
 LIB_DIR="${ROOT_DIR}/install/face_recognition_cap/lib"
 
+# Run high-performance locking script (requires sudo)
+if [[ -f "${ROOT_DIR}/fix_freq_rk3588.sh" ]]; then
+  echo "Applying RK3588 full-performance configurations (requires sudo)..."
+  sudo bash "${ROOT_DIR}/fix_freq_rk3588.sh"
+fi
+
 if [[ ! -x "${BIN}" ]]; then
   echo "Executable not found: ${BIN}"
   echo "Run ./build.sh first."
