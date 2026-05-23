@@ -8,8 +8,7 @@
 当前项目中的 AI Agent 已经从早期的“本地问答 + 少量工具调用”演进为一套完整的端云双模式工具型助手：
 
 - 本地模式：基于 RKLLM 的 Agent / Chat 双模式
-- 远端模式：默认走腾讯云 LKE SSE
-- 自定义远端模式：当设置 `LLAMA_CPP_SERVER_URL` 后，自动切换到 OpenAI 兼容 `/v1/chat/completions`
+- 远端模式：通过 `LLAMA_CPP_SERVER_URL` 调用 OpenAI 兼容 `/v1/chat/completions`
 - 工具系统：支持全局考勤、单员工考勤、部门考勤、考勤排行、缺卡缺勤、用户查询、系统信息、帮助、计算器
 
 因此，旧文档中“云端 Agent 未实现”“工具只有 5 个核心工具”等描述已经不再准确。
@@ -22,7 +21,6 @@
 | 工具注册与执行 | ✅ 完成 | ToolRegistry + ToolExecutor + 结构化结果 |
 | 对话记忆管理 | ✅ 完成 | 保留最近用户轮次，不再按固定消息数粗裁剪 |
 | 本地 Agent | ✅ 完成 | RKLLM 本地推理 |
-| 腾讯云远端 | ✅ 完成 | 腾讯云 LKE SSE |
 | OpenAI 兼容远端 | ✅ 完成 | 自定义 `/v1/chat/completions` 接口 |
 | 单员工考勤工具 | ✅ 完成 | `lookup_user_attendance` |
 | 部门考勤工具 | ✅ 完成 | `lookup_department_attendance` |
@@ -48,19 +46,9 @@ ReactAgent
 
 ## 远端协议说明
 
-### 1. 默认远端：腾讯云 LKE
+### OpenAI 兼容远端
 
-当未设置 `LLAMA_CPP_SERVER_URL` 时，远端模式走腾讯云：
-
-```bash
-export TENCENT_APP_KEY=your_app_key
-export TENCENT_SECRET_ID=your_secret_id
-export TENCENT_SECRET_KEY=your_secret_key
-```
-
-### 2. 自定义远端：OpenAI 兼容接口
-
-当设置了 `LLAMA_CPP_SERVER_URL` 后，远端模式自动改走 OpenAI 兼容接口：
+远端模式使用 OpenAI 兼容接口：
 
 ```bash
 export LLAMA_CPP_SERVER_URL=http://127.0.0.1:8080
@@ -84,14 +72,6 @@ export LLAMA_CPP_SERVER_API_KEY=sk-your-key
 
 ```bash
 export LOCAL_LLM_MODEL_PATH=/path/to/your_model.rkllm
-```
-
-### 腾讯云 LKE
-
-```bash
-export TENCENT_APP_KEY=your_app_key
-export TENCENT_SECRET_ID=your_secret_id
-export TENCENT_SECRET_KEY=your_secret_key
 ```
 
 ### OpenAI 兼容远端
@@ -202,7 +182,6 @@ namespace Config::Agent {
     constexpr bool STREAM_OUTPUT = true;
 
     namespace Cloud {
-        constexpr bool PRESET_SYSTEM_PROMPT = true;
     }
 }
 ```

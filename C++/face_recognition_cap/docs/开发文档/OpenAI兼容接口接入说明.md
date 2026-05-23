@@ -5,12 +5,9 @@
 
 ## 目的
 
-当前项目的远端 AI Agent 支持两条后端链路：
+当前项目的远端 AI Agent 使用 OpenAI 兼容 Chat Completions 接口。
 
-1. 默认：腾讯云 LKE SSE
-2. 自定义：OpenAI 兼容 Chat Completions 接口
-
-因此，只要你的服务兼容 OpenAI Chat Completions 基本协议，就可以替换默认远端后端，而不需要改业务代码。
+只要你的服务兼容 OpenAI Chat Completions 基本协议，就可以作为远端后端，而不需要改业务代码。
 
 适用对象包括：
 
@@ -28,8 +25,8 @@
 
 当前行为如下：
 
-- 当 `LLAMA_CPP_SERVER_URL` 为空时，远端模式走腾讯云 LKE
-- 当 `LLAMA_CPP_SERVER_URL` 非空时，远端模式自动切换到：
+- 当 `LLAMA_CPP_SERVER_URL` 为空时，远端模式不可用，界面会提示先配置服务地址
+- 当 `LLAMA_CPP_SERVER_URL` 非空时，远端模式请求：
 
 ```text
 <LLAMA_CPP_SERVER_URL>/v1/chat/completions
@@ -132,29 +129,13 @@ EOF
 source ~/.bashrc
 ```
 
-## 腾讯云配置
-
-如果继续使用腾讯云 LKE，则需要：
-
-```bash
-export TENCENT_APP_KEY=your_app_key
-export TENCENT_SECRET_ID=your_secret_id
-export TENCENT_SECRET_KEY=your_secret_key
-```
-
-并确保：
-
-- `LLAMA_CPP_SERVER_URL` 不设置
-  或
-- `LLAMA_CPP_SERVER_URL` 为空字符串
-
 ## 常见问题
 
 ### 1. 为什么变量名还是 `LLAMA_CPP_*`？
 
 这是历史命名。当前代码按“OpenAI 兼容接口”处理，不要求后端必须是 llama.cpp。
 
-### 2. 为什么我填了 URL 以后还在走腾讯云？
+### 2. 为什么远端模式提示未配置服务地址？
 
 先检查：
 
@@ -168,10 +149,9 @@ echo "$LLAMA_CPP_SERVER_URL"
 
 不需要。只写基地址，代码会自动拼 `/v1/chat/completions`。
 
-### 4. 腾讯云控制台预设系统提示词还生效吗？
+### 4. 系统提示词在哪里生效？
 
-`Config::Agent::Cloud::PRESET_SYSTEM_PROMPT` 主要对应腾讯云 LKE 的控制台预设场景。  
-当远端切到 OpenAI 兼容接口时，Agent 会直接在请求内容中携带自己的系统提示与工具定义。
+Agent 会直接在 OpenAI 兼容请求内容中携带自己的系统提示与工具定义。
 
 ## 当前远端 Agent 工具能力
 

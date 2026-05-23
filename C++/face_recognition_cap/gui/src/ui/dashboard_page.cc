@@ -111,7 +111,7 @@ QString remote_backend_display_name() {
         const QString model = QString::fromUtf8(Config::LlamaCpp::getModel()).trimmed();
         return model.isEmpty() ? QStringLiteral("自定义模型") : model;
     }
-    return QStringLiteral("腾讯云");
+    return QStringLiteral("OpenAI 兼容");
 }
 
 QString remote_backend_tooltip() {

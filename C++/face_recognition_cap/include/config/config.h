@@ -142,11 +142,6 @@ namespace Agent {
     constexpr int LLM_TIMEOUT_MS = 200000;       // LLM 推理超时 (毫秒，200秒)
     constexpr bool STREAM_OUTPUT = true;        // 流式输出模式
 
-    // 云端 Agent 配置
-    namespace Cloud {
-        constexpr bool PRESET_SYSTEM_PROMPT = true;  // 云端已预设系统提示词（在 LKE 控制台配置）
-    }
-
     // 工具调用配置
     namespace Tools {
         constexpr bool ENABLE_ATTENDANCE = true;    // 启用考勤查询工具
@@ -155,30 +150,9 @@ namespace Agent {
     }
 }
 
-// ===== 腾讯云 LLM [环境变量] =====
-// 配置方法: export TENCENT_APP_KEY / TENCENT_SECRET_ID / TENCENT_SECRET_KEY
-namespace TencentAI {
-    constexpr const char* API_URL = "https://wss.lke.cloud.tencent.com/v1/qbot/chat/sse";
-    constexpr const char* VISITOR_BIZ_ID = "device_001";
-
-    inline const char* getAppKey() {
-        static const char* v = std::getenv("TENCENT_APP_KEY");
-        return v ? v : "";
-    }
-    inline const char* getSecretId() {
-        static const char* v = std::getenv("TENCENT_SECRET_ID");
-        return v ? v : "";
-    }
-    inline const char* getSecretKey() {
-        static const char* v = std::getenv("TENCENT_SECRET_KEY");
-        return v ? v : "";
-    }
-}
-
 // ===== 自定义接入（OpenAI 兼容接口）[环境变量] =====
 // 用途：
-//   当设置了 LLAMA_CPP_SERVER_URL 后，远端请求将不再走腾讯云，
-//   而是改为调用 OpenAI 兼容的 /v1/chat/completions 接口。
+//   远端请求调用 OpenAI 兼容的 /v1/chat/completions 接口。
 //
 // 当前命名沿用历史变量名 LLAMA_CPP_*，但并不强依赖 llama.cpp。
 // 只要服务兼容 OpenAI Chat Completions 基本格式，都可以接入。
@@ -208,7 +182,7 @@ namespace TencentAI {
 //        export LLAMA_CPP_SERVER_API_KEY=sk-123321
 //
 // 注意：
-// - 如果 LLAMA_CPP_SERVER_URL 为空，则默认仍走腾讯云 LKE。
+// - 如果 LLAMA_CPP_SERVER_URL 为空，则远端 AI 功能不可用，需要先配置 OpenAI 兼容服务地址。
 // - 如果你的服务路径不是标准的 /v1/chat/completions，需要继续扩展这里的配置项。
 namespace LlamaCpp {
     constexpr const char* BASE_URL_ENV = "LLAMA_CPP_SERVER_URL";

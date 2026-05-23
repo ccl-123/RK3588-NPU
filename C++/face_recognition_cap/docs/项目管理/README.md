@@ -28,7 +28,7 @@
 ### v2.2
 
 - ReAct Agent 框架落地
-- 本地 RKLLM 与腾讯云模式并存
+- 本地 RKLLM 与 OpenAI 兼容远端模式并存
 
 ## 当前任务完成情况
 
@@ -36,7 +36,6 @@
 |------|------|------|
 | NPU 视觉推理 | ✅ | YOLO + FaceNet |
 | 本地 RKLLM | ✅ | 本地 Agent / Chat |
-| 腾讯云远端 | ✅ | LKE SSE |
 | OpenAI 兼容远端 | ✅ | `/v1/chat/completions` |
 | 单员工考勤分析 | ✅ | 已支持 |
 | 部门考勤分析 | ✅ | 已支持 |

@@ -21,7 +21,6 @@ struct ProtocolChunkEvent {
 
 class LlmProtocolAdapter {
 public:
-    static QVector<ProtocolChunkEvent> consumeTencentSse(QByteArray& buffer);
     static QVector<ProtocolChunkEvent> consumeLlamaCppSse(QByteArray& buffer);
 };
 

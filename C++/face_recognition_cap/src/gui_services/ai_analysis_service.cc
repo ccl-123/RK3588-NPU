@@ -3,7 +3,6 @@
  * @author CL
  * @brief 
  * @date 2025-12-21
- *对话端接口文档：https://cloud.tencent.com/document/product/1759/105561
  * 
  * @copyright Copyright (c) 2025
  */
@@ -19,7 +18,6 @@
 #include <QJsonArray>
 #include <QNetworkRequest>
 #include <QCoreApplication>
-#include <QUuid>
 #include <QTimer>
 #include <QEventLoop>
 #include <QThread>
@@ -28,50 +26,33 @@
 
 namespace {
 
-enum class RemoteProvider {
-    Tencent,
-    LlamaCpp,
-};
-
-RemoteProvider detect_remote_provider() {
-    const QString llama_base = QString::fromUtf8(Config::LlamaCpp::getBaseUrl()).trimmed();
-    if (!llama_base.isEmpty()) {
-        return RemoteProvider::LlamaCpp;
+QUrl build_remote_url() {
+    QString url = QString::fromUtf8(Config::LlamaCpp::getBaseUrl()).trimmed();
+    if (url.isEmpty()) {
+        return QUrl();
     }
-    return RemoteProvider::Tencent;
+
+    // 1. 如果用户提供了完整路径（包含 /chat/completions），则直接使用
+    if (url.contains("/chat/completions")) {
+        return QUrl(url);
+    }
+
+    // 2. 去掉结尾斜杠，方便后续统一拼接
+    if (url.endsWith('/')) {
+        url.chop(1);
+    }
+
+    // 3. 智能拼接：
+    // 如果 URL 以 /v1 结尾，说明用户已经指定了 API 版本，只需追加功能路径
+    if (url.endsWith("/v1")) {
+        return QUrl(url + "/chat/completions");
+    }
+
+    // 4. 默认行为：视为基地址，追加完整路径
+    return QUrl(url + "/v1/chat/completions");
 }
 
-QUrl build_remote_url(RemoteProvider provider) {
-    if (provider == RemoteProvider::LlamaCpp) {
-        QString url = QString::fromUtf8(Config::LlamaCpp::getBaseUrl()).trimmed();
-        
-        // 1. 如果用户提供了完整路径（包含 /chat/completions），则直接使用
-        if (url.contains("/chat/completions")) {
-            return QUrl(url);
-        }
-
-        // 2. 去掉结尾斜杠，方便后续统一拼接
-        if (url.endsWith('/')) {
-            url.chop(1);
-        }
-
-        // 3. 智能拼接：
-        // 如果 URL 以 /v1 结尾，说明用户已经指定了 API 版本，只需追加功能路径
-        if (url.endsWith("/v1")) {
-            return QUrl(url + "/chat/completions");
-        }
-        
-        // 4. 默认行为：视为基地址，追加完整路径
-        return QUrl(url + "/v1/chat/completions");
-    }
-    return QUrl(QString::fromStdString(Config::TencentAI::API_URL));
-}
-
-void apply_remote_auth(RemoteProvider provider, QNetworkRequest& request) {
-    if (provider != RemoteProvider::LlamaCpp) {
-        return;
-    }
-
+void apply_remote_auth(QNetworkRequest& request) {
     const QByteArray api_key = QByteArray(Config::LlamaCpp::getApiKey()).trimmed();
     if (api_key.isEmpty()) {
         return;
@@ -80,44 +61,22 @@ void apply_remote_auth(RemoteProvider provider, QNetworkRequest& request) {
     request.setRawHeader("Authorization", "Bearer " + api_key);
 }
 
-QJsonObject build_remote_request(RemoteProvider provider,
-                                 const QString& content,
+QJsonObject build_remote_request(const QString& content,
                                  bool stream_enabled) {
-    if (provider == RemoteProvider::LlamaCpp) {
-        QJsonObject body;
-        body["model"] = QString::fromUtf8(Config::LlamaCpp::getModel());
-        body["stream"] = stream_enabled;
-        body["messages"] = QJsonArray{
-            QJsonObject{
-                {"role", "user"},
-                {"content", content}
-            }
-        };
-        return body;
-    }
-
-    QString session_id = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    QString request_id = QUuid::createUuid().toString(QUuid::WithoutBraces);
-
     QJsonObject body;
-    body["session_id"] = session_id;
-    body["request_id"] = request_id;
-    body["bot_app_key"] = QString::fromUtf8(Config::TencentAI::getAppKey());
-    body["visitor_biz_id"] = QString::fromStdString(Config::TencentAI::VISITOR_BIZ_ID);
-    body["content"] = content;
-    body["incremental"] = true;
-    body["streaming_throttle"] = 10;
-    body["search_network"] = "disable";
-    body["stream"] = "enable";
-    body["workflow_status"] = "enable";
+    body["model"] = QString::fromUtf8(Config::LlamaCpp::getModel());
+    body["stream"] = stream_enabled;
+    body["messages"] = QJsonArray{
+        QJsonObject{
+            {"role", "user"},
+            {"content", content}
+        }
+    };
     return body;
 }
 
-QVector<gui_services::ProtocolChunkEvent> consume_remote_events(RemoteProvider provider, QByteArray& buffer) {
-    if (provider == RemoteProvider::LlamaCpp) {
-        return gui_services::LlmProtocolAdapter::consumeLlamaCppSse(buffer);
-    }
-    return gui_services::LlmProtocolAdapter::consumeTencentSse(buffer);
+QVector<gui_services::ProtocolChunkEvent> consume_remote_events(QByteArray& buffer) {
+    return gui_services::LlmProtocolAdapter::consumeLlamaCppSse(buffer);
 }
 
 }  // namespace
@@ -131,46 +90,22 @@ AiAnalysisService::AiAnalysisService(QObject* parent)
     : QObject(parent)
     , current_retry_count_(0)
     , completed_(false)
-    , is_incremental_(false)
     , agent_mode_(true) {
     qRegisterMetaType<agent::AgentStreamEvent>("agent::AgentStreamEvent");
     qRegisterMetaType<agent::ToolInvocation>("agent::ToolInvocation");
     qRegisterMetaType<agent::ToolExecutionResult>("agent::ToolExecutionResult");
     network_manager_ = new QNetworkAccessManager(this);
 
-    // 检查环境变量是否已设置
-    const char* app_key = Config::TencentAI::getAppKey();
-    const char* secret_id = Config::TencentAI::getSecretId();
-    const char* secret_key = Config::TencentAI::getSecretKey();
-
-    if (!app_key || strlen(app_key) == 0) {
-        spdlog::warn("TENCENT_APP_KEY environment variable is not set");
+    if (std::strlen(Config::LlamaCpp::getBaseUrl()) == 0) {
+        spdlog::warn("LLAMA_CPP_SERVER_URL is not set; remote OpenAI-compatible LLM is disabled");
     } else {
-        spdlog::info("TENCENT_APP_KEY loaded from environment (length: {})", strlen(app_key));
+        spdlog::info("Remote LLM provider: OpenAI-compatible ({})", Config::LlamaCpp::getBaseUrl());
     }
-
-    if (!secret_id || strlen(secret_id) == 0) {
-        spdlog::warn("TENCENT_SECRET_ID environment variable is not set");
+    if (std::strlen(Config::LlamaCpp::getApiKey()) == 0) {
+        spdlog::warn("LLAMA_CPP_SERVER_API_KEY is not set");
     } else {
-        spdlog::info("TENCENT_SECRET_ID loaded from environment: {}", secret_id);
-    }
-
-    if (!secret_key || strlen(secret_key) == 0) {
-        spdlog::warn("TENCENT_SECRET_KEY environment variable is not set");
-    } else {
-        spdlog::info("TENCENT_SECRET_KEY loaded from environment (length: {})", strlen(secret_key));
-    }
-
-    if (detect_remote_provider() == RemoteProvider::LlamaCpp) {
-        spdlog::info("Remote LLM provider: llama.cpp ({})", Config::LlamaCpp::getBaseUrl());
-        if (std::strlen(Config::LlamaCpp::getApiKey()) == 0) {
-            spdlog::warn("LLAMA_CPP_SERVER_API_KEY is not set");
-        } else {
-            spdlog::info("LLAMA_CPP_SERVER_API_KEY loaded from environment (length: {})",
-                         std::strlen(Config::LlamaCpp::getApiKey()));
-        }
-    } else {
-        spdlog::info("Remote LLM provider: Tencent LKE");
+        spdlog::info("LLAMA_CPP_SERVER_API_KEY loaded from environment (length: {})",
+                     std::strlen(Config::LlamaCpp::getApiKey()));
     }
 
     // 创建超时定时器
@@ -362,29 +297,33 @@ void AiAnalysisService::doCloudRequest(const service::AttendanceStatistics& stat
                                        int retry_count) {
     current_retry_count_ = retry_count;
 
-    const RemoteProvider provider = detect_remote_provider();
-    QUrl url(build_remote_url(provider));
+    QUrl url(build_remote_url());
+    if (url.isEmpty() || !url.isValid()) {
+        const QString message = QStringLiteral("未配置 OpenAI 兼容服务地址，请设置 LLAMA_CPP_SERVER_URL");
+        spdlog::error("Remote LLM request failed: LLAMA_CPP_SERVER_URL is not set");
+        emitStreamEvent("model", "error", "status", message);
+        emit errorOccurred(message);
+        QTimer::singleShot(0, this, &AiAnalysisService::cleanup);
+        return;
+    }
+
     QNetworkRequest request(url);
 
     // 设置请求头（SSE 接口需要 Content-Type 和 Accept）
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     request.setRawHeader("Accept", "text/event-stream");  // 关键：告诉代理/CDN 这是 SSE 流
-    apply_remote_auth(provider, request);
+    apply_remote_auth(request);
 
     // 构建 Prompt
     QString content = AiPromptBuilder::buildPrompt(
         stats, trend_summary, detail_records, user_prompt, range_days);
 
-    QJsonObject jsonBody = build_remote_request(provider, content, true);
-    is_incremental_ = provider == RemoteProvider::Tencent
-        ? jsonBody.value("incremental").toBool(false)
-        : true;
+    QJsonObject jsonBody = build_remote_request(content, true);
 
     if (retry_count > 0) {
         spdlog::info("Retrying AI analysis request ({}/{})", retry_count, MAX_RETRIES);
     } else {
-        spdlog::info("Sending AI analysis request (provider={})...",
-                     provider == RemoteProvider::LlamaCpp ? "llama.cpp" : "tencent");
+        spdlog::info("Sending AI analysis request (provider=openai-compatible)...");
     }
 
     // 清空缓冲区
@@ -396,9 +335,8 @@ void AiAnalysisService::doCloudRequest(const service::AttendanceStatistics& stat
     // 启动超时定时器
     timeout_timer_->start(TIMEOUT_MS);
 
-    // 处理流式数据（腾讯云 SSE 事件流格式）
-    // 关键：支持多行 data 拼接、正确的 incremental 语义、防止重复 emit
-    connect(reply, &QNetworkReply::readyRead, this, [this, reply, provider]() {
+    // 处理 OpenAI-compatible SSE 事件流，支持多行 data 拼接并防止重复 emit
+    connect(reply, &QNetworkReply::readyRead, this, [this, reply]() {
         if (!current_reply_ || current_reply_ != reply) {
             return;  // 请求已被取消
         }
@@ -410,16 +348,12 @@ void AiAnalysisService::doCloudRequest(const service::AttendanceStatistics& stat
 
         sse_buffer_.append(reply->readAll());
 
-        const auto events = consume_remote_events(provider, sse_buffer_);
+        const auto events = consume_remote_events(sse_buffer_);
         for (const auto& event : events) {
             if (event.kind == "delta") {
                 const QString content = event.text;
                 if (!content.isEmpty()) {
-                    if (is_incremental_) {
-                        incremental_buffer_.append(content);
-                    } else {
-                        incremental_buffer_ = content;
-                    }
+                    incremental_buffer_.append(content);
                     emitAssistantDelta(content, "model", event.final);
                 }
                 continue;
@@ -432,24 +366,17 @@ void AiAnalysisService::doCloudRequest(const service::AttendanceStatistics& stat
 
             if (event.kind == "error") {
                 const QJsonObject error = event.data.value("error").toObject();
-                const int code = error.value("code").toInt();
+                const QJsonValue code_value = error.value("code");
+                const QString code = code_value.isString()
+                    ? code_value.toString()
+                    : QString::number(code_value.toInt());
                 const QString message = error.value("message").toString(event.text);
                 timeout_timer_->stop();
-
-                if (code == 460011) {
-                    emitStreamEvent("model", "error", "status", "超出并发数限制，请稍后再试");
-                    emit errorOccurred("超出并发数限制，请稍后再试");
-                } else if (code == 460032) {
-                    emitStreamEvent("model", "error", "status", "模型余额不足，请联系管理员");
-                    emit errorOccurred("模型余额不足，请联系管理员");
-                } else if (code == 460034) {
-                    emitStreamEvent("model", "error", "status", "输入内容过长，请减少数据量");
-                    emit errorOccurred("输入内容过长，请减少数据量");
-                } else {
-                    emitStreamEvent("model", "error", "status",
-                                    QString("错误 %1: %2").arg(code).arg(message));
-                    emit errorOccurred(QString("错误 %1: %2").arg(code).arg(message));
-                }
+                const QString error_text = code.isEmpty() || code == "0"
+                    ? message
+                    : QString("错误 %1: %2").arg(code, message);
+                emitStreamEvent("model", "error", "status", error_text);
+                emit errorOccurred(error_text);
 
                 QTimer::singleShot(0, this, &AiAnalysisService::cleanup);
             }
@@ -464,11 +391,8 @@ void AiAnalysisService::doCloudRequest(const service::AttendanceStatistics& stat
 
         timeout_timer_->stop();
 
-        // 获取 HTTP 状态码（文档明确："需判断取值是否为 200，是则正常返回"）
         int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
 
-        // 严格按文档：必须是 200 才正常，否则按错误处理
-        // 不能用 httpStatus != 200 && error != NoError，会漏掉某些情况
         if (httpStatus != 200) {
             QString err = reply->errorString();
             spdlog::error("AI request failed: HTTP {} (expected 200), {}", httpStatus, err.toStdString());
@@ -482,33 +406,13 @@ void AiAnalysisService::doCloudRequest(const service::AttendanceStatistics& stat
                     if (root.contains("error")) {
                         QJsonObject error = root["error"].toObject();
                         QString errorMsg = error["message"].toString();
-                        int errorCode = error["code"].toInt();
-                        spdlog::error("Server error: code={}, message={}", errorCode, errorMsg.toStdString());
+                        const QJsonValue error_code = error["code"];
+                        const QString errorCode = error_code.isString()
+                            ? error_code.toString()
+                            : QString::number(error_code.toInt());
+                        spdlog::error("Server error: code={}, message={}", errorCode.toStdString(), errorMsg.toStdString());
 
-                        // 检查是否需要重试
-                        bool should_retry = false;
-                        if (errorCode == 460011 || errorCode == 460020) {
-                            // 并发限制或超时，可以重试
-                            should_retry = true;
-                        }
-
-                        if (should_retry && current_retry_count_ < MAX_RETRIES) {
-                            spdlog::info("Network error, will retry ({}/{})",
-                                        current_retry_count_ + 1, MAX_RETRIES);
-                            reply->deleteLater();
-                            current_reply_.clear();
-
-                            // 延迟后重试
-                            QTimer::singleShot(RETRY_DELAY_MS * (current_retry_count_ + 1), this, [this]() {
-                                doCloudRequest(current_stats_, current_trend_summary_,
-                                         current_detail_records_, current_user_prompt_,
-                                         current_range_days_,
-                                         current_retry_count_ + 1);
-                            });
-                            return;
-                        }
-
-                        emit errorOccurred(QString("服务器错误 %1: %2").arg(errorCode).arg(errorMsg));
+                        emit errorOccurred(QString("服务器错误 %1: %2").arg(errorCode, errorMsg));
                         QTimer::singleShot(0, this, &AiAnalysisService::cleanup);
                         reply->deleteLater();
                         return;
@@ -697,13 +601,10 @@ void AiAnalysisService::requestAgentChat(const QString& user_input) {
 
 void AiAnalysisService::initializeAgent(service::AttendanceService* attendance_svc,
                                          service::UserService* user_svc) {
-    const RemoteProvider provider = detect_remote_provider();
     agent::AgentConfig config;
     config.max_iterations = Config::Agent::MAX_ITERATIONS;
     config.stream_output = Config::Agent::STREAM_OUTPUT;
-    config.skip_system_prompt = provider == RemoteProvider::Tencent
-        ? Config::Agent::Cloud::PRESET_SYSTEM_PROMPT
-        : false;
+    config.skip_system_prompt = false;
 
     agent_service_ = std::make_unique<agent::AgentService>(config, nullptr);
     if (attendance_svc || user_svc) {
@@ -741,7 +642,6 @@ QString AiAnalysisService::doSyncCloudRequest(const QString& prompt) {
     bool error_reported = false;
     QString error_msg;
     agent::IncrementalResponseParser parser;
-    const RemoteProvider provider = detect_remote_provider();
 
     spdlog::debug("Cloud Agent sync request, prompt length: {}", prompt.length());
 
@@ -752,19 +652,27 @@ QString AiAnalysisService::doSyncCloudRequest(const QString& prompt) {
     QNetworkAccessManager local_manager;
 
     // 同步请求实现，使用 SSE 获取流式输出
-    QUrl url(build_remote_url(provider));
+    QUrl url(build_remote_url());
+    if (url.isEmpty() || !url.isValid()) {
+        error_msg = QStringLiteral("未配置 OpenAI 兼容服务地址，请设置 LLAMA_CPP_SERVER_URL");
+        agent_failed_ = true;
+        emitStreamEvent("agent", "error", "status", error_msg);
+        emit errorOccurred(error_msg);
+        return QString();
+    }
+
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     request.setRawHeader("Accept", "text/event-stream");
-    apply_remote_auth(provider, request);
-    QJsonObject jsonBody = build_remote_request(provider, prompt, true);
+    apply_remote_auth(request);
+    QJsonObject jsonBody = build_remote_request(prompt, true);
     QNetworkReply* reply = local_manager.post(request, QJsonDocument(jsonBody).toJson());
 
     QByteArray sse_buffer;
     QTimer timer;
     timer.setSingleShot(true);
 
-    connect(reply, &QNetworkReply::readyRead, &loop, [this, reply, &loop, &sse_buffer, &result, &timer, &cancelled, &error, &error_reported, &error_msg, &parser, provider]() {
+    connect(reply, &QNetworkReply::readyRead, &loop, [this, reply, &loop, &sse_buffer, &result, &timer, &cancelled, &error, &error_reported, &error_msg, &parser]() {
         if (agent_cancel_requested_.load()) {
             cancelled = true;
             reply->abort();
@@ -777,7 +685,7 @@ QString AiAnalysisService::doSyncCloudRequest(const QString& prompt) {
         }
         sse_buffer.append(reply->readAll());
 
-        const auto events = consume_remote_events(provider, sse_buffer);
+        const auto events = consume_remote_events(sse_buffer);
         for (const auto& event : events) {
             if (event.kind == "delta") {
                 result += event.text;

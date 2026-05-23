@@ -172,7 +172,7 @@ fi
 # ==================== 一键部署到设备 ====================
 if [ "$DO_DEPLOY" = true ]; then
     DEVICE_IP_ETH="192.168.1.103"
-    DEVICE_IP_WIFI="192.168.137.188"
+    DEVICE_IP_WIFI="192.168.137.111"
     DEVICE_USER="firefly"
     DEVICE_PASS="firefly"
     DEVICE_TARGET_DIR="/home/firefly/open_project/edge2-npu/C++/face_recognition_cap/install"

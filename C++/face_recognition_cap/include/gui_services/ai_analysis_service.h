@@ -130,7 +130,6 @@ private:
 
     // 增量输出缓冲
     QString incremental_buffer_;
-    bool is_incremental_;
 
     // Agent 相关
     bool agent_mode_ = true;

@@ -138,8 +138,8 @@ QString getToolsJson() const;
 主要职责：
 
 - 管理远端 AI 请求
-- 默认支持腾讯云 LKE
-- 当设置 `LLAMA_CPP_SERVER_URL` 时切到 OpenAI 兼容接口
+- 支持 OpenAI 兼容接口
+- 通过 `LLAMA_CPP_SERVER_URL` 配置远端 `/v1/chat/completions` 服务
 - 负责远端 Agent 调用与流式事件输出
 
 关键接口：
@@ -231,9 +231,6 @@ void cancelAnalysis();
 
 ```bash
 export LOCAL_LLM_MODEL_PATH=/path/to/your_model.rkllm
-export TENCENT_APP_KEY=your_app_key
-export TENCENT_SECRET_ID=your_secret_id
-export TENCENT_SECRET_KEY=your_secret_key
 export LLAMA_CPP_SERVER_URL=http://127.0.0.1:8080
 export LLAMA_CPP_SERVER_MODEL=gpt-4o-mini
 export LLAMA_CPP_SERVER_API_KEY=sk-your-key

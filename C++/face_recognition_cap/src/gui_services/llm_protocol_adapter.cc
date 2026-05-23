@@ -1,6 +1,6 @@
 /**
  * @file llm_protocol_adapter.cc
- * @brief 统一解析腾讯云 / llama.cpp SSE 协议
+ * @brief 统一解析 OpenAI-compatible / llama.cpp SSE 协议
  */
 
 #include "gui_services/llm_protocol_adapter.h"
@@ -53,72 +53,6 @@ QByteArray collectDataLines(const QByteArray& block, QString* event_type) {
 
 }  // namespace
 
-QVector<ProtocolChunkEvent> LlmProtocolAdapter::consumeTencentSse(QByteArray& buffer) {
-    QVector<ProtocolChunkEvent> events;
-    QByteArray block;
-    while (takeSseBlock(buffer, block)) {
-        if (block.isEmpty()) {
-            continue;
-        }
-
-        QString event_type;
-        const QByteArray data_buffer = collectDataLines(block, &event_type);
-        if (data_buffer.isEmpty()) {
-            continue;
-        }
-
-        const QJsonDocument doc = QJsonDocument::fromJson(data_buffer);
-        if (!doc.isObject()) {
-            continue;
-        }
-
-        const QJsonObject root = doc.object();
-        const QJsonObject payload = root.contains("payload") ? root.value("payload").toObject() : root;
-
-        if (event_type.isEmpty()) {
-            event_type = root.value("type").toString(root.value("event").toString());
-        }
-
-        if (event_type == "workflow" || event_type == "workflow_status") {
-            continue;
-        }
-
-        if (event_type == "reply") {
-            ProtocolChunkEvent event;
-            event.kind = "delta";
-            event.text = payload.value("content").toString();
-            event.final = payload.value("is_final").toBool(root.value("is_final").toBool());
-            event.data = payload;
-            if (!event.text.isEmpty() || event.final) {
-                events.push_back(event);
-            }
-            continue;
-        }
-
-        if (event_type == "thought") {
-            ProtocolChunkEvent event;
-            event.kind = "reasoning";
-            event.text = payload.value("content").toString();
-            event.data = payload;
-            if (!event.text.isEmpty()) {
-                events.push_back(event);
-            }
-            continue;
-        }
-
-        if (event_type == "error") {
-            ProtocolChunkEvent event;
-            event.kind = "error";
-            event.data = root;
-            const QJsonObject err = root.value("error").toObject();
-            event.text = err.value("message").toString();
-            events.push_back(event);
-        }
-    }
-
-    return events;
-}
-
 QVector<ProtocolChunkEvent> LlmProtocolAdapter::consumeLlamaCppSse(QByteArray& buffer) {
     QVector<ProtocolChunkEvent> events;
     QByteArray block;
@@ -142,6 +76,16 @@ QVector<ProtocolChunkEvent> LlmProtocolAdapter::consumeLlamaCppSse(QByteArray& b
             continue;
         }
         const QJsonObject obj = doc.object();
+        if (obj.contains("error")) {
+            ProtocolChunkEvent event;
+            event.kind = "error";
+            event.data = obj;
+            const QJsonObject err = obj.value("error").toObject();
+            event.text = err.value("message").toString();
+            events.push_back(event);
+            continue;
+        }
+
         const QJsonArray choices = obj.value("choices").toArray();
         if (choices.isEmpty()) {
             continue;
