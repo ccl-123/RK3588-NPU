@@ -200,8 +200,7 @@ int FaceRecognitionApp::init_camera() {
         ret = load_usb_camera(config_.device_number,
                                config_.camera_width, config_.camera_height);
         if (ret == EXIT_SUCCESS) {
-            start_usb_capture_thread(); // 启动异步采集线程
-            spdlog::info("USB camera async mode enabled");
+            spdlog::info("USB camera initialized successfully");
         } else {
             camera_error_ = "Failed to open USB camera /dev/video" + config_.device_number +
                            ". Please check device connection or select correct device in settings.";
@@ -241,7 +240,7 @@ int FaceRecognitionApp::run() {
 
     running_.store(true, std::memory_order_release);
     spdlog::info("Starting pipeline mode...");
-    spdlog::info("  Thread 1: Camera + RGA preprocess");
+    spdlog::info("  Thread 1: Camera (V4L2) + BGR Decode + RGA preprocess");
     spdlog::info("  Thread 2: YOLO detection (main loop)");
     spdlog::info("  Thread 3: FaceNet + Match + Render");
 
@@ -791,24 +790,42 @@ bool FaceRecognitionApp::get_current_frame(cv::Mat& frame) {
         return false;
     }
 
-    // 从摄像头读取一帧（使用全局函数）
-    cv::Mat orig_img;
-    bool ret = false;
     if (config_.camera_type == "usb") {
-        ret = read_usb_frame(&orig_img, &current_frame_sequence_cursor_);
-    } else {
-        // MIPI support removed
-        return false;
+        void* raw_pkt_data = nullptr;
+        uint32_t raw_pkt_size = 0;
+        uint32_t raw_buf_index = 0;
+        
+        bool success = false;
+        for (int i = 0; i < 10; ++i) {
+            if (read_usb_raw_packet(&raw_pkt_data, &raw_pkt_size, &raw_buf_index)) {
+                success = true;
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        
+        if (!success) {
+            return false;
+        }
+        
+        cv::Mat raw_data(1, raw_pkt_size, CV_8UC1, raw_pkt_data);
+        cv::Mat orig_img;
+        try {
+            orig_img = cv::imdecode(raw_data, cv::IMREAD_COLOR);
+        } catch (...) {}
+        
+        release_usb_raw_packet(raw_buf_index);
+        
+        if (orig_img.empty()) {
+            return false;
+        }
+        
+        // 翻转图像
+        cv::flip(orig_img, frame, 1);
+        return true;
     }
 
-    if (!ret || orig_img.empty()) {
-        return false;
-    }
-
-    // 翻转图像
-    cv::flip(orig_img, frame, 1);
-
-    return true;
+    return false;
 }
 
 // ==================== GUI 人脸注册接口（Public） ====================

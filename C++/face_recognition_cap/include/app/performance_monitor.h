@@ -29,8 +29,9 @@ public:
     PerformanceMonitor(int report_interval = Config::Performance::REPORT_INTERVAL);
     ~PerformanceMonitor() = default;
 
-    // 线程1：预处理耗时
+    // 线程1：预处理与解码耗时
     void record_preprocess_time(double ms);
+    void record_decode_time(double ms);
 
     // 线程2：YOLO检测耗时
     void record_detection_time(double ms);
@@ -69,6 +70,7 @@ private:
     double get_npu_memory_mb();
 
 private:
+    std::vector<double> decode_times_;
     std::vector<double> preprocess_times_;
     std::vector<double> detection_times_;
     std::vector<double> detect_inputs_times_;

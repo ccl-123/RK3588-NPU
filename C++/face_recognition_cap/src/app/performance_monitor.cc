@@ -36,6 +36,10 @@ void PerformanceMonitor::record_preprocess_time(double ms) {
     preprocess_times_.push_back(ms);
 }
 
+void PerformanceMonitor::record_decode_time(double ms) {
+    decode_times_.push_back(ms);
+}
+
 void PerformanceMonitor::record_detection_time(double ms) {
     detection_times_.push_back(ms);
 }
@@ -184,6 +188,7 @@ void PerformanceMonitor::print_report() {
 
     if (detection_times_.empty()) return;
 
+    double avg_dec   = get_average(decode_times_);
     double avg_pre   = get_average(preprocess_times_);
     double avg_detect = get_average(detection_times_);
     double avg_in = get_average(detect_inputs_times_);
@@ -196,8 +201,9 @@ void PerformanceMonitor::print_report() {
     double avg_match = get_average(matching_times_);
     double avg_render = get_average(render_times_);
 
+    double thread1_total = avg_dec + avg_pre;
     double thread3_total = avg_align + avg_facenet + avg_match + avg_render;
-    double bottleneck = std::max({avg_pre, avg_detect, avg_post, thread3_total});
+    double bottleneck = std::max({thread1_total, avg_detect, avg_post, thread3_total});
     double theoretical_fps = (bottleneck > 0) ? (1000.0 / bottleneck) : 0.0;
     
     // 线程2 FPS（仅检测线程需要显示 FPS）
@@ -221,7 +227,9 @@ void PerformanceMonitor::print_report() {
     
     // 线程耗时
     std::cout << "║ 【线程耗时】                                             ║" << std::endl;
-    std::cout << "║  线程1 [采集+RGA]:    " << std::setw(6) << avg_pre << " ms                        ║" << std::endl;
+    std::cout << "║  线程1 [采集+解码+RGA]:" << std::setw(6) << thread1_total << " ms                        ║" << std::endl;
+    std::cout << "║    ├─ MJPEG解码:      " << std::setw(6) << avg_dec   << " ms                       ║" << std::endl;
+    std::cout << "║    └─ RGA预处理:      " << std::setw(6) << avg_pre   << " ms                       ║" << std::endl;
     std::cout << "║  线程2 [YOLO推理]:    " << std::setw(6) << avg_detect << " ms  (" 
               << std::setw(5) << thread2_fps << " FPS)             ║" << std::endl;
     std::cout << "║    ├─ inputs_set:     " << std::setw(6) << avg_in   << " ms                       ║" << std::endl;
@@ -251,7 +259,7 @@ void PerformanceMonitor::print_report() {
     std::cout << "║  实际 FPS:            " << std::setw(6) << actual_fps << "                            ║" << std::endl;
     std::cout << "║  理论最大 FPS:        " << std::setw(6) << theoretical_fps << "                            ║" << std::endl;
     std::cout << "║  流水线瓶颈:          " 
-              << (bottleneck == avg_pre   ? "线程1 (采集+RGA)            "
+              << (bottleneck == thread1_total ? "线程1 (采集+解码+RGA)      "
                   : (bottleneck == avg_detect ? "线程2 (YOLO推理)            "
                   : (bottleneck == avg_post ? "线程2.5 (后处理)            "
                   : "线程3 (识别+渲染)           ")))
@@ -263,6 +271,7 @@ void PerformanceMonitor::print_report() {
 }
 
 void PerformanceMonitor::reset() {
+    decode_times_.clear();
     preprocess_times_.clear();
     detection_times_.clear();
     detect_inputs_times_.clear();

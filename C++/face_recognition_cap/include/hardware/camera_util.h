@@ -25,24 +25,19 @@ struct Buffer {
 int load_usb_camera(std::string device, int camera_width, int camera_height);
 
 /**
- * @brief 启动 USB 摄像头采集线程
+ * @brief 从 V4L2 硬件缓冲队列中获取当前最新的 Raw MJPEG 数据包 (零拷贝)
+ * @param[out] packet_data 指向原始 MJPEG 缓冲区的指针
+ * @param[out] packet_size MJPEG 数据的大小（字节）
+ * @param[out] buffer_index 缓冲区的底层索引，后续必须调用 release_usb_raw_packet 归还
+ * @return true 成功获取, false 失败/无新数据
  */
-void start_usb_capture_thread();
+bool read_usb_raw_packet(void** packet_data, uint32_t* packet_size, uint32_t* buffer_index);
 
 /**
- * @brief 停止 USB 摄像头采集线程
+ * @brief 将处理完的硬件缓冲区重新放入就绪队列 (QBUF)
+ * @param buffer_index 缓冲区的底层索引
  */
-void stop_usb_capture_thread();
-
-/**
- * @brief 从帧缓存读取最新的一帧 (零拷贝/低延迟)
- * @param[out] orig_img 输出的 OpenCV Mat 对象
- * @param[in,out] consumer_sequence 调用方维护的帧游标；首次传 0，成功读取后会更新为最新序列号
- * @return true 读取成功, false 失败 (缓冲区为空或设备未就绪)
- * @note 使用 cv::Mat 浅拷贝，返回的 Mat 与内部帧共享数据。
- *       如需独立副本，调用者应使用 clone()。
- */
-bool read_usb_frame(cv::Mat *orig_img, uint64_t *consumer_sequence);
+void release_usb_raw_packet(uint32_t buffer_index);
 
 /**
  * @brief 获取摄像头真实采集帧率

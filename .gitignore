@@ -159,3 +159,8 @@ coverage.xml
 *.bak
 *.backup
 *.orig
+
+# Allow third-party library binary files
+!C++/3rdparty/**/*.so
+!C++/3rdparty/**/*.so.*
+!C++/3rdparty/**/*.a
