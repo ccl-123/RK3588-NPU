@@ -1,3 +1,7 @@
+#!/usr/bin/env bash
+# device_build.sh — ELF RK3588 开发板本地构建（Ubuntu 22.04 aarch64）
+# 在板端编译并安装到 install/face_recognition_cap/；PC 交叉编译请用 cross_build.sh
+
 set -e
 
 GCC_COMPILER=aarch64-linux-gnu

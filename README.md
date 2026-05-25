@@ -90,7 +90,7 @@ sudo apt install cmake build-essential libopencv-dev qt5-default libsqlite3-dev
 ### 2. 构建与运行
 ```bash
 cd C++/face_recognition_cap
-./build.sh
+./device_build.sh
 
 # 启动 GUI 模式
 ./build/build_linux_aarch64/face_recognition_cap

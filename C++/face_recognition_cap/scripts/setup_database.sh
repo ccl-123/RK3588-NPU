@@ -41,7 +41,7 @@ else
         echo "Database initialized using db_tool"
     else
         echo "Error: Neither SQL file nor db_tool found"
-        echo "Please build the project first: bash build.sh"
+        echo "Please build the project first: bash device_build.sh"
         exit 1
     fi
 fi

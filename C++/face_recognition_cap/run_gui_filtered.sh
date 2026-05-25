@@ -13,20 +13,31 @@ fi
 
 if [[ ! -x "${BIN}" ]]; then
   echo "Executable not found: ${BIN}"
-  echo "Run ./build.sh first."
+  echo "Run ./device_build.sh first."
   exit 1
 fi
 
 for lib in libspdlog.so.1 libfmt.so.8; do
   if [[ ! -f "${LIB_DIR}/${lib}" ]]; then
     echo "Missing bundled runtime library: ${LIB_DIR}/${lib}"
-    echo "Run ./build.sh to refresh install/face_recognition_cap/lib."
+    echo "Run ./device_build.sh to refresh install/face_recognition_cap/lib."
     exit 1
   fi
 done
 
 # Make bundled runtime dependencies visible for both direct and transitive shared-library loads.
 export LD_LIBRARY_PATH="${LIB_DIR}:${LD_LIBRARY_PATH:-}"
+
+# SSH/Cursor：补 DISPLAY；本机桌面终端已有 DISPLAY 时不会改动
+# shellcheck source=scripts/setup_display_env.sh
+source "${ROOT_DIR}/scripts/setup_display_env.sh"
+setup_display_env
+
+if [[ -z "${DISPLAY:-}" ]]; then
+  echo "错误: 未检测到可用的 X11 显示（DISPLAY 为空）。"
+  echo "  请在已登录桌面的情况下运行，或确认 HDMI 已连接且图形界面已启动。"
+  exit 1
+fi
 
 # Filter noisy rk-debug fence logs while keeping ANSI colors.
 exec script -q /dev/null -c "${BIN}" 2>&1 | grep --line-buffered -vF "rk-debug out_fence_fd = 0"

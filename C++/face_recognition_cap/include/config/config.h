@@ -3,7 +3,7 @@
  * @brief 全局配置中心
  *
  * 配置分类:
- *   [固定] 编译时常量，修改后需 ./build.sh
+ *   [固定] 编译时常量，修改后需 ./device_build.sh
  *   [默认] UI 可配置项初始值，运行时从 ConfigManager 读取
  *   [环境] 通过环境变量配置 (敏感信息)
  */
@@ -24,7 +24,7 @@ namespace Model {
 // 相对于可执行文件目录
 namespace Path {
     constexpr const char* YOLO_MODEL    = "data/model/yolov8n-face.rknn";   // 人脸检测模型
-    constexpr const char* FACENET_MODEL = "data/model/w600k_resnet50.rknn"; // 特征提取模型，w600k_mbf.rknn或resnet50
+    constexpr const char* FACENET_MODEL = "data/model/w600k_mbf.rknn";      // 特征提取模型 (MobileFaceNet)
     constexpr const char* FEATURE_LIB   = "data/face_feature_lib/";         // 特征库目录
     constexpr const char* DATABASE      = "data/database/face_recognition.db";
 }
@@ -125,7 +125,7 @@ namespace API {
 // RKLLM 本地推理配置
 namespace LocalLLM {
     constexpr const char* MODEL_ENV = "LOCAL_LLM_MODEL_PATH";
-    constexpr const char* MODEL_PATH = "/home/firefly/open_project/Qwen3-1.7B_W8A8_RK3588.rkllm";
+    constexpr const char* MODEL_PATH = "/home/elf/open_projtect/Qwen3-1.7B_W8A8_RK3588.rkllm";
     inline const char* getModelPath() {
         const char* env_path = std::getenv(MODEL_ENV);
         return (env_path && env_path[0] != '\0') ? env_path : MODEL_PATH;
