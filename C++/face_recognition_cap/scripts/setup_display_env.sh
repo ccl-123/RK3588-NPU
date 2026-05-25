@@ -1,9 +1,13 @@
 # 为 SSH/Cursor 会话补全图形与网络环境，与 HDMI 桌面会话对齐。
-# 规则：校验 DISPLAY 是否真有对应 X socket；仅补空缺项，不覆盖有效配置。
+# 规则：仅选择在当前 SSH 会话中能够认证连接的 DISPLAY，避免 Qt 卡在 XCB 初始化。
 
 _display_socket_exists() {
   local num="${1#:}"
   [[ -S "/tmp/.X11-unix/X${num}" ]]
+}
+
+_display_is_reachable() {
+  timeout 2s xdpyinfo -display "$1" >/dev/null 2>&1
 }
 
 # 选择当前可用的 X11 显示（重启后可能是 :1 而非 :0）
@@ -11,7 +15,7 @@ _pick_display() {
   local n
   # 优先匹配已登录图形会话（常见为 :1），再回退 :0
   for n in 1 0 2 3; do
-    if _display_socket_exists ":${n}"; then
+    if _display_socket_exists ":${n}" && _display_is_reachable ":${n}"; then
       echo ":${n}"
       return 0
     fi
@@ -62,20 +66,23 @@ setup_display_env() {
   uid="$(id -u)"
   picked=""
 
-  if [[ -n "${DISPLAY:-}" ]] && _display_socket_exists "${DISPLAY}"; then
-    picked="${DISPLAY}"
-  elif picked="$(_pick_display 2>/dev/null)"; then
-    export DISPLAY="${picked}"
-  else
-    return 0
-  fi
-
   if [[ -z "${XAUTHORITY:-}" ]]; then
     if [[ -f "/run/user/${uid}/gdm/Xauthority" ]]; then
       export XAUTHORITY="/run/user/${uid}/gdm/Xauthority"
     elif [[ -f "${HOME}/.Xauthority" ]]; then
       export XAUTHORITY="${HOME}/.Xauthority"
     fi
+  fi
+
+  if [[ -n "${DISPLAY:-}" ]] &&
+     _display_socket_exists "${DISPLAY}" &&
+     _display_is_reachable "${DISPLAY}"; then
+    picked="${DISPLAY}"
+  elif picked="$(_pick_display 2>/dev/null)"; then
+    export DISPLAY="${picked}"
+  else
+    unset DISPLAY
+    return 0
   fi
 
   if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" && -S "/run/user/${uid}/bus" ]]; then
