@@ -1,5 +1,23 @@
 # 为 SSH/Cursor 会话补全图形与网络环境，与 HDMI 桌面会话对齐。
-# 规则：仅补空缺项，不覆盖已有 DISPLAY / 代理变量（不影响本机桌面终端直接运行）。
+# 规则：校验 DISPLAY 是否真有对应 X socket；仅补空缺项，不覆盖有效配置。
+
+_display_socket_exists() {
+  local num="${1#:}"
+  [[ -S "/tmp/.X11-unix/X${num}" ]]
+}
+
+# 选择当前可用的 X11 显示（重启后可能是 :1 而非 :0）
+_pick_display() {
+  local n
+  # 优先匹配已登录图形会话（常见为 :1），再回退 :0
+  for n in 1 0 2 3; do
+    if _display_socket_exists ":${n}"; then
+      echo ":${n}"
+      return 0
+    fi
+  done
+  return 1
+}
 
 # 从 GNOME 读取系统代理（桌面浏览器/Qt 走 192.168.137.1:7890 等）
 setup_proxy_env() {
@@ -40,18 +58,14 @@ setup_proxy_env() {
 }
 
 setup_display_env() {
-  # 桌面终端、已配置 SSH 等：已有 DISPLAY，直接跳过
-  if [[ -n "${DISPLAY:-}" ]]; then
-    return 0
-  fi
-
-  local uid
+  local uid picked
   uid="$(id -u)"
+  picked=""
 
-  if [[ -S /tmp/.X11-unix/X0 ]]; then
-    export DISPLAY=:0
-  elif [[ -S /tmp/.X11-unix/X1 ]]; then
-    export DISPLAY=:1
+  if [[ -n "${DISPLAY:-}" ]] && _display_socket_exists "${DISPLAY}"; then
+    picked="${DISPLAY}"
+  elif picked="$(_pick_display 2>/dev/null)"; then
+    export DISPLAY="${picked}"
   else
     return 0
   fi
@@ -72,7 +86,6 @@ setup_display_env() {
   return 0
 }
 
-# 桌面终端已有 DISPLAY 时单独调用，仅同步代理
 setup_session_env() {
   setup_display_env
   if [[ -n "${DISPLAY:-}" ]]; then

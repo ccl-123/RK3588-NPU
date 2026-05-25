@@ -39,5 +39,11 @@ if [[ -z "${DISPLAY:-}" ]]; then
   exit 1
 fi
 
+if ! xdpyinfo -display "${DISPLAY}" >/dev/null 2>&1; then
+  echo "错误: 无法连接显示 ${DISPLAY}（请确认已登录 HDMI 桌面）。"
+  echo "  当前 X socket: $(ls /tmp/.X11-unix/ 2>/dev/null | tr '\n' ' ')"
+  exit 1
+fi
+
 # Filter noisy rk-debug fence logs while keeping ANSI colors.
 exec script -q /dev/null -c "${BIN}" 2>&1 | grep --line-buffered -vF "rk-debug out_fence_fd = 0"
