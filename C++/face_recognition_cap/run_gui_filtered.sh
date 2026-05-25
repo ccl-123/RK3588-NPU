@@ -31,7 +31,7 @@ export LD_LIBRARY_PATH="${LIB_DIR}:${LD_LIBRARY_PATH:-}"
 # SSH/Cursor：补 DISPLAY；本机桌面终端已有 DISPLAY 时不会改动
 # shellcheck source=scripts/setup_display_env.sh
 source "${ROOT_DIR}/scripts/setup_display_env.sh"
-setup_display_env
+setup_session_env
 
 if [[ -z "${DISPLAY:-}" ]]; then
   echo "错误: 未检测到可用的 X11 显示（DISPLAY 为空）。"
