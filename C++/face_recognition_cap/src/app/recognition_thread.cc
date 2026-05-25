@@ -138,7 +138,6 @@ void RecognitionThread::process_task(RecognitionTask& task) {
     RecognitionMode mode = mode_.load();
     std::vector<RecognitionResultData> recognition_results;
     std::vector<RegistrationSample> registration_samples;
-    cv::Mat render_img = task.orig_img.clone();
     float threshold = facenet_threshold_;
     int recognized_count = 0;
 
@@ -151,6 +150,9 @@ void RecognitionThread::process_task(RecognitionTask& task) {
         frame_callback = frame_callback_;
         registration_callback = registration_callback_;
     }
+
+    // Qt draws overlays itself; only the command-line path needs a writable frame.
+    cv::Mat render_img = frame_callback ? task.orig_img : task.orig_img.clone();
     
     for (int i = 0; i < task.detect_result.count; i++) {
         // 1. 人脸对齐
@@ -260,15 +262,12 @@ void RecognitionThread::process_task(RecognitionTask& task) {
         if (mode == RecognitionMode::Recognition && is_recognized) {
             recognized_count++;
         }
-        cv::Scalar color = (mode == RecognitionMode::Recognition)
-            ? (is_recognized ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255))
-            : cv::Scalar(0, 255, 0);
-        
-        cv::rectangle(render_img, cv::Point(x1, y1), cv::Point(x2, y2), color, 2);
-
-        // 注意：名称文字由 Qt 层的 VideoDisplayWidget 使用 QPainter 绘制
-        // OpenCV 的 Hershey 字体不支持中文，会显示为问号
-        // 因此这里只绘制人脸框，不绘制文字
+        if (!frame_callback) {
+            cv::Scalar color = (mode == RecognitionMode::Recognition)
+                ? (is_recognized ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255))
+                : cv::Scalar(0, 255, 0);
+            cv::rectangle(render_img, cv::Point(x1, y1), cv::Point(x2, y2), color, 2);
+        }
         
         // 累计时间
         total_align_time += (get_us(t_align_end) - get_us(t_align_start)) / 1000;

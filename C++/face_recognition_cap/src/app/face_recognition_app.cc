@@ -66,7 +66,7 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
         return -1;
     }
     // 初始化性能监控（先配置上报周期，再绑定 NPU 上下文避免数据被覆盖）
-    perf_monitor_ = PerformanceMonitor(config_.perf_report_interval);
+    perf_monitor_.set_report_interval(config_.perf_report_interval);
     // 设置 NPU 内存查询上下文
     perf_monitor_.set_npu_contexts(
         *model_manager_.get_face_detector_ctx(),

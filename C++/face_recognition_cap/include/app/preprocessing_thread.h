@@ -128,7 +128,7 @@ private:
 
     int init_mpp();
     void deinit_mpp();
-    bool decode_mjpeg_packet(void* packet_data, uint32_t packet_size);
+    bool decode_mjpeg_packet(void* packet_data, uint32_t packet_size, double& input_copy_ms);
 
     // NPU 零拷贝输入内存和互斥锁
     rknn_tensor_mem* npu_input_mem_ = nullptr;

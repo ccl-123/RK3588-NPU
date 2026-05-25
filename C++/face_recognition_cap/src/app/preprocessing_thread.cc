@@ -134,14 +134,14 @@ void PreprocessingThread::deinit_mpp() {
         mpp_ctx_ = nullptr;
         mpp_api_ = nullptr;
     }
+    if (mpp_output_buffer_) {
+        mpp_buffer_put(mpp_output_buffer_);
+        mpp_output_buffer_ = nullptr;
+    }
     if (mpp_input_buffer_) {
         mpp_buffer_put(mpp_input_buffer_);
         mpp_input_buffer_ = nullptr;
         mpp_input_capacity_ = 0;
-    }
-    if (mpp_output_buffer_) {
-        mpp_buffer_put(mpp_output_buffer_);
-        mpp_output_buffer_ = nullptr;
     }
     if (mpp_frm_grp_) {
         mpp_buffer_group_put(mpp_frm_grp_);
@@ -151,17 +151,26 @@ void PreprocessingThread::deinit_mpp() {
     spdlog::info("PreprocessingThread: MPP hardware decoder deinitialized.");
 }
 
-bool PreprocessingThread::decode_mjpeg_packet(void* packet_data, uint32_t packet_size) {
+bool PreprocessingThread::decode_mjpeg_packet(void* packet_data, uint32_t packet_size,
+                                              double& input_copy_ms) {
     MppPacket packet = nullptr;
     MppTask input_task = nullptr;
     MppTask output_task = nullptr;
     MPP_RET ret = MPP_OK;
+    input_copy_ms = 0.0;
+
+    if (packet_data == nullptr || packet_size == 0) {
+        spdlog::warn("PreprocessingThread: empty MJPEG packet.");
+        return false;
+    }
 
     if (packet_size > mpp_input_capacity_) {
         if (mpp_input_buffer_) {
             mpp_buffer_put(mpp_input_buffer_);
             mpp_input_buffer_ = nullptr;
+            mpp_input_capacity_ = 0;
         }
+
         mpp_input_capacity_ = (static_cast<size_t>(packet_size) + 4095U) & ~static_cast<size_t>(4095U);
         ret = mpp_buffer_get(mpp_frm_grp_, &mpp_input_buffer_, mpp_input_capacity_);
         if (ret != MPP_OK) {
@@ -172,9 +181,12 @@ bool PreprocessingThread::decode_mjpeg_packet(void* packet_data, uint32_t packet
         }
     }
 
-    // MPP's JPEG advanced API requires an input MppBuffer; a V4L2 MMAP pointer
-    // alone is rejected by the decoder. The compressed input is the only copy.
+    auto t_copy_start = std::chrono::steady_clock::now();
     ret = mpp_buffer_write(mpp_input_buffer_, 0, packet_data, packet_size);
+    auto t_copy_end = std::chrono::steady_clock::now();
+    input_copy_ms = std::chrono::duration_cast<std::chrono::microseconds>(
+        t_copy_end - t_copy_start).count() / 1000.0;
+
     if (ret == MPP_OK) {
         ret = mpp_packet_init_with_buffer(&packet, mpp_input_buffer_);
     }
@@ -223,8 +235,7 @@ bool PreprocessingThread::decode_mjpeg_packet(void* packet_data, uint32_t packet
         }
     }
 
-    // Reclaim the submitted packet after MPP finishes with the reusable input
-    // buffer. The V4L2 bytes were already copied before task submission.
+    // Reclaim the submitted packet after MPP finishes with the reusable input buffer.
     MppPacket returned_packet = nullptr;
     MppTask returned_input_task = nullptr;
     MPP_RET input_ret = mpp_api_->dequeue(mpp_ctx_, MPP_PORT_INPUT, &returned_input_task);
@@ -367,12 +378,16 @@ void PreprocessingThread::thread_func() {
             continue;
         }
 
-        // 开始精确记录硬件解码耗时
+        PerformanceMonitor::PreprocessTimings timings;
+        timings.mjpeg_bytes = raw_pkt_size;
+
+        // 记录压缩数据传入 MPP 与解码任务总耗时。
         auto t_dec_start = std::chrono::steady_clock::now();
 
         // 2. JPEG uses MPP's advanced task API with an application-provided
         // DRM output frame, as required by Rockchip's mpi_dec_test.
-        if (!mpp_initialized_ || !decode_mjpeg_packet(raw_pkt_data, raw_pkt_size)) {
+        if (!mpp_initialized_ ||
+            !decode_mjpeg_packet(raw_pkt_data, raw_pkt_size, timings.mpp_input_copy_ms)) {
             release_usb_raw_packet(raw_buf_index);
             continue;
         }
@@ -394,10 +409,9 @@ void PreprocessingThread::thread_func() {
         void* decoded_ptr = mpp_buffer_get_ptr(mpp_buf);
 
         auto t_dec_end = std::chrono::steady_clock::now();
-        double decode_ms = std::chrono::duration_cast<std::chrono::microseconds>(t_dec_end - t_dec_start).count() / 1000.0;
-
-        // 开始精确记录 RGA 预处理耗时
-        auto t_rga_start = std::chrono::steady_clock::now();
+        double decode_total_ms = std::chrono::duration_cast<std::chrono::microseconds>(
+            t_dec_end - t_dec_start).count() / 1000.0;
+        timings.mpp_decode_ms = std::max(0.0, decode_total_ms - timings.mpp_input_copy_ms);
 
         // 3. 构造并执行预处理任务
         PreprocessTask task;
@@ -406,10 +420,14 @@ void PreprocessingThread::thread_func() {
         // 4. RGA 直接将 NV12 解码帧写入 NPU 输入 fd，并生成 UI 预览。
         bool preprocess_ok = false;
         {
+            auto t_wait_start = std::chrono::steady_clock::now();
             std::unique_lock<std::mutex> lock(npu_mem_mutex_);
             cv_npu_input_.wait(lock, [this] {
                 return !inference_pipeline_active_ || !npu_input_pending_ || !running_;
             });
+            auto t_wait_end = std::chrono::steady_clock::now();
+            timings.npu_input_wait_ms = std::chrono::duration_cast<std::chrono::microseconds>(
+                t_wait_end - t_wait_start).count() / 1000.0;
             if (!running_) {
                 release_usb_raw_packet(raw_buf_index);
                 break;
@@ -422,6 +440,7 @@ void PreprocessingThread::thread_func() {
                 rga_buffer_t dst_buf = wrapbuffer_fd(npu_input_mem_->fd, target_w_, target_h_, RK_FORMAT_BGR_888);
 
                 // 刷黑底
+                auto t_input_start = std::chrono::steady_clock::now();
                 im_rect whole_rect = {0, 0, target_w_, target_h_};
                 imfill(dst_buf, whole_rect, 0x00000000);
 
@@ -432,13 +451,20 @@ void PreprocessingThread::thread_func() {
                 rga_buffer_t pat_buf = {};
 
                 IM_STATUS resize_status = improcess(src_buf, dst_buf, pat_buf, src_rect, dst_rect, pat_rect, IM_HAL_TRANSFORM_FLIP_H);
+                auto t_input_end = std::chrono::steady_clock::now();
+                timings.rga_input_ms = std::chrono::duration_cast<std::chrono::microseconds>(
+                    t_input_end - t_input_start).count() / 1000.0;
                 if (resize_status != IM_STATUS_SUCCESS) {
                     spdlog::error("PreprocessingThread: RGA improcess zero-copy failed: STATUS={}", (int)resize_status);
                 } else {
                     task.orig_img = cv::Mat(decoded_height, decoded_width, CV_8UC3);
                     rga_buffer_t dst_orig = wrapbuffer_virtualaddr(task.orig_img.data, decoded_width, decoded_height, RK_FORMAT_BGR_888);
+                    auto t_preview_start = std::chrono::steady_clock::now();
                     IM_STATUS preview_status = improcess(src_buf, dst_orig, pat_buf, src_rect, src_rect,
                                                           pat_rect, IM_HAL_TRANSFORM_FLIP_H);
+                    auto t_preview_end = std::chrono::steady_clock::now();
+                    timings.preview_ms = std::chrono::duration_cast<std::chrono::microseconds>(
+                        t_preview_end - t_preview_start).count() / 1000.0;
                     preprocess_ok = preview_status == IM_STATUS_SUCCESS;
                     if (!preprocess_ok) {
                         spdlog::error("PreprocessingThread: RGA preview conversion failed: STATUS={}",
@@ -449,6 +475,7 @@ void PreprocessingThread::thread_func() {
 
             if (!preprocess_ok && npu_input_mem_) {
                 // 调试禁用 RGA 或硬件处理失败时，CPU 降级仍写入绑定的 NPU 内存。
+                auto t_fallback_start = std::chrono::steady_clock::now();
                 cv::Mat yuv_frame(ver_stride + ver_stride / 2, hor_stride, CV_8UC1, decoded_ptr);
                 cv::Mat decoded_with_stride;
                 cv::cvtColor(yuv_frame, decoded_with_stride, cv::COLOR_YUV2BGR_NV12);
@@ -462,6 +489,10 @@ void PreprocessingThread::thread_func() {
                 npu_input.setTo(cv::Scalar(0, 0, 0));
                 cv::Mat resized_part = npu_input(cv::Rect(pad_left_, pad_top_, resize_w_, resize_h_));
                 cv::resize(task.orig_img, resized_part, cv::Size(resize_w_, resize_h_), 0, 0, cv::INTER_LINEAR);
+                auto t_fallback_end = std::chrono::steady_clock::now();
+                timings.cpu_fallback_ms = std::chrono::duration_cast<std::chrono::microseconds>(
+                    t_fallback_end - t_fallback_start).count() / 1000.0;
+                timings.used_cpu_fallback = true;
                 preprocess_ok = true;
             }
 
@@ -484,14 +515,9 @@ void PreprocessingThread::thread_func() {
         if (!preprocess_ok) {
             continue;
         }
-        cv_output_.notify_one();
-
-        auto t_rga_end = std::chrono::steady_clock::now();
-        double rga_ms = std::chrono::duration_cast<std::chrono::microseconds>(t_rga_end - t_rga_start).count() / 1000.0;
-
         if (perf_monitor_) {
-            perf_monitor_->record_mpp_decode_time(decode_ms);
-            perf_monitor_->record_input_prepare_time(rga_ms);
+            perf_monitor_->record_preprocess_timings(timings);
         }
+        cv_output_.notify_one();
     }
 }

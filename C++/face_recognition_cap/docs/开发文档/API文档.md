@@ -16,7 +16,7 @@
 主要职责：
 
 - 初始化算法模型与线程流水线
-- 控制识别主循环
+- 控制识别主循环并执行多线程同步推理
 - 提供帧回调与识别结果回调
 
 关键接口：
@@ -28,6 +28,55 @@ void set_recognition_callback(RecognitionCallback callback);
 void set_frame_callback(FrameCallback callback);
 bool reinitialize_camera(const std::string& device_number);
 bool extract_feature_from_frame(const cv::Mat& frame, std::vector<float>& feature, cv::Rect* face_box = nullptr);
+```
+
+### PreprocessingThread
+
+文件：
+
+- `include/app/preprocessing_thread.h`
+
+主要职责：
+
+- 合并摄像头拉流、MPP 硬件解码与 RGA 极速预处理
+- 进行 NPU 零拷贝输入缓冲区注册、线程间同步锁互斥访问
+- 在硬件通道异常时提供 CPU 解码和 CPU 预处理的强降级安全机制
+
+关键接口：
+
+```cpp
+void start();                                                   // 启动集成采集预处理线程
+void stop();                                                    // 停止线程
+bool get_result(PreprocessTask& task);                          // 从队列获取预处理好的帧及时间戳 (非阻塞)
+bool get_latest_frame(cv::Mat& frame);                          // 获取最新帧 (UI 快照/人脸注册旁路)
+void register_npu_input_mem(rknn_tensor_mem* input_mem);       // 绑定 NPU Zero-Copy 输入虚拟/物理内存
+void begin_inference_pipeline();                                // 激活 NPU 推理流水线 (清理积压队列)
+void end_inference_pipeline();                                  // 停止 NPU 推理流水线
+void complete_npu_inference();                                  // 通知预处理线程：NPU 推理已结束，输入内存已消费
+std::mutex& get_npu_mem_mutex();                                // 获取 NPU 输入物理内存的线程同步锁
+```
+
+### YOLOv8 Face (NPU Zero-Copy)
+
+文件：
+
+- `include/core/yolov8_face.h`
+
+主要职责：
+
+- 基于物理内存绑定的极速 YOLOv8-Face 推理与后处理
+- 初始化、运行、释放 RKNN 零拷贝专用 API 资源
+
+关键接口：
+
+```cpp
+int yolov8_face_init_zero_copy(rknn_context ctx,
+                               rknn_tensor_mem** input_mem,
+                               std::vector<rknn_tensor_mem*>& output_mems);
+int yolov8_face_run_zero_copy(rknn_context ctx);
+int yolov8_face_release_zero_copy(rknn_context ctx,
+                                  rknn_tensor_mem* input_mem,
+                                  std::vector<rknn_tensor_mem*>& output_mems);
 ```
 
 ### LocalLLMThread

@@ -158,6 +158,12 @@ void VideoDisplayWidget::draw_face_results(QPainter& painter, double scale, int 
         int x = offset_x + static_cast<int>(result.box.x * scale);
         int y = offset_y + static_cast<int>(result.box.y * scale);
         int w = static_cast<int>(result.box.width * scale);
+        int h = static_cast<int>(result.box.height * scale);
+
+        QColor box_color = result.is_recognized ? QColor(0, 255, 0) : QColor(255, 0, 0);
+        painter.setPen(QPen(box_color, 2));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRect(x, y, w, h);
 
         // 绘制名称和相似度（使用 Qt 绘制以支持中文）
         QString name_text = QString::fromStdString(result.name);
@@ -180,8 +186,7 @@ void VideoDisplayWidget::draw_face_results(QPainter& painter, double scale, int 
         painter.fillRect(name_x - 2, name_y - text_height, text_width + 4, text_height + 4, bg_color);
 
         // 绘制名称文字（识别成功绿色，否则红色）
-        QColor text_color = result.is_recognized ? QColor(0, 255, 0) : QColor(255, 0, 0);
-        painter.setPen(text_color);
+        painter.setPen(box_color);
         painter.drawText(name_x, name_y, label_text);
 
         // 如果已打卡，在名称上方显示状态提示

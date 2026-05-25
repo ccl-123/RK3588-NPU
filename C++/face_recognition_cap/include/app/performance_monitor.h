@@ -21,17 +21,28 @@
 #include <vector>
 #include <cstdint>
 #include <chrono>
+#include <mutex>
 #include "config/config.h"
 #include "rknn_api.h"
 
 class PerformanceMonitor {
 public:
+    struct PreprocessTimings {
+        uint32_t mjpeg_bytes = 0;
+        double mpp_input_copy_ms = 0.0;
+        double mpp_decode_ms = 0.0;
+        double npu_input_wait_ms = 0.0;
+        double rga_input_ms = 0.0;
+        double preview_ms = 0.0;
+        double cpu_fallback_ms = 0.0;
+        bool used_cpu_fallback = false;
+    };
+
     PerformanceMonitor(int report_interval = Config::Performance::REPORT_INTERVAL);
     ~PerformanceMonitor() = default;
 
-    // 线程1：MPP硬解与RGA/CPU降级输入准备耗时
-    void record_mpp_decode_time(double ms);
-    void record_input_prepare_time(double ms);
+    // 线程1：压缩流传入、MPP硬解、NPU输入和预览准备耗时
+    void record_preprocess_timings(const PreprocessTimings& timings);
 
     // 线程2：YOLO零拷贝检测耗时
     void record_detection_time(double ms);
@@ -49,18 +60,20 @@ public:
 
     // FPS 统计
     void update_fps(double current_fps);
-    double get_smoothed_fps() const { return smoothed_fps_; }
+    double get_smoothed_fps() const;
 
     // 报告
     bool should_print_report();
     void print_report();
     void reset();
+    void set_report_interval(int report_interval);
     
     // 设置 NPU 上下文，用于查询真实内存占用
     void set_npu_contexts(rknn_context detector_ctx, rknn_context facenet_ctx);
 
 private:
     double get_average(const std::vector<double>& data) const;
+    void clear_samples_locked();
 
     // 资源监控 (Linux /proc)
     double get_cpu_usage();
@@ -68,8 +81,16 @@ private:
     double get_npu_memory_mb();
 
 private:
+    mutable std::mutex metrics_mutex_;
+    std::vector<double> mjpeg_packet_kb_;
+    std::vector<double> mpp_input_copy_times_;
     std::vector<double> mpp_decode_times_;
-    std::vector<double> input_prepare_times_;
+    std::vector<double> npu_input_wait_times_;
+    std::vector<double> rga_input_times_;
+    std::vector<double> preview_times_;
+    std::vector<double> cpu_fallback_times_;
+    uint64_t preprocess_frame_count_ = 0;
+    uint64_t cpu_fallback_frame_count_ = 0;
     std::vector<double> detection_times_;
     std::vector<double> detect_run_times_;
     std::vector<double> detect_copy_times_;

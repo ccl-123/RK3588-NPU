@@ -33,47 +33,63 @@ PerformanceMonitor::PerformanceMonitor(int report_interval)
 {
 }
 
-void PerformanceMonitor::record_mpp_decode_time(double ms) {
-    mpp_decode_times_.push_back(ms);
-}
-
-void PerformanceMonitor::record_input_prepare_time(double ms) {
-    input_prepare_times_.push_back(ms);
+void PerformanceMonitor::record_preprocess_timings(const PreprocessTimings& timings) {
+    std::lock_guard<std::mutex> lock(metrics_mutex_);
+    mjpeg_packet_kb_.push_back(static_cast<double>(timings.mjpeg_bytes) / 1024.0);
+    mpp_input_copy_times_.push_back(timings.mpp_input_copy_ms);
+    mpp_decode_times_.push_back(timings.mpp_decode_ms);
+    npu_input_wait_times_.push_back(timings.npu_input_wait_ms);
+    rga_input_times_.push_back(timings.rga_input_ms);
+    preview_times_.push_back(timings.preview_ms);
+    cpu_fallback_times_.push_back(timings.cpu_fallback_ms);
+    preprocess_frame_count_++;
+    if (timings.used_cpu_fallback) {
+        cpu_fallback_frame_count_++;
+    }
 }
 
 void PerformanceMonitor::record_detection_time(double ms) {
+    std::lock_guard<std::mutex> lock(metrics_mutex_);
     detection_times_.push_back(ms);
 }
 
 void PerformanceMonitor::record_detection_run_time(double ms) {
+    std::lock_guard<std::mutex> lock(metrics_mutex_);
     detect_run_times_.push_back(ms);
 }
 
 void PerformanceMonitor::record_detection_copy_time(double ms) {
+    std::lock_guard<std::mutex> lock(metrics_mutex_);
     detect_copy_times_.push_back(ms);
 }
 
 void PerformanceMonitor::record_postprocess_time(double ms) {
+    std::lock_guard<std::mutex> lock(metrics_mutex_);
     postprocess_times_.push_back(ms);
 }
 
 void PerformanceMonitor::record_alignment_time(double ms) {
+    std::lock_guard<std::mutex> lock(metrics_mutex_);
     alignment_times_.push_back(ms);
 }
 
 void PerformanceMonitor::record_recognition_time(double ms) {
+    std::lock_guard<std::mutex> lock(metrics_mutex_);
     recognition_times_.push_back(ms);
 }
 
 void PerformanceMonitor::record_matching_time(double ms) {
+    std::lock_guard<std::mutex> lock(metrics_mutex_);
     matching_times_.push_back(ms);
 }
 
 void PerformanceMonitor::record_render_time(double ms) {
+    std::lock_guard<std::mutex> lock(metrics_mutex_);
     render_times_.push_back(ms);
 }
 
 void PerformanceMonitor::update_fps(double current_fps) {
+    std::lock_guard<std::mutex> lock(metrics_mutex_);
     if (smoothed_fps_ == 0.0) {
         smoothed_fps_ = current_fps;
     } else {
@@ -83,7 +99,22 @@ void PerformanceMonitor::update_fps(double current_fps) {
 }
 
 bool PerformanceMonitor::should_print_report() {
+    std::lock_guard<std::mutex> lock(metrics_mutex_);
     return (frame_count_ % report_interval_) == 0 && frame_count_ > 0;
+}
+
+double PerformanceMonitor::get_smoothed_fps() const {
+    std::lock_guard<std::mutex> lock(metrics_mutex_);
+    return smoothed_fps_;
+}
+
+void PerformanceMonitor::set_report_interval(int report_interval) {
+    std::lock_guard<std::mutex> lock(metrics_mutex_);
+    report_interval_ = report_interval;
+    frame_count_ = 0;
+    smoothed_fps_ = 0.0;
+    last_report_time_ = std::chrono::steady_clock::now();
+    clear_samples_locked();
 }
 
 double PerformanceMonitor::get_cpu_usage() {
@@ -153,14 +184,22 @@ double PerformanceMonitor::get_npu_memory_mb() {
         return true;
     };
 
+    rknn_context detector_ctx = 0;
+    rknn_context facenet_ctx = 0;
+    {
+        std::lock_guard<std::mutex> lock(metrics_mutex_);
+        detector_ctx = detector_ctx_;
+        facenet_ctx = facenet_ctx_;
+    }
+
     uint32_t total_kb_sum = 0;
     uint32_t w = 0, in = 0, t = 0;
     bool ok = false;
-    if (query_mem(detector_ctx_, w, in, t)) {
+    if (query_mem(detector_ctx, w, in, t)) {
         total_kb_sum += t;
         ok = true;
     }
-    if (query_mem(facenet_ctx_, w, in, t)) {
+    if (query_mem(facenet_ctx, w, in, t)) {
         total_kb_sum += t;
         ok = true;
     }
@@ -169,6 +208,7 @@ double PerformanceMonitor::get_npu_memory_mb() {
 }
 
 void PerformanceMonitor::set_npu_contexts(rknn_context detector_ctx, rknn_context facenet_ctx) {
+    std::lock_guard<std::mutex> lock(metrics_mutex_);
     detector_ctx_ = detector_ctx;
     facenet_ctx_ = facenet_ctx;
 }
@@ -179,20 +219,70 @@ void PerformanceMonitor::print_report() {
         return;
     }
 
-    if (detection_times_.empty()) return;
+    std::vector<double> mjpeg_packet_kb;
+    std::vector<double> mpp_input_copy_times;
+    std::vector<double> mpp_decode_times;
+    std::vector<double> npu_input_wait_times;
+    std::vector<double> rga_input_times;
+    std::vector<double> preview_times;
+    std::vector<double> cpu_fallback_times;
+    std::vector<double> detection_times;
+    std::vector<double> detect_run_times;
+    std::vector<double> detect_copy_times;
+    std::vector<double> postprocess_times;
+    std::vector<double> alignment_times;
+    std::vector<double> recognition_times;
+    std::vector<double> matching_times;
+    std::vector<double> render_times;
+    uint64_t preprocess_frames = 0;
+    uint64_t cpu_fallback_frames = 0;
+    double smoothed_fps = 0.0;
+    {
+        std::lock_guard<std::mutex> lock(metrics_mutex_);
+        if (detection_times_.empty()) return;
 
-    double avg_mpp_decode = get_average(mpp_decode_times_);
-    double avg_input_prepare = get_average(input_prepare_times_);
-    double avg_detect = get_average(detection_times_);
-    double avg_run = get_average(detect_run_times_);
-    double avg_copy = get_average(detect_copy_times_);
-    double avg_post = get_average(postprocess_times_);
-    double avg_align = get_average(alignment_times_);
-    double avg_facenet = get_average(recognition_times_);
-    double avg_match = get_average(matching_times_);
-    double avg_render = get_average(render_times_);
+        mjpeg_packet_kb.swap(mjpeg_packet_kb_);
+        mpp_input_copy_times.swap(mpp_input_copy_times_);
+        mpp_decode_times.swap(mpp_decode_times_);
+        npu_input_wait_times.swap(npu_input_wait_times_);
+        rga_input_times.swap(rga_input_times_);
+        preview_times.swap(preview_times_);
+        cpu_fallback_times.swap(cpu_fallback_times_);
+        detection_times.swap(detection_times_);
+        detect_run_times.swap(detect_run_times_);
+        detect_copy_times.swap(detect_copy_times_);
+        postprocess_times.swap(postprocess_times_);
+        alignment_times.swap(alignment_times_);
+        recognition_times.swap(recognition_times_);
+        matching_times.swap(matching_times_);
+        render_times.swap(render_times_);
+        preprocess_frames = preprocess_frame_count_;
+        cpu_fallback_frames = cpu_fallback_frame_count_;
+        preprocess_frame_count_ = 0;
+        cpu_fallback_frame_count_ = 0;
+        smoothed_fps = smoothed_fps_;
+    }
 
-    double thread1_total = avg_mpp_decode + avg_input_prepare;
+    double avg_mjpeg_packet_kb = get_average(mjpeg_packet_kb);
+    double avg_mpp_input_copy = get_average(mpp_input_copy_times);
+    double avg_mpp_decode = get_average(mpp_decode_times);
+    double avg_npu_wait = get_average(npu_input_wait_times);
+    double avg_rga_input = get_average(rga_input_times);
+    double avg_preview = get_average(preview_times);
+    double avg_cpu_fallback = get_average(cpu_fallback_times);
+    double avg_detect = get_average(detection_times);
+    double avg_run = get_average(detect_run_times);
+    double avg_copy = get_average(detect_copy_times);
+    double avg_post = get_average(postprocess_times);
+    double avg_align = get_average(alignment_times);
+    double avg_facenet = get_average(recognition_times);
+    double avg_match = get_average(matching_times);
+    double avg_render = get_average(render_times);
+    double fallback_percent = preprocess_frames > 0
+        ? (100.0 * cpu_fallback_frames / preprocess_frames) : 0.0;
+
+    double thread1_total = avg_mpp_input_copy + avg_mpp_decode + avg_npu_wait +
+                           avg_rga_input + avg_preview + avg_cpu_fallback;
     double thread3_total = avg_align + avg_facenet + avg_match + avg_render;
     double bottleneck = std::max({thread1_total, avg_detect, avg_post, thread3_total});
     double theoretical_fps = (bottleneck > 0) ? (1000.0 / bottleneck) : 0.0;
@@ -208,7 +298,7 @@ void PerformanceMonitor::print_report() {
     // 真实 FPS（按实际时间间隔计算，与屏幕显示保持一致）
     auto now = std::chrono::steady_clock::now();
     double elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_report_time_).count();
-    double actual_fps = (elapsed_ms > 0) ? (report_interval_ * 1000.0 / elapsed_ms) : smoothed_fps_;
+    double actual_fps = (elapsed_ms > 0) ? (report_interval_ * 1000.0 / elapsed_ms) : smoothed_fps;
     last_report_time_ = now;
 
     std::cout << "\n╔══════════════════════════════════════════════════════════╗" << std::endl;
@@ -218,9 +308,15 @@ void PerformanceMonitor::print_report() {
     
     // 线程耗时
     std::cout << "║ 【线程耗时】                                             ║" << std::endl;
-    std::cout << "║  线程1 [MPP解码+输入准备]:" << std::setw(6) << thread1_total << " ms                     ║" << std::endl;
-    std::cout << "║    ├─ MPP MJPEG硬解:  " << std::setw(6) << avg_mpp_decode << " ms                       ║" << std::endl;
-    std::cout << "║    └─ RGA/降级写入:   " << std::setw(6) << avg_input_prepare << " ms                       ║" << std::endl;
+    std::cout << "║  线程1 [解码+输入+预览]:" << std::setw(6) << thread1_total << " ms                      ║" << std::endl;
+    std::cout << "║    ├─ MJPEG包大小:     " << std::setw(6) << avg_mjpeg_packet_kb << " KB/帧                    ║" << std::endl;
+    std::cout << "║    ├─ V4L2->MPP复制:  " << std::setw(6) << avg_mpp_input_copy << " ms                       ║" << std::endl;
+    std::cout << "║    ├─ MPP任务处理:    " << std::setw(6) << avg_mpp_decode << " ms                       ║" << std::endl;
+    std::cout << "║    ├─ 等待NPU输入:    " << std::setw(6) << avg_npu_wait << " ms                       ║" << std::endl;
+    std::cout << "║    ├─ RGA写NPU输入:   " << std::setw(6) << avg_rga_input << " ms                       ║" << std::endl;
+    std::cout << "║    ├─ RGA生成预览:    " << std::setw(6) << avg_preview << " ms                       ║" << std::endl;
+    std::cout << "║    └─ CPU降级写入:    " << std::setw(6) << avg_cpu_fallback << " ms  ("
+              << std::setw(5) << fallback_percent << "%)             ║" << std::endl;
     std::cout << "║  线程2 [RKNN零拷贝]:  " << std::setw(6) << avg_detect << " ms  ("
               << std::setw(5) << thread2_fps << " FPS)             ║" << std::endl;
     std::cout << "║    ├─ rknn_run:       " << std::setw(6) << avg_run << " ms                       ║" << std::endl;
@@ -230,7 +326,7 @@ void PerformanceMonitor::print_report() {
     std::cout << "║    ├─ 人脸对齐:       " << std::setw(6) << avg_align << " ms                       ║" << std::endl;
     std::cout << "║    ├─ FaceNet:        " << std::setw(6) << avg_facenet << " ms                       ║" << std::endl;
     std::cout << "║    ├─ 特征匹配:       " << std::setw(6) << avg_match << " ms                       ║" << std::endl;
-    std::cout << "║    └─ 渲染显示:       " << std::setw(6) << avg_render << " ms                       ║" << std::endl;
+    std::cout << "║    └─ 提交/软件绘制:  " << std::setw(6) << avg_render << " ms                       ║" << std::endl;
     
     std::cout << "╠══════════════════════════════════════════════════════════╣" << std::endl;
     
@@ -248,7 +344,7 @@ void PerformanceMonitor::print_report() {
     std::cout << "║  实际 FPS:            " << std::setw(6) << actual_fps << "                            ║" << std::endl;
     std::cout << "║  理论最大 FPS:        " << std::setw(6) << theoretical_fps << "                            ║" << std::endl;
     std::cout << "║  流水线瓶颈:          " 
-              << (bottleneck == thread1_total ? "线程1 (MPP解码+输入准备)    "
+              << (bottleneck == thread1_total ? "线程1 (解码+输入+预览)      "
                   : (bottleneck == avg_detect ? "线程2 (RKNN零拷贝)          "
                   : (bottleneck == avg_post ? "线程2.5 (后处理)            "
                   : "线程3 (识别+渲染)           ")))
@@ -256,12 +352,23 @@ void PerformanceMonitor::print_report() {
     
     std::cout << "╚══════════════════════════════════════════════════════════╝" << std::endl;
 
-    reset();
 }
 
 void PerformanceMonitor::reset() {
+    std::lock_guard<std::mutex> lock(metrics_mutex_);
+    clear_samples_locked();
+}
+
+void PerformanceMonitor::clear_samples_locked() {
+    mjpeg_packet_kb_.clear();
+    mpp_input_copy_times_.clear();
     mpp_decode_times_.clear();
-    input_prepare_times_.clear();
+    npu_input_wait_times_.clear();
+    rga_input_times_.clear();
+    preview_times_.clear();
+    cpu_fallback_times_.clear();
+    preprocess_frame_count_ = 0;
+    cpu_fallback_frame_count_ = 0;
     detection_times_.clear();
     detect_run_times_.clear();
     detect_copy_times_.clear();
