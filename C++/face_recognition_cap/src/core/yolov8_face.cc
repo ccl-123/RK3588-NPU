@@ -366,3 +366,113 @@ void release_yolov8_face(rknn_context* ctx, unsigned char* model_data) {
         free(model_data);
     }
 }
+
+int yolov8_face_init_zero_copy(rknn_context ctx,
+                               rknn_tensor_mem** input_mem,
+                               std::vector<rknn_tensor_mem*>& output_mems) {
+    if (input_mem == nullptr) {
+        return -1;
+    }
+
+    *input_mem = nullptr;
+    output_mems.clear();
+    auto cleanup_mem = [&]() {
+        if (*input_mem) {
+            rknn_destroy_mem(ctx, *input_mem);
+            *input_mem = nullptr;
+        }
+        for (auto* mem : output_mems) {
+            if (mem) {
+                rknn_destroy_mem(ctx, mem);
+            }
+        }
+        output_mems.clear();
+    };
+
+    int ret = 0;
+    rknn_input_output_num io_num;
+    ret = rknn_query(ctx, RKNN_QUERY_IN_OUT_NUM, &io_num, sizeof(io_num));
+    if (ret < 0) {
+        printf("yolov8_face_init_zero_copy: rknn_query io_num error ret=%d\n", ret);
+        return ret;
+    }
+
+    // 1. 获取并配置输入属性，创建输入内存，并绑定
+    rknn_tensor_attr input_attr;
+    memset(&input_attr, 0, sizeof(input_attr));
+    input_attr.index = 0;
+    ret = rknn_query(ctx, RKNN_QUERY_INPUT_ATTR, &input_attr, sizeof(input_attr));
+    if (ret < 0) {
+        printf("yolov8_face_init_zero_copy: rknn_query input attr error ret=%d\n", ret);
+        return ret;
+    }
+
+    // 硬件零拷贝的直通标志配置
+    input_attr.type = RKNN_TENSOR_UINT8; // YOLOv8 输入为 uint8 原始图像
+    input_attr.fmt = RKNN_TENSOR_NHWC;
+    input_attr.pass_through = 1; // 真正的 pass-through
+
+    *input_mem = rknn_create_mem(ctx, input_attr.size_with_stride);
+    if (*input_mem == nullptr) {
+        printf("yolov8_face_init_zero_copy: failed to create input tensor memory!\n");
+        return -1;
+    }
+
+    ret = rknn_set_io_mem(ctx, *input_mem, &input_attr);
+    if (ret < 0) {
+        printf("yolov8_face_init_zero_copy: rknn_set_io_mem for input error ret=%d\n", ret);
+        cleanup_mem();
+        return ret;
+    }
+
+    // 2. 获取并配置输出属性，创建输出内存，并绑定
+    output_mems.resize(io_num.n_output, nullptr);
+    for (uint32_t i = 0; i < io_num.n_output; ++i) {
+        rknn_tensor_attr output_attr;
+        memset(&output_attr, 0, sizeof(output_attr));
+        output_attr.index = i;
+        ret = rknn_query(ctx, RKNN_QUERY_OUTPUT_ATTR, &output_attr, sizeof(output_attr));
+        if (ret < 0) {
+            printf("yolov8_face_init_zero_copy: rknn_query output attr error at index %u ret=%d\n", i, ret);
+            cleanup_mem();
+            return ret;
+        }
+
+        output_mems[i] = rknn_create_mem(ctx, output_attr.size_with_stride);
+        if (output_mems[i] == nullptr) {
+            printf("yolov8_face_init_zero_copy: failed to create output tensor memory at index %u!\n", i);
+            cleanup_mem();
+            return -1;
+        }
+
+        ret = rknn_set_io_mem(ctx, output_mems[i], &output_attr);
+        if (ret < 0) {
+            printf("yolov8_face_init_zero_copy: rknn_set_io_mem for output index %u error ret=%d\n", i, ret);
+            cleanup_mem();
+            return ret;
+        }
+    }
+
+    printf("yolov8_face_init_zero_copy: NPU Zero-Copy IO memory initialized successfully!\n");
+    return 0;
+}
+
+int yolov8_face_run_zero_copy(rknn_context ctx) {
+    return rknn_run(ctx, nullptr);
+}
+
+int yolov8_face_release_zero_copy(rknn_context ctx,
+                                  rknn_tensor_mem* input_mem,
+                                  std::vector<rknn_tensor_mem*>& output_mems) {
+    if (input_mem) {
+        rknn_destroy_mem(ctx, input_mem);
+    }
+    for (auto mem : output_mems) {
+        if (mem) {
+            rknn_destroy_mem(ctx, mem);
+        }
+    }
+    output_mems.clear();
+    printf("yolov8_face_release_zero_copy: NPU Zero-Copy memory released.\n");
+    return 0;
+}

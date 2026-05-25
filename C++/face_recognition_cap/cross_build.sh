@@ -138,6 +138,7 @@ echo "打包依赖库 (RKNN/RGA/RKLLM/spdlog/fmt，OpenCV/SQLite/Qt 使用系统
     # 只复制 RKNN/RGA/RKLLM (这些是 RK3588 专有的)
     cp -f ${RKNN_API_PATH}/aarch64/librknnrt.so "${LIB_DIR}/" 2>/dev/null || true
     cp -f ${RGA_PATH}/lib/Linux/aarch64/librga.so "${LIB_DIR}/" 2>/dev/null || true
+    cp -df ${ROOT_PWD}/../3rdparty/mpp/Linux/aarch64/librockchip_mpp.so* "${LIB_DIR}/" 2>/dev/null || true
     
     # RKLLM 运行时库 (本地 LLM 必需)
     RKLLM_LIB="${ROOT_PWD}/../rkllm_runtime/lib/librkllmrt.so"

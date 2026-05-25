@@ -107,6 +107,13 @@ public:
     const rknn_input_output_num& get_facenet_io_num() const { return facenet_io_num_; }
 
     /**
+     * @brief 获取 Zero-Copy 内存接口
+     */
+    rknn_tensor_mem* get_face_detector_input_mem() { return face_detector_input_mem_; }
+    const std::vector<rknn_tensor_mem*>& get_face_detector_output_mems() const { return face_detector_output_mems_; }
+    bool is_zero_copy_enabled() const { return use_zero_copy_; }
+
+    /**
      * @brief 释放所有模型资源
      */
     void release();
@@ -122,6 +129,11 @@ private:
     rknn_input face_detector_inputs_[1];
     rknn_output face_detector_outputs_[YOLOV8_FACE_OUTPUT_NUM];
     rknn_tensor_attr face_detector_output_attrs_[YOLOV8_FACE_OUTPUT_NUM];
+
+    // YOLOv8-face 零拷贝内部管理
+    rknn_tensor_mem* face_detector_input_mem_ = nullptr;
+    std::vector<rknn_tensor_mem*> face_detector_output_mems_;
+    bool use_zero_copy_ = true;
 
     // FaceNet 模型相关
     rknn_context facenet_ctx_;

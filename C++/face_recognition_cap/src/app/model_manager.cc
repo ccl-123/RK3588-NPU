@@ -73,6 +73,16 @@ int ModelManager::init_face_detector(const char* model_path) {
         face_detector_outputs_[i].want_float = 0;  // int8 原始输出
         }
 
+    // 初始化零拷贝内存
+    if (use_zero_copy_) {
+        int z_ret = yolov8_face_init_zero_copy(face_detector_ctx_, &face_detector_input_mem_, face_detector_output_mems_);
+        if (z_ret != 0) {
+            spdlog::error("Failed to initialize NPU Zero-Copy memory for YOLOv8!");
+            release_yolov8_face(&face_detector_ctx_, face_detector_model_data_);
+            return -1;
+        }
+    }
+
     face_detector_initialized_ = true;
     spdlog::info("YOLOv8-face model initialized: {}x{}x{}", face_detector_width_, face_detector_height_, face_detector_channel_);
     return 0;
@@ -126,6 +136,11 @@ int ModelManager::init_facenet(const char* model_path) {
 
 void ModelManager::release() {
     if (face_detector_initialized_) {
+        if (use_zero_copy_ && face_detector_input_mem_) {
+            yolov8_face_release_zero_copy(face_detector_ctx_, face_detector_input_mem_, face_detector_output_mems_);
+            face_detector_input_mem_ = nullptr;
+            face_detector_output_mems_.clear();
+        }
         release_yolov8_face(&face_detector_ctx_, face_detector_model_data_);
         face_detector_initialized_ = false;
         spdlog::info("YOLOv8-face model released");

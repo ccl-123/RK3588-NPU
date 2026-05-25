@@ -1,12 +1,12 @@
 /**
  * @file preprocessing_thread.h
- * @brief 采集预处理线程 - 摄像头采集 + RGA硬件加速预处理
+ * @brief 采集预处理线程 - MJPEG采集 + MPP硬解 + NPU输入准备
  * @author CL
  * @date 2025-11-20
  * 
  * 多线程优化架构：
- * - 线程1(本类): 采集 + RGA 预处理 → 检测队列
- * - 线程2(主线程): YOLO 检测 → 识别队列
+ * - 线程1(本类): V4L2采集 + MPP硬解 + RGA/CPU降级写入NPU输入
+ * - 线程2(主线程): YOLO零拷贝检测 → 识别队列
  * - 线程3: 对齐 + FaceNet + 匹配 + 渲染
  */
 
@@ -19,23 +19,27 @@
 #include <condition_variable>
 #include <queue>
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
 #include <sys/time.h>
 #include <string>
 #include "config/config.h"
 #include "app/performance_monitor.h"
+#include "rk_mpi.h"
+#include "mpp_frame.h"
+#include "rknn_api.h"
 
 /*-------------------------------------------
     预处理任务结构
 -------------------------------------------*/
 struct PreprocessTask {
     cv::Mat orig_img;           // 原始图像（翻转后）
-    cv::Mat processed_img;      // 处理后的图像（缩放+padding，尺寸等于模型输入）
     struct timeval timestamp;   // 时间戳
 };
 
 /*-------------------------------------------
     采集预处理线程类
-    职责: 摄像头采集 + RGA硬件加速的图像翻转和缩放
+    职责: MJPEG采集、MPP硬解、图像转换及写入绑定的NPU输入内存
 -------------------------------------------*/
 class PreprocessingThread {
 public:
@@ -46,9 +50,8 @@ public:
      * @param img_width 摄像头图像宽度
      * @param img_height 摄像头图像高度
      * @param camera_type 摄像头类型 "usb" 或 "mipi"
-     * @param use_async_usb 是否使用异步USB读取
      */
-    PreprocessingThread(int resize_w, int resize_h,                                          int img_width, int img_height,
+    PreprocessingThread(int resize_w, int resize_h, int img_width, int img_height,
                                          PerformanceMonitor* perf_monitor,
                                          const std::string& camera_type);
     ~PreprocessingThread();
@@ -60,6 +63,9 @@ public:
     // 获取处理结果（非阻塞）
     bool get_result(PreprocessTask& task);
 
+    // 获取最新一帧用于 UI 快照/人脸注册
+    bool get_latest_frame(cv::Mat& frame);
+
     // 获取队列状态
     bool is_running() const { return running_; }
     size_t output_queue_size() const;
@@ -69,15 +75,18 @@ public:
     // 唤醒阻塞在 get_result() 的消费者（用于外部停止信号）
     void wake_consumer();
 
+    // 注册 NPU Zero-Copy 输入内存与互斥锁
+    void register_npu_input_mem(rknn_tensor_mem* input_mem) {
+        npu_input_mem_ = input_mem;
+    }
+    void begin_inference_pipeline();
+    void end_inference_pipeline();
+    void complete_npu_inference();
+    std::mutex& get_npu_mem_mutex() { return npu_mem_mutex_; }
+
 private:
     // 线程函数（采集 + 预处理循环）
     void thread_func();
-
-    // 从摄像头读取一帧
-    bool read_frame(cv::Mat& frame);
-
-    // RGA处理
-    void process_with_rga(PreprocessTask& task);
 
 private:
     // 线程控制
@@ -99,21 +108,34 @@ private:
     std::string camera_type_;
     PerformanceMonitor* perf_monitor_;
 
-    // 静态缓冲区（避免重复分配）
-    cv::Mat flipped_buffer_;
-    cv::Mat resized_buffer_;    // 非方形缩放结果，后续再padding
-
-    // 摄像头消费者游标：保证预处理线程只跟踪自己的最新帧，不影响其他读取方
-    uint64_t frame_sequence_cursor_ = 0;
     std::atomic<bool> camera_failed_{false};
 
     // padding 目标尺寸与边界
     int target_w_;
     int target_h_;
     int pad_top_;
-    int pad_bottom_;
     int pad_left_;
-    int pad_right_;
+
+    // MPP 硬件解码器及状态
+    MppCtx mpp_ctx_ = nullptr;
+    MppApi* mpp_api_ = nullptr;
+    MppBufferGroup mpp_frm_grp_ = nullptr;
+    MppBuffer mpp_input_buffer_ = nullptr;
+    size_t mpp_input_capacity_ = 0;
+    MppBuffer mpp_output_buffer_ = nullptr;
+    MppFrame mpp_output_frame_ = nullptr;
+    bool mpp_initialized_ = false;
+
+    int init_mpp();
+    void deinit_mpp();
+    bool decode_mjpeg_packet(void* packet_data, uint32_t packet_size);
+
+    // NPU 零拷贝输入内存和互斥锁
+    rknn_tensor_mem* npu_input_mem_ = nullptr;
+    std::mutex npu_mem_mutex_;
+    std::condition_variable cv_npu_input_;
+    bool inference_pipeline_active_ = false;
+    bool npu_input_pending_ = false;
 
     // 队列大小限制（只保留最新帧）
     static const int MAX_QUEUE_SIZE = Config::Performance::QUEUE_MAX_SIZE;

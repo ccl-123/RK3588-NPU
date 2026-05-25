@@ -381,8 +381,6 @@ private:
     // 模型状态（LLM 资源管理）
     std::atomic<bool> models_loaded_;            // 人脸模型是否已加载
 
-    // GUI/注册预览读帧游标：与预处理线程分离，避免不同调用方相互抢帧
-    uint64_t current_frame_sequence_cursor_ = 0;
 };
 
 #endif // _FACE_RECOGNITION_APP_H_

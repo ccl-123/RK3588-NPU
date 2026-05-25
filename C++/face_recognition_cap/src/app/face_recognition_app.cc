@@ -154,6 +154,12 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
             config_.camera_width, config_.camera_height,
             &perf_monitor_,
             config_.camera_type);
+
+        // 注册 NPU Zero-Copy 输入内存给预处理线程
+        if (model_manager_.get_face_detector_input_mem()) {
+            preprocess_thread_->register_npu_input_mem(model_manager_.get_face_detector_input_mem());
+        }
+
         preprocess_thread_->start();
         spdlog::info("Preprocessing thread started");
     } else {
@@ -240,13 +246,14 @@ int FaceRecognitionApp::run() {
 
     running_.store(true, std::memory_order_release);
     spdlog::info("Starting pipeline mode...");
-    spdlog::info("  Thread 1: Camera (V4L2) + BGR Decode + RGA preprocess");
+    spdlog::info("  Thread 1: Camera (V4L2) + MPP MJPEG Decode + RGA preprocess");
     spdlog::info("  Thread 2: YOLO detection (main loop)");
     spdlog::info("  Thread 3: FaceNet + Match + Render");
 
     struct timeval t_start, t_detect_end;
     int detector_width, detector_height, detector_channel;
     model_manager_.get_face_detector_size(detector_width, detector_height, detector_channel);
+    preprocess_thread_->begin_inference_pipeline();
 
     while (running_.load(std::memory_order_acquire)) {
         // 1. 从预处理线程获取结果（采集+RGA已在线程1完成）
@@ -262,6 +269,7 @@ int FaceRecognitionApp::run() {
                 running_.store(false, std::memory_order_release);
                 close_usb_camera();
                 spdlog::error("Stopping recognition due to camera failure: {}", camera_error_);
+                preprocess_thread_->end_inference_pipeline();
                 return -1;
             }
 
@@ -270,25 +278,34 @@ int FaceRecognitionApp::run() {
 
         gettimeofday(&t_start, NULL);
 
-        // 2. 人脸检测（仅NPU推理）
+        // 2. 人脸检测（Zero-Copy 推理）
         std::array<std::vector<uint8_t>, YOLOV8_FACE_OUTPUT_NUM> yolo_outputs;
-        YoloRunTimings yolo_timing;
-        int ret = yolov8_face_run(
-            model_manager_.get_face_detector_ctx(),
-            task.processed_img,
-            detector_width,
-            detector_height,
-            detector_channel,
-            task.processed_img.cols,
-            task.processed_img.rows,
-            model_manager_.get_face_detector_io_num(),
-            model_manager_.get_face_detector_inputs(),
-            model_manager_.get_face_detector_outputs(),
-            model_manager_.get_face_detector_output_attrs(),
-            yolo_outputs,
-            &yolo_timing
-        );
-        
+        YoloRunTimings yolo_timing{};
+        int ret = 0;
+
+        {
+            // 串行同步锁定，确保推理期间预处理线程不修改 NPU 输入内存
+            std::lock_guard<std::mutex> lock(preprocess_thread_->get_npu_mem_mutex());
+
+            auto t_run_start = std::chrono::steady_clock::now();
+            ret = yolov8_face_run_zero_copy(*model_manager_.get_face_detector_ctx());
+            auto t_run_end = std::chrono::steady_clock::now();
+
+            if (ret == 0) {
+                // 极速拷贝输出内存到局部 yolo_outputs，支持后处理线程无竞态异步消费
+                auto& output_mems = model_manager_.get_face_detector_output_mems();
+                for (size_t i = 0; i < output_mems.size(); ++i) {
+                    yolo_outputs[i].resize(output_mems[i]->size);
+                    memcpy(yolo_outputs[i].data(), output_mems[i]->virt_addr, output_mems[i]->size);
+                }
+            }
+
+            auto t_copy_end = std::chrono::steady_clock::now();
+            yolo_timing.run_ms = std::chrono::duration_cast<std::chrono::microseconds>(t_run_end - t_run_start).count() / 1000.0;
+            yolo_timing.copy_ms = std::chrono::duration_cast<std::chrono::microseconds>(t_copy_end - t_run_end).count() / 1000.0;
+        }
+        preprocess_thread_->complete_npu_inference();
+
         gettimeofday(&t_detect_end, NULL);
         float detect_time = (get_us(t_detect_end) - get_us(t_start)) / 1000.0;
 
@@ -300,9 +317,7 @@ int FaceRecognitionApp::run() {
         // 3. 性能统计
         perf_monitor_.update_fps(1000.0 / detect_time);
         perf_monitor_.record_detection_time(detect_time);
-        perf_monitor_.record_detection_inputs_time(yolo_timing.inputs_set_ms);
         perf_monitor_.record_detection_run_time(yolo_timing.run_ms);
-        perf_monitor_.record_detection_outputs_time(yolo_timing.outputs_get_ms);
         perf_monitor_.record_detection_copy_time(yolo_timing.copy_ms);
         perf_monitor_.record_alignment_time(recognition_thread_->get_avg_align_time());
         perf_monitor_.record_recognition_time(recognition_thread_->get_avg_facenet_time());
@@ -328,6 +343,7 @@ int FaceRecognitionApp::run() {
         }
     }
 
+    preprocess_thread_->end_inference_pipeline();
     return 0;
 }
 
@@ -471,8 +487,14 @@ bool FaceRecognitionApp::release_models() {
     spdlog::info("Releasing RKNN models to free NPU resources for LLM...");
 
     // 【关键】先停止所有 NPU 工作线程
-    // 原因：这些线程持有 model_manager_ 引用，会阻止 NPU 资源完全释放
+    // 原因：预处理线程会直接写入绑定到 RKNN 的输入内存，模型释放前必须退出。
     // 如果不停止这些线程，RKLLM 推理会因资源抢占而极慢（5分钟 vs 5秒）
+    if (preprocess_thread_) {
+        preprocess_thread_->stop();
+        preprocess_thread_.reset();
+        spdlog::info("Preprocessing thread stopped");
+    }
+
     if (postprocess_thread_) {
         postprocess_thread_->stop();
         postprocess_thread_.reset();
@@ -534,6 +556,17 @@ bool FaceRecognitionApp::reload_models() {
 
     // 【关键】重新创建并启动工作线程
     // 这些线程在 release_models() 时被销毁，需要重新创建
+    if (camera_initialized_ && !preprocess_thread_) {
+        preprocess_thread_ = std::make_unique<PreprocessingThread>(
+            resize_w_, resize_h_,
+            config_.camera_width, config_.camera_height,
+            &perf_monitor_,
+            config_.camera_type);
+        preprocess_thread_->register_npu_input_mem(model_manager_.get_face_detector_input_mem());
+        preprocess_thread_->start();
+        spdlog::info("Preprocessing thread recreated");
+    }
+
     if (!recognition_thread_) {
         recognition_thread_ = std::make_unique<RecognitionThread>(
             &model_manager_, &feature_library_,
@@ -624,6 +657,11 @@ bool FaceRecognitionApp::reinitialize_camera(const std::string& device_number) {
         config_.camera_width, config_.camera_height,
         &perf_monitor_,
         config_.camera_type);
+
+    if (model_manager_.get_face_detector_input_mem()) {
+        preprocess_thread_->register_npu_input_mem(model_manager_.get_face_detector_input_mem());
+    }
+
     preprocess_thread_->start();
 
     return true;
@@ -693,6 +731,11 @@ bool FaceRecognitionApp::resume_camera() {
                 config_.camera_width, config_.camera_height,
                 &perf_monitor_,
                 config_.camera_type);
+
+            if (model_manager_.get_face_detector_input_mem()) {
+                preprocess_thread_->register_npu_input_mem(model_manager_.get_face_detector_input_mem());
+            }
+
             preprocess_thread_->start();
             spdlog::info("Preprocessing thread restarted");
         }
@@ -715,6 +758,11 @@ bool FaceRecognitionApp::resume_camera() {
         config_.camera_width, config_.camera_height,
         &perf_monitor_,
         config_.camera_type);
+
+    if (model_manager_.get_face_detector_input_mem()) {
+        preprocess_thread_->register_npu_input_mem(model_manager_.get_face_detector_input_mem());
+    }
+
     preprocess_thread_->start();
     spdlog::info("Preprocessing thread restarted");
 
@@ -781,51 +829,10 @@ void FaceRecognitionApp::set_recognition_mode(RecognitionMode mode) {
 }
 
 bool FaceRecognitionApp::get_current_frame(cv::Mat& frame) {
-    if (!initialized_) {
+    if (!initialized_ || !preprocess_thread_) {
         return false;
     }
-
-    // 检查摄像头是否已初始化
-    if (!camera_initialized_) {
-        return false;
-    }
-
-    if (config_.camera_type == "usb") {
-        void* raw_pkt_data = nullptr;
-        uint32_t raw_pkt_size = 0;
-        uint32_t raw_buf_index = 0;
-        
-        bool success = false;
-        for (int i = 0; i < 10; ++i) {
-            if (read_usb_raw_packet(&raw_pkt_data, &raw_pkt_size, &raw_buf_index)) {
-                success = true;
-                break;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
-        }
-        
-        if (!success) {
-            return false;
-        }
-        
-        cv::Mat raw_data(1, raw_pkt_size, CV_8UC1, raw_pkt_data);
-        cv::Mat orig_img;
-        try {
-            orig_img = cv::imdecode(raw_data, cv::IMREAD_COLOR);
-        } catch (...) {}
-        
-        release_usb_raw_packet(raw_buf_index);
-        
-        if (orig_img.empty()) {
-            return false;
-        }
-        
-        // 翻转图像
-        cv::flip(orig_img, frame, 1);
-        return true;
-    }
-
-    return false;
+    return preprocess_thread_->get_latest_frame(frame);
 }
 
 // ==================== GUI 人脸注册接口（Public） ====================

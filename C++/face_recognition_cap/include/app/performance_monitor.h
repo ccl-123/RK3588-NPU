@@ -5,8 +5,8 @@
  * @date 2025-11-20
  * 
  * 流水线架构：
- * - 线程1: 采集 + RGA预处理
- * - 线程2: YOLO检测 (主线程)
+ * - 线程1: V4L2采集 + MPP MJPEG硬解 + NPU输入准备
+ * - 线程2: YOLO零拷贝推理 (主线程)
  * - 线程2.5: YOLO后处理 (DFL/NMS)
  * - 线程3: 对齐 + FaceNet + 匹配 + 渲染
  * 
@@ -29,15 +29,13 @@ public:
     PerformanceMonitor(int report_interval = Config::Performance::REPORT_INTERVAL);
     ~PerformanceMonitor() = default;
 
-    // 线程1：预处理与解码耗时
-    void record_preprocess_time(double ms);
-    void record_decode_time(double ms);
+    // 线程1：MPP硬解与RGA/CPU降级输入准备耗时
+    void record_mpp_decode_time(double ms);
+    void record_input_prepare_time(double ms);
 
-    // 线程2：YOLO检测耗时
+    // 线程2：YOLO零拷贝检测耗时
     void record_detection_time(double ms);
-    void record_detection_inputs_time(double ms);
     void record_detection_run_time(double ms);
-    void record_detection_outputs_time(double ms);
     void record_detection_copy_time(double ms);
 
     // 线程2.5：YOLO后处理耗时
@@ -70,12 +68,10 @@ private:
     double get_npu_memory_mb();
 
 private:
-    std::vector<double> decode_times_;
-    std::vector<double> preprocess_times_;
+    std::vector<double> mpp_decode_times_;
+    std::vector<double> input_prepare_times_;
     std::vector<double> detection_times_;
-    std::vector<double> detect_inputs_times_;
     std::vector<double> detect_run_times_;
-    std::vector<double> detect_outputs_times_;
     std::vector<double> detect_copy_times_;
     std::vector<double> postprocess_times_;
     std::vector<double> alignment_times_;

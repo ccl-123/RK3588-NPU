@@ -7,7 +7,8 @@
  * 开发板部署监控:
  * - RK3588 NPU: int8 量化模型推理
  * - 资源占用: CPU/内存/NPU内存
- * - RGA加速: 可通过 Config::Performance::USE_RGA 控制
+ * - 解码链路: MPP MJPEG任务接口输出 DRM/NV12
+ * - 输入链路: RGA直写 NPU 输入，必要时 CPU 降级
  */
 
 #include "app/performance_monitor.h"
@@ -32,28 +33,20 @@ PerformanceMonitor::PerformanceMonitor(int report_interval)
 {
 }
 
-void PerformanceMonitor::record_preprocess_time(double ms) {
-    preprocess_times_.push_back(ms);
+void PerformanceMonitor::record_mpp_decode_time(double ms) {
+    mpp_decode_times_.push_back(ms);
 }
 
-void PerformanceMonitor::record_decode_time(double ms) {
-    decode_times_.push_back(ms);
+void PerformanceMonitor::record_input_prepare_time(double ms) {
+    input_prepare_times_.push_back(ms);
 }
 
 void PerformanceMonitor::record_detection_time(double ms) {
     detection_times_.push_back(ms);
 }
 
-void PerformanceMonitor::record_detection_inputs_time(double ms) {
-    detect_inputs_times_.push_back(ms);
-}
-
 void PerformanceMonitor::record_detection_run_time(double ms) {
     detect_run_times_.push_back(ms);
-}
-
-void PerformanceMonitor::record_detection_outputs_time(double ms) {
-    detect_outputs_times_.push_back(ms);
 }
 
 void PerformanceMonitor::record_detection_copy_time(double ms) {
@@ -188,12 +181,10 @@ void PerformanceMonitor::print_report() {
 
     if (detection_times_.empty()) return;
 
-    double avg_dec   = get_average(decode_times_);
-    double avg_pre   = get_average(preprocess_times_);
+    double avg_mpp_decode = get_average(mpp_decode_times_);
+    double avg_input_prepare = get_average(input_prepare_times_);
     double avg_detect = get_average(detection_times_);
-    double avg_in = get_average(detect_inputs_times_);
     double avg_run = get_average(detect_run_times_);
-    double avg_out = get_average(detect_outputs_times_);
     double avg_copy = get_average(detect_copy_times_);
     double avg_post = get_average(postprocess_times_);
     double avg_align = get_average(alignment_times_);
@@ -201,7 +192,7 @@ void PerformanceMonitor::print_report() {
     double avg_match = get_average(matching_times_);
     double avg_render = get_average(render_times_);
 
-    double thread1_total = avg_dec + avg_pre;
+    double thread1_total = avg_mpp_decode + avg_input_prepare;
     double thread3_total = avg_align + avg_facenet + avg_match + avg_render;
     double bottleneck = std::max({thread1_total, avg_detect, avg_post, thread3_total});
     double theoretical_fps = (bottleneck > 0) ? (1000.0 / bottleneck) : 0.0;
@@ -227,15 +218,13 @@ void PerformanceMonitor::print_report() {
     
     // 线程耗时
     std::cout << "║ 【线程耗时】                                             ║" << std::endl;
-    std::cout << "║  线程1 [采集+解码+RGA]:" << std::setw(6) << thread1_total << " ms                        ║" << std::endl;
-    std::cout << "║    ├─ MJPEG解码:      " << std::setw(6) << avg_dec   << " ms                       ║" << std::endl;
-    std::cout << "║    └─ RGA预处理:      " << std::setw(6) << avg_pre   << " ms                       ║" << std::endl;
-    std::cout << "║  线程2 [YOLO推理]:    " << std::setw(6) << avg_detect << " ms  (" 
+    std::cout << "║  线程1 [MPP解码+输入准备]:" << std::setw(6) << thread1_total << " ms                     ║" << std::endl;
+    std::cout << "║    ├─ MPP MJPEG硬解:  " << std::setw(6) << avg_mpp_decode << " ms                       ║" << std::endl;
+    std::cout << "║    └─ RGA/降级写入:   " << std::setw(6) << avg_input_prepare << " ms                       ║" << std::endl;
+    std::cout << "║  线程2 [RKNN零拷贝]:  " << std::setw(6) << avg_detect << " ms  ("
               << std::setw(5) << thread2_fps << " FPS)             ║" << std::endl;
-    std::cout << "║    ├─ inputs_set:     " << std::setw(6) << avg_in   << " ms                       ║" << std::endl;
-    std::cout << "║    ├─ rknn_run:       " << std::setw(6) << avg_run  << " ms                       ║" << std::endl;
-    std::cout << "║    ├─ outputs_get:    " << std::setw(6) << avg_out  << " ms                       ║" << std::endl;
-    std::cout << "║    └─ memcpy_out:     " << std::setw(6) << avg_copy << " ms                       ║" << std::endl;
+    std::cout << "║    ├─ rknn_run:       " << std::setw(6) << avg_run << " ms                       ║" << std::endl;
+    std::cout << "║    └─ 输出隔离拷贝:   " << std::setw(6) << avg_copy << " ms                       ║" << std::endl;
     std::cout << "║  线程2.5 [后处理]:    " << std::setw(6) << avg_post << " ms                        ║" << std::endl;
     std::cout << "║  线程3 [识别+渲染]:   " << std::setw(6) << thread3_total << " ms                          ║" << std::endl;
     std::cout << "║    ├─ 人脸对齐:       " << std::setw(6) << avg_align << " ms                       ║" << std::endl;
@@ -259,8 +248,8 @@ void PerformanceMonitor::print_report() {
     std::cout << "║  实际 FPS:            " << std::setw(6) << actual_fps << "                            ║" << std::endl;
     std::cout << "║  理论最大 FPS:        " << std::setw(6) << theoretical_fps << "                            ║" << std::endl;
     std::cout << "║  流水线瓶颈:          " 
-              << (bottleneck == thread1_total ? "线程1 (采集+解码+RGA)      "
-                  : (bottleneck == avg_detect ? "线程2 (YOLO推理)            "
+              << (bottleneck == thread1_total ? "线程1 (MPP解码+输入准备)    "
+                  : (bottleneck == avg_detect ? "线程2 (RKNN零拷贝)          "
                   : (bottleneck == avg_post ? "线程2.5 (后处理)            "
                   : "线程3 (识别+渲染)           ")))
               << "║" << std::endl;
@@ -271,12 +260,10 @@ void PerformanceMonitor::print_report() {
 }
 
 void PerformanceMonitor::reset() {
-    decode_times_.clear();
-    preprocess_times_.clear();
+    mpp_decode_times_.clear();
+    input_prepare_times_.clear();
     detection_times_.clear();
-    detect_inputs_times_.clear();
     detect_run_times_.clear();
-    detect_outputs_times_.clear();
     detect_copy_times_.clear();
     postprocess_times_.clear();
     alignment_times_.clear();

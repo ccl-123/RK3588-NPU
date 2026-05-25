@@ -92,6 +92,25 @@ int yolov8_face_postprocess(
     detect_result_group_t* detect_result_group);
 
 /**
+ * @brief Zero-Copy 零拷贝初始化与绑定
+ */
+int yolov8_face_init_zero_copy(rknn_context ctx,
+                               rknn_tensor_mem** input_mem,
+                               std::vector<rknn_tensor_mem*>& output_mems);
+
+/**
+ * @brief Zero-Copy 极速推理
+ */
+int yolov8_face_run_zero_copy(rknn_context ctx);
+
+/**
+ * @brief Zero-Copy 内存销毁与释放
+ */
+int yolov8_face_release_zero_copy(rknn_context ctx,
+                                  rknn_tensor_mem* input_mem,
+                                  std::vector<rknn_tensor_mem*>& output_mems);
+
+/**
  * @brief 释放 YOLOv8-face 模型资源
  */
 void release_yolov8_face(rknn_context* ctx, unsigned char* model_data);

@@ -79,6 +79,11 @@ endif()
 set(RGA_LIB ${RGA_PATH}/lib/Linux/${LIB_ARCH}/librga.so)
 include_directories( ${RGA_PATH}/include)
 
+#mpp
+set(MPP_PATH ${CMAKE_SOURCE_DIR}/../3rdparty/mpp/)
+set(MPP_LIB ${MPP_PATH}/Linux/${LIB_ARCH}/librockchip_mpp.so)
+include_directories( ${MPP_PATH}/include/rockchip)
+
 # SQLite3
 find_package(SQLite3 REQUIRED)
 include_directories(${SQLite3_INCLUDE_DIRS})
@@ -324,6 +329,7 @@ if(Qt5_FOUND)
         ${RKNN_RT_LIB}
         ${RKLLM_RT_LIB}
         ${RGA_LIB}
+        ${MPP_LIB}
         ${OpenCV_LIBS}
         ${SQLite3_LIBRARIES}
         Qt5::Core
@@ -389,6 +395,11 @@ install(CODE "
 install(PROGRAMS ${RKNN_RT_LIB} DESTINATION lib)
 install(PROGRAMS ${RGA_LIB} DESTINATION lib)
 install(PROGRAMS ${RKLLM_RT_LIB} DESTINATION lib)
+install(FILES
+    ${MPP_PATH}/Linux/${LIB_ARCH}/librockchip_mpp.so
+    ${MPP_PATH}/Linux/${LIB_ARCH}/librockchip_mpp.so.0
+    ${MPP_PATH}/Linux/${LIB_ARCH}/librockchip_mpp.so.1
+    DESTINATION lib)
 
 
 # 安装 data 目录时排除数据库文件，避免覆盖用户运行时的数据
