@@ -374,9 +374,25 @@ void close_usb_camera()
 {
     if (!camera_opened) return;
 
-    // 停止视频流
-    v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    if (fd >= 0) ioctl(fd, VIDIOC_STREAMOFF, &type);
+    if (fd >= 0) {
+        // 先排空已就绪缓冲区，再停止视频流，降低关闭时内核仍引用缓冲区的风险。
+        while (true) {
+            v4l2_buffer drain_buf;
+            memset(&drain_buf, 0, sizeof(drain_buf));
+            drain_buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+            drain_buf.memory = V4L2_MEMORY_MMAP;
+            if (ioctl(fd, VIDIOC_DQBUF, &drain_buf) == -1) {
+                if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINVAL) {
+                    spdlog::warn("close_usb_camera VIDIOC_DQBUF failed: {}", std::strerror(errno));
+                }
+                break;
+            }
+        }
+
+        // 停止视频流
+        v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        ioctl(fd, VIDIOC_STREAMOFF, &type);
+    }
 
     camera_fps.store(0.0, std::memory_order_release);
 

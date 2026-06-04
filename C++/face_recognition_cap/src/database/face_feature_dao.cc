@@ -11,6 +11,13 @@
 
 namespace db {
 
+namespace {
+
+constexpr const char* kFaceFeatureSelectColumns =
+    "feature_id, user_id, feature_vector, feature_quality, source_image";
+
+}  // namespace
+
 FaceFeatureDAO::FaceFeatureDAO(DatabaseManager* db_manager)
     : db_manager_(db_manager) {
 }
@@ -66,7 +73,8 @@ bool FaceFeatureDAO::remove_by_user_id(int user_id) {
 }
 
 bool FaceFeatureDAO::find_by_id(int feature_id, FaceFeature& feature) {
-    std::string sql = "SELECT * FROM face_features WHERE feature_id = ?";
+    std::string sql = std::string("SELECT ") + kFaceFeatureSelectColumns +
+        " FROM face_features WHERE feature_id = ?";
     
     auto stmt = db_manager_->prepare(sql);
     if (!stmt) return false;
@@ -84,7 +92,8 @@ bool FaceFeatureDAO::find_by_id(int feature_id, FaceFeature& feature) {
 std::vector<FaceFeature> FaceFeatureDAO::find_by_user_id(int user_id) {
     std::vector<FaceFeature> features;
     
-    std::string sql = "SELECT * FROM face_features WHERE user_id = ? ORDER BY feature_id";
+    std::string sql = std::string("SELECT ") + kFaceFeatureSelectColumns +
+        " FROM face_features WHERE user_id = ? ORDER BY feature_id";
     
     auto stmt = db_manager_->prepare(sql);
     if (!stmt) return features;
@@ -103,7 +112,8 @@ std::vector<FaceFeature> FaceFeatureDAO::find_by_user_id(int user_id) {
 std::vector<FaceFeature> FaceFeatureDAO::find_all() {
     std::vector<FaceFeature> features;
     
-    std::string sql = "SELECT * FROM face_features ORDER BY user_id, feature_id";
+    std::string sql = std::string("SELECT ") + kFaceFeatureSelectColumns +
+        " FROM face_features ORDER BY user_id, feature_id";
     
     auto stmt = db_manager_->prepare(sql);
     if (!stmt) return features;
@@ -119,9 +129,21 @@ std::vector<FaceFeature> FaceFeatureDAO::find_all() {
 
 std::vector<FaceFeature> FaceFeatureDAO::find_all_active() {
     std::vector<FaceFeature> features;
+
+    std::string count_sql = R"(
+        SELECT COUNT(*)
+        FROM face_features f
+        INNER JOIN users u ON f.user_id = u.user_id
+        WHERE u.status = 1
+    )";
+    auto count_stmt = db_manager_->prepare(count_sql);
+    if (count_stmt && count_stmt->step()) {
+        features.reserve(static_cast<size_t>(count_stmt->get_column_int(0)));
+    }
     
     std::string sql = R"(
-        SELECT f.* FROM face_features f
+        SELECT f.feature_id, f.user_id, f.feature_vector, f.feature_quality, f.source_image
+        FROM face_features f
         INNER JOIN users u ON f.user_id = u.user_id
         WHERE u.status = 1
         ORDER BY f.user_id, f.feature_id
@@ -174,13 +196,32 @@ bool FaceFeatureDAO::batch_insert(const std::vector<FaceFeature>& features) {
     if (!db_manager_->begin_transaction()) {
         return false;
     }
+
+    std::string sql = R"(
+        INSERT INTO face_features (user_id, feature_vector, feature_quality, source_image)
+        VALUES (?, ?, ?, ?)
+    )";
+    auto stmt = db_manager_->prepare(sql);
+    if (!stmt) {
+        db_manager_->rollback();
+        return false;
+    }
     
     try {
         for (const auto& feature : features) {
-            if (insert(feature) < 0) {
+            const void* blob_data = feature.feature_vector.data();
+            int blob_size = feature.feature_vector.size() * sizeof(float);
+
+            stmt->bind_int(1, feature.user_id);
+            stmt->bind_blob(2, blob_data, blob_size);
+            stmt->bind_double(3, feature.feature_quality);
+            stmt->bind_string(4, feature.source_image);
+
+            if (!stmt->execute()) {
                 db_manager_->rollback();
                 return false;
             }
+            stmt->reset();
         }
         
         return db_manager_->commit();
@@ -213,4 +254,3 @@ void FaceFeatureDAO::fill_feature_from_stmt(PreparedStatement* stmt, FaceFeature
 }
 
 } // namespace db
-

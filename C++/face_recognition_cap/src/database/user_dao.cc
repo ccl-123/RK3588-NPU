@@ -10,6 +10,13 @@
 
 namespace db {
 
+namespace {
+
+constexpr const char* kUserSelectColumns =
+    "user_id, user_name, employee_id, department, position, phone, email, photo_path, status";
+
+}  // namespace
+
 UserDAO::UserDAO(DatabaseManager* db_manager) 
     : db_manager_(db_manager) {
 }
@@ -92,7 +99,7 @@ bool UserDAO::remove(int user_id) {
 }
 
 bool UserDAO::find_by_id(int user_id, UserInfo& user) {
-    std::string sql = "SELECT * FROM users WHERE user_id = ?";
+    std::string sql = std::string("SELECT ") + kUserSelectColumns + " FROM users WHERE user_id = ?";
     
     auto stmt = db_manager_->prepare(sql);
     if (!stmt) return false;
@@ -108,7 +115,7 @@ bool UserDAO::find_by_id(int user_id, UserInfo& user) {
 }
 
 bool UserDAO::find_by_name(const std::string& user_name, UserInfo& user) {
-    std::string sql = "SELECT * FROM users WHERE user_name = ?";
+    std::string sql = std::string("SELECT ") + kUserSelectColumns + " FROM users WHERE user_name = ?";
     
     auto stmt = db_manager_->prepare(sql);
     if (!stmt) return false;
@@ -124,7 +131,7 @@ bool UserDAO::find_by_name(const std::string& user_name, UserInfo& user) {
 }
 
 bool UserDAO::find_by_employee_id(const std::string& employee_id, UserInfo& user) {
-    std::string sql = "SELECT * FROM users WHERE employee_id = ?";
+    std::string sql = std::string("SELECT ") + kUserSelectColumns + " FROM users WHERE employee_id = ?";
     
     auto stmt = db_manager_->prepare(sql);
     if (!stmt) return false;
@@ -142,7 +149,7 @@ bool UserDAO::find_by_employee_id(const std::string& employee_id, UserInfo& user
 std::vector<UserInfo> UserDAO::find_all(int status) {
     std::vector<UserInfo> users;
     
-    std::string sql = "SELECT * FROM users";
+    std::string sql = std::string("SELECT ") + kUserSelectColumns + " FROM users";
     if (status >= 0) {
         sql += " WHERE status = ?";
     }
@@ -167,7 +174,8 @@ std::vector<UserInfo> UserDAO::find_all(int status) {
 std::vector<UserInfo> UserDAO::find_by_department(const std::string& department) {
     std::vector<UserInfo> users;
     
-    std::string sql = "SELECT * FROM users WHERE department = ? ORDER BY user_id";
+    std::string sql = std::string("SELECT ") + kUserSelectColumns +
+        " FROM users WHERE department = ? ORDER BY user_id";
     
     auto stmt = db_manager_->prepare(sql);
     if (!stmt) return users;

@@ -11,6 +11,19 @@
 #include <utility>
 #include <spdlog/spdlog.h>
 
+namespace {
+
+void update_ema_atomic(std::atomic<float>& target, float sample) {
+    float current = target.load(std::memory_order_relaxed);
+    float desired = 0.0f;
+    do {
+        desired = current * 0.9f + sample * 0.1f;
+    } while (!target.compare_exchange_weak(
+        current, desired, std::memory_order_relaxed, std::memory_order_relaxed));
+}
+
+}  // namespace
+
 RecognitionThread::RecognitionThread(ModelManager* model_manager,
                                      FeatureLibrary* feature_library,
                                      const cv::Mat& dst_landmark,
@@ -279,9 +292,9 @@ void RecognitionThread::process_task(RecognitionTask& task) {
     }
     
     // 更新性能统计（滑动平均）
-    avg_align_time_ = avg_align_time_ * 0.9f + total_align_time * 0.1f;
-    avg_facenet_time_ = avg_facenet_time_ * 0.9f + total_facenet_time * 0.1f;
-    avg_match_time_ = avg_match_time_ * 0.9f + total_match_time * 0.1f;
+    update_ema_atomic(avg_align_time_, total_align_time);
+    update_ema_atomic(avg_facenet_time_, total_facenet_time);
+    update_ema_atomic(avg_match_time_, total_match_time);
     
     // 更新检测精度统计
     stat_faces_detected_ += task.detect_result.count;

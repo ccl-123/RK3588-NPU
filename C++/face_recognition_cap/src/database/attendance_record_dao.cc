@@ -15,6 +15,10 @@ namespace db {
 
 namespace {
 
+constexpr const char* kAttendanceRecordSelectColumns =
+    "record_id, user_id, user_name, check_time, check_type, similarity, "
+    "face_image, device_id, location, status, remark";
+
 std::pair<std::string, std::string> make_day_bounds(const std::string& date) {
     return {date + " 00:00:00", date + " 23:59:59"};
 }
@@ -68,7 +72,8 @@ bool AttendanceRecordDAO::remove(int record_id) {
 }
 
 bool AttendanceRecordDAO::find_by_id(int record_id, AttendanceRecord& record) {
-    std::string sql = "SELECT * FROM attendance_records WHERE record_id = ?";
+    std::string sql = std::string("SELECT ") + kAttendanceRecordSelectColumns +
+        " FROM attendance_records WHERE record_id = ?";
     
     auto stmt = db_manager_->prepare(sql);
     if (!stmt) return false;
@@ -88,7 +93,8 @@ std::vector<AttendanceRecord> AttendanceRecordDAO::find_by_user_id(int user_id,
                                                                     std::time_t end_time) {
     std::vector<AttendanceRecord> records;
     
-    std::string sql = "SELECT * FROM attendance_records WHERE user_id = ?";
+    std::string sql = std::string("SELECT ") + kAttendanceRecordSelectColumns +
+        " FROM attendance_records WHERE user_id = ?";
     
     if (start_time > 0) {
         sql += " AND check_time >= ?";
@@ -125,7 +131,9 @@ std::vector<AttendanceRecord> AttendanceRecordDAO::find_by_date(const std::strin
     
     // 使用字符串范围比较替代 DATE() 函数，既能利用 check_time 索引，又避免了 DATE() 函数的潜在兼容性问题
     std::string sql = R"(
-        SELECT * FROM attendance_records 
+        SELECT record_id, user_id, user_name, check_time, check_type, similarity,
+               face_image, device_id, location, status, remark
+        FROM attendance_records
         WHERE check_time >= ? AND check_time <= ? 
         ORDER BY check_time
     )";
@@ -194,7 +202,9 @@ std::vector<AttendanceRecord> AttendanceRecordDAO::find_by_time_range(std::time_
     std::vector<AttendanceRecord> records;
     
     std::string sql = R"(
-        SELECT * FROM attendance_records 
+        SELECT record_id, user_id, user_name, check_time, check_type, similarity,
+               face_image, device_id, location, status, remark
+        FROM attendance_records
         WHERE check_time >= ? AND check_time <= ?
         ORDER BY check_time DESC
     )";
@@ -216,7 +226,9 @@ std::vector<AttendanceRecord> AttendanceRecordDAO::find_by_time_range(std::time_
 
 bool AttendanceRecordDAO::find_latest_by_user_id(int user_id, AttendanceRecord& record) {
     std::string sql = R"(
-        SELECT * FROM attendance_records 
+        SELECT record_id, user_id, user_name, check_time, check_type, similarity,
+               face_image, device_id, location, status, remark
+        FROM attendance_records
         WHERE user_id = ? 
         ORDER BY check_time DESC 
         LIMIT 1
