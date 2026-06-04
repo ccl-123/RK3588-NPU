@@ -316,13 +316,15 @@ int FaceRecognitionApp::run() {
         }
         
         // 3. 性能统计
-        perf_monitor_.update_fps(1000.0 / detect_time);
-        perf_monitor_.record_detection_time(detect_time);
-        perf_monitor_.record_detection_run_time(yolo_timing.run_ms);
-        perf_monitor_.record_detection_copy_time(yolo_timing.copy_ms);
-        perf_monitor_.record_alignment_time(recognition_thread_->get_avg_align_time());
-        perf_monitor_.record_recognition_time(recognition_thread_->get_avg_facenet_time());
-        perf_monitor_.record_matching_time(recognition_thread_->get_avg_match_time());
+        PerformanceMonitor::FrameMetrics frame_metrics;
+        frame_metrics.fps = 1000.0 / detect_time;
+        frame_metrics.detection_ms = detect_time;
+        frame_metrics.detection_run_ms = yolo_timing.run_ms;
+        frame_metrics.detection_copy_ms = yolo_timing.copy_ms;
+        frame_metrics.alignment_ms = recognition_thread_->get_avg_align_time();
+        frame_metrics.recognition_ms = recognition_thread_->get_avg_facenet_time();
+        frame_metrics.matching_ms = recognition_thread_->get_avg_match_time();
+        perf_monitor_.record_frame_metrics(frame_metrics);
 
         // 4. 提交到后处理线程
         PostprocessTask pp_task;

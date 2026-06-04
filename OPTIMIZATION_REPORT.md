@@ -617,6 +617,8 @@ bool RecognitionThread::submit_task(const RecognitionTask& task) {
 
 **文件:** `src/app/face_recognition_app.cc:318-324`
 
+**当前状态（2026-06-04）:** 已修复。新增 `PerformanceMonitor::record_frame_metrics()` 批量记录 API，主循环单帧热路径从多次加锁改为一次加锁。
+
 ```cpp
 perf_monitor_.update_fps(...);              // 1 次锁
 perf_monitor_.record_detection_time(...);   // 2 次锁
@@ -666,6 +668,8 @@ void record_frame_metrics(const FrameMetrics& m);  // 单次锁
 ### 29. SSE 超时重置漏洞
 
 **文件:** `src/gui_services/ai_analysis_service.cc:339-346`
+
+**当前状态（2026-06-04）:** 已修复。已拆分空闲超时和总请求超时：收到数据只重置 60 秒空闲超时，另有 5 分钟总超时防止碎片数据无限续命。
 
 ```cpp
 // 每收到数据就重置超时
@@ -820,6 +824,8 @@ return sqlite3_bind_text(stmt_, index, value.c_str(), -1, SQLITE_TRANSIENT);
 
 **文件:** `src/hardware/camera_util.cc:117`
 
+**当前状态（2026-06-04）:** 已修复。`load_usb_camera()` 已校验设备号非空且只包含数字字符。
+
 `device` 参数直接拼接到 "/dev/video"，无数字校验，存在路径遍历风险。
 
 **修复:** 校验 `device` 仅包含数字字符。
@@ -849,6 +855,8 @@ return sqlite3_bind_text(stmt_, index, value.c_str(), -1, SQLITE_TRANSIENT);
 ### 45. GUI 组件无上限
 
 **文件:** `gui/src/ui/dashboard_page.cc:412-501`
+
+**当前状态（2026-06-04）:** 已修复。AI 聊天区新增历史数量修剪，最多保留 200 条消息行。
 
 聊天消息和渲染块的 widget 数量无上限，长时间使用持续增长。
 

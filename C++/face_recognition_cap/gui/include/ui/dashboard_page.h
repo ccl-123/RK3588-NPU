@@ -70,6 +70,7 @@ private:
                                   const QString& title,
                                   const QString& detail = QString());
     void finishAssistantRenderMessage();
+    void trimChatHistory();
     void scrollChatToBottom();
 
     service::AttendanceService* attendance_service_;

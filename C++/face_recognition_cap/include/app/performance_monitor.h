@@ -38,11 +38,24 @@ public:
         bool used_cpu_fallback = false;
     };
 
+    struct FrameMetrics {
+        double fps = 0.0;
+        double detection_ms = 0.0;
+        double detection_run_ms = 0.0;
+        double detection_copy_ms = 0.0;
+        double alignment_ms = 0.0;
+        double recognition_ms = 0.0;
+        double matching_ms = 0.0;
+    };
+
     PerformanceMonitor(int report_interval = Config::Performance::REPORT_INTERVAL);
     ~PerformanceMonitor() = default;
 
     // 线程1：压缩流传入、MPP硬解、NPU输入和预览准备耗时
     void record_preprocess_timings(const PreprocessTimings& timings);
+
+    // 单帧热路径批量记录，避免每帧多次获取 metrics_mutex_
+    void record_frame_metrics(const FrameMetrics& metrics);
 
     // 线程2：YOLO零拷贝检测耗时
     void record_detection_time(double ms);

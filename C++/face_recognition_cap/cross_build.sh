@@ -172,11 +172,11 @@ fi
 
 # ==================== 一键部署到设备 ====================
 if [ "$DO_DEPLOY" = true ]; then
-    DEVICE_IP_ETH="192.168.1.103"
+    DEVICE_IP_ETH="192.168.137.202"
     DEVICE_IP_WIFI="192.168.137.111"
-    DEVICE_USER="firefly"
-    DEVICE_PASS="firefly"
-    DEVICE_TARGET_DIR="/home/firefly/open_project/edge2-npu/C++/face_recognition_cap/install"
+    DEVICE_USER="elf"
+    DEVICE_PASS="elf"
+    DEVICE_TARGET_DIR="/home/elf/open_project/RK3588-NPU/C++/face_recognition_cap/install"
 
     # 根据连通性自动选择 IP（网线优先）
     if ping -c 1 -W 1 "${DEVICE_IP_ETH}" &>/dev/null; then

@@ -50,6 +50,8 @@
 
 namespace {
 
+constexpr int kMaxAiChatMessages = 200;
+
 struct TrendSeries {
     std::vector<double> primary;
     std::vector<double> secondary;
@@ -454,6 +456,7 @@ void DashboardPage::appendChatMessage(const QString& role, const QString& text) 
         insert_pos = ai_chat_layout_->count() - 1;
     }
     ai_chat_layout_->insertWidget(insert_pos, row);
+    trimChatHistory();
     scrollChatToBottom();
 }
 
@@ -497,7 +500,34 @@ void DashboardPage::beginAssistantRenderMessage(const QString& placeholder_text)
             appendRenderBlock(current_assistant_message_, "status", placeholder_text, false);
     }
 
+    trimChatHistory();
     scrollChatToBottom();
+}
+
+void DashboardPage::trimChatHistory() {
+    if (!ai_chat_layout_) {
+        return;
+    }
+
+    int message_count = ai_chat_layout_->count();
+    if (ai_chat_spacer_) {
+        message_count -= 1;
+    }
+
+    while (message_count > kMaxAiChatMessages) {
+        QLayoutItem* item = ai_chat_layout_->takeAt(0);
+        if (!item) {
+            break;
+        }
+        if (QWidget* widget = item->widget()) {
+            if (current_assistant_message_.row == widget) {
+                current_assistant_message_ = ChatRenderMessage{};
+            }
+            widget->deleteLater();
+            --message_count;
+        }
+        delete item;
+    }
 }
 
 QLabel* DashboardPage::appendRenderBlock(ChatRenderMessage& message,

@@ -108,7 +108,7 @@ AiAnalysisService::AiAnalysisService(QObject* parent)
                      std::strlen(Config::LlamaCpp::getApiKey()));
     }
 
-    // 创建超时定时器
+    // 空闲超时定时器：流式响应期间没有任何数据到达时触发。
     timeout_timer_ = new QTimer(this);
     timeout_timer_->setSingleShot(true);
     connect(timeout_timer_, &QTimer::timeout, this, [this]() {
@@ -126,6 +126,9 @@ AiAnalysisService::AiAnalysisService(QObject* parent)
                     current_reply_->deleteLater();
                     current_reply_.clear();
                 }
+                if (total_timeout_timer_) {
+                    total_timeout_timer_->stop();
+                }
 
                 // 延迟后重试
                 QTimer::singleShot(RETRY_DELAY_MS * (current_retry_count_ + 1), this, [this]() {
@@ -139,6 +142,19 @@ AiAnalysisService::AiAnalysisService(QObject* parent)
                 cleanup();
             }
         }
+    });
+
+    // 总超时定时器：防止服务端持续发送碎片数据导致请求永久不结束。
+    total_timeout_timer_ = new QTimer(this);
+    total_timeout_timer_->setSingleShot(true);
+    connect(total_timeout_timer_, &QTimer::timeout, this, [this]() {
+        if (!current_reply_) {
+            return;
+        }
+        spdlog::warn("AI analysis request total timeout");
+        emitStreamEvent("model", "error", "status", "请求总耗时超时，请稍后重试");
+        emit errorOccurred("请求总耗时超时，请稍后重试");
+        cleanup();
     });
 }
 
@@ -188,6 +204,9 @@ void AiAnalysisService::emitAssistantDelta(const QString& text,
 void AiAnalysisService::cleanup() {
     if (timeout_timer_) {
         timeout_timer_->stop();
+    }
+    if (total_timeout_timer_) {
+        total_timeout_timer_->stop();
     }
 
     if (current_reply_) {
@@ -332,8 +351,9 @@ void AiAnalysisService::doCloudRequest(const service::AttendanceStatistics& stat
     current_reply_ = network_manager_->post(request, QJsonDocument(jsonBody).toJson());
     QNetworkReply* reply = current_reply_;
 
-    // 启动超时定时器
+    // 启动空闲超时和总超时定时器
     timeout_timer_->start(TIMEOUT_MS);
+    total_timeout_timer_->start(TOTAL_TIMEOUT_MS);
 
     // 处理 OpenAI-compatible SSE 事件流，支持多行 data 拼接并防止重复 emit
     connect(reply, &QNetworkReply::readyRead, this, [this, reply]() {
@@ -372,6 +392,7 @@ void AiAnalysisService::doCloudRequest(const service::AttendanceStatistics& stat
                     : QString::number(code_value.toInt());
                 const QString message = error.value("message").toString(event.text);
                 timeout_timer_->stop();
+                total_timeout_timer_->stop();
                 const QString error_text = code.isEmpty() || code == "0"
                     ? message
                     : QString("错误 %1: %2").arg(code, message);
@@ -390,6 +411,7 @@ void AiAnalysisService::doCloudRequest(const service::AttendanceStatistics& stat
         }
 
         timeout_timer_->stop();
+        total_timeout_timer_->stop();
 
         int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
 
@@ -471,6 +493,9 @@ void AiAnalysisService::doCloudRequest(const service::AttendanceStatistics& stat
         // 手动清理，避免调用 cleanup() 中的 abort()
         if (timeout_timer_) {
             timeout_timer_->stop();
+        }
+        if (total_timeout_timer_) {
+            total_timeout_timer_->stop();
         }
         if (current_reply_) {
             current_reply_->deleteLater();

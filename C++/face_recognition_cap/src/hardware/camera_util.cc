@@ -12,6 +12,7 @@
 
 #include <string.h>
 #include <cerrno>
+#include <cctype>
 #include <memory>
 #include <fcntl.h>
 #include <unistd.h>
@@ -119,6 +120,16 @@ int load_usb_camera(std::string device, int camera_width, int camera_height)
     if (camera_opened) {
         spdlog::warn("Camera already opened, close it first");
         return EXIT_FAILURE;
+    }
+    if (device.empty()) {
+        spdlog::error("Invalid camera device: empty device number");
+        return EXIT_FAILURE;
+    }
+    for (unsigned char ch : device) {
+        if (!std::isdigit(ch)) {
+            spdlog::error("Invalid camera device number: {}", device);
+            return EXIT_FAILURE;
+        }
     }
 
     std::string device_path = "/dev/video" + device;

@@ -111,10 +111,12 @@ private:
 
     // 超时定时器
     QTimer* timeout_timer_;
+    QTimer* total_timeout_timer_;
 
     // 重试相关
     static constexpr int MAX_RETRIES = 3;
     static constexpr int TIMEOUT_MS = 60000;  // 60秒超时
+    static constexpr int TOTAL_TIMEOUT_MS = 5 * 60 * 1000;  // 5分钟总超时
     static constexpr int RETRY_DELAY_MS = 2000;  // 重试延迟2秒
 
     // 当前请求参数（用于重试）

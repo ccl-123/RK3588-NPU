@@ -48,6 +48,22 @@ void PerformanceMonitor::record_preprocess_timings(const PreprocessTimings& timi
     }
 }
 
+void PerformanceMonitor::record_frame_metrics(const FrameMetrics& metrics) {
+    std::lock_guard<std::mutex> lock(metrics_mutex_);
+    if (smoothed_fps_ == 0.0) {
+        smoothed_fps_ = metrics.fps;
+    } else {
+        smoothed_fps_ = 0.1 * metrics.fps + 0.9 * smoothed_fps_;
+    }
+    frame_count_++;
+    detection_times_.push_back(metrics.detection_ms);
+    detect_run_times_.push_back(metrics.detection_run_ms);
+    detect_copy_times_.push_back(metrics.detection_copy_ms);
+    alignment_times_.push_back(metrics.alignment_ms);
+    recognition_times_.push_back(metrics.recognition_ms);
+    matching_times_.push_back(metrics.matching_ms);
+}
+
 void PerformanceMonitor::record_detection_time(double ms) {
     std::lock_guard<std::mutex> lock(metrics_mutex_);
     detection_times_.push_back(ms);
