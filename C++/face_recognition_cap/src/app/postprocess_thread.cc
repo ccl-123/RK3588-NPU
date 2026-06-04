@@ -108,8 +108,7 @@ void PostprocessThread::thread_func() {
         rec_task.current_fps = task.current_fps;
         rec_task.frame_time = task.frame_time;
 
-        recognition_thread_->submit_task(rec_task);
+        recognition_thread_->submit_task(std::move(rec_task));
     }
 }
-
 

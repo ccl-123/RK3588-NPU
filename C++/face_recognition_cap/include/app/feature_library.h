@@ -95,12 +95,18 @@ public:
      * @brief 获取特征库大小
      * @return 特征库中的人脸数量
      */
-    size_t size() const { return lib_feature_.size(); }
+    size_t size() const {
+        std::shared_lock<std::shared_mutex> lock(mutex_);
+        return lib_feature_.size();
+    }
 
     /**
      * @brief 检查特征库是否为空
      */
-    bool empty() const { return lib_feature_.empty(); }
+    bool empty() const {
+        std::shared_lock<std::shared_mutex> lock(mutex_);
+        return lib_feature_.empty();
+    }
 
     /**
      * @brief 清空特征库
@@ -110,12 +116,18 @@ public:
     /**
      * @brief 获取所有人名列表
      */
-    const std::vector<std::string>& get_names() const { return lib_face_name_; }
+    std::vector<std::string> get_names() const {
+        std::shared_lock<std::shared_mutex> lock(mutex_);
+        return lib_face_name_;
+    }
 
     /**
      * @brief 获取所有用户ID列表
      */
-    const std::vector<int>& get_user_ids() const { return lib_user_ids_; }
+    std::vector<int> get_user_ids() const {
+        std::shared_lock<std::shared_mutex> lock(mutex_);
+        return lib_user_ids_;
+    }
 
 private:
     /**
@@ -136,4 +148,3 @@ private:
 };
 
 #endif // _FEATURE_LIBRARY_H_
-

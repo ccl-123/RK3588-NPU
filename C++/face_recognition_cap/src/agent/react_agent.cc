@@ -211,7 +211,7 @@ ReactAgent::StepType ReactAgent::parseStepType(const QString& output) {
     int thought_pos = -1;
 
     // 检测答案标签
-    QRegularExpression re_answer(R"(<\|?answer\|?>)");
+    static const QRegularExpression re_answer(R"(<\|?answer\|?>)");
     auto match = re_answer.match(output);
     while (match.hasMatch()) {
         answer_pos = match.capturedStart();
@@ -219,7 +219,7 @@ ReactAgent::StepType ReactAgent::parseStepType(const QString& output) {
     }
 
     // 检测工具调用标签
-    QRegularExpression re_tool(R"(<\|?tool_call\|?>)");
+    static const QRegularExpression re_tool(R"(<\|?tool_call\|?>)");
     match = re_tool.match(output);
     while (match.hasMatch()) {
         tool_call_pos = match.capturedStart();
@@ -227,7 +227,7 @@ ReactAgent::StepType ReactAgent::parseStepType(const QString& output) {
     }
 
     // 检测思考标签，兼容 <thought> 和 <think>
-    QRegularExpression re_thought(R"(<\|?(?:thought|think)\|?>)");
+    static const QRegularExpression re_thought(R"(<\|?(?:thought|think)\|?>)");
     match = re_thought.match(output);
     while (match.hasMatch()) {
         thought_pos = match.capturedStart();

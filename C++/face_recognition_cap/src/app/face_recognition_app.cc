@@ -283,6 +283,7 @@ int FaceRecognitionApp::run() {
         YoloRunTimings yolo_timing{};
         int ret = 0;
 
+        auto& output_mems = model_manager_.get_face_detector_output_mems();
         {
             // 串行同步锁定，确保推理期间预处理线程不修改 NPU 输入内存
             std::lock_guard<std::mutex> lock(preprocess_thread_->get_npu_mem_mutex());
@@ -291,19 +292,19 @@ int FaceRecognitionApp::run() {
             ret = yolov8_face_run_zero_copy(*model_manager_.get_face_detector_ctx());
             auto t_run_end = std::chrono::steady_clock::now();
 
-            if (ret == 0) {
-                // 极速拷贝输出内存到局部 yolo_outputs，支持后处理线程无竞态异步消费
-                auto& output_mems = model_manager_.get_face_detector_output_mems();
-                for (size_t i = 0; i < output_mems.size(); ++i) {
-                    yolo_outputs[i].resize(output_mems[i]->size);
-                    memcpy(yolo_outputs[i].data(), output_mems[i]->virt_addr, output_mems[i]->size);
-                }
-            }
-
-            auto t_copy_end = std::chrono::steady_clock::now();
             yolo_timing.run_ms = std::chrono::duration_cast<std::chrono::microseconds>(t_run_end - t_run_start).count() / 1000.0;
-            yolo_timing.copy_ms = std::chrono::duration_cast<std::chrono::microseconds>(t_copy_end - t_run_end).count() / 1000.0;
         }
+        auto t_copy_start = std::chrono::steady_clock::now();
+        if (ret == 0) {
+            // 拷贝输出内存到局部 yolo_outputs，支持后处理线程无竞态异步消费。
+            // 该拷贝不访问 YOLO 输入内存，不需要持有 NPU 输入锁。
+            for (size_t i = 0; i < output_mems.size(); ++i) {
+                yolo_outputs[i].resize(output_mems[i]->size);
+                memcpy(yolo_outputs[i].data(), output_mems[i]->virt_addr, output_mems[i]->size);
+            }
+        }
+        auto t_copy_end = std::chrono::steady_clock::now();
+        yolo_timing.copy_ms = std::chrono::duration_cast<std::chrono::microseconds>(t_copy_end - t_copy_start).count() / 1000.0;
         preprocess_thread_->complete_npu_inference();
 
         gettimeofday(&t_detect_end, NULL);

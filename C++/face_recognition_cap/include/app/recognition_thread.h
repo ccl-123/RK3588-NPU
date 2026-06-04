@@ -96,7 +96,7 @@ public:
     void stop();
 
     // 提交识别任务（丢弃旧帧）
-    bool submit_task(const RecognitionTask& task);
+    bool submit_task(RecognitionTask&& task);
 
     // 设置回调
     void set_recognition_callback(RecognitionCallbackFunc callback);

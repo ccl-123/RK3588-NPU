@@ -8,6 +8,7 @@
 #include "app/recognition_thread.h"
 #include "core/facenet.h"
 #include <cstring>
+#include <utility>
 #include <spdlog/spdlog.h>
 
 RecognitionThread::RecognitionThread(ModelManager* model_manager,
@@ -54,7 +55,7 @@ void RecognitionThread::stop() {
     }
 }
 
-bool RecognitionThread::submit_task(const RecognitionTask& task) {
+bool RecognitionThread::submit_task(RecognitionTask&& task) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
 
@@ -63,7 +64,7 @@ bool RecognitionThread::submit_task(const RecognitionTask& task) {
             queue_.pop();
         }
 
-        queue_.push(task);
+        queue_.push(std::move(task));
     }
     cv_.notify_one();  // 通知等待的线程
     return true;
@@ -110,7 +111,7 @@ void RecognitionThread::thread_func() {
                 break;
             }
 
-            task = queue_.front();
+            task = std::move(queue_.front());
             queue_.pop();
         }
 

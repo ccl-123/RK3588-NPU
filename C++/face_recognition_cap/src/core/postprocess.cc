@@ -88,16 +88,16 @@ static int nms(int validCount, std::vector<float>& outputLocations,
         if (n == -1 || classIds[n] != filterId) {
             continue;
         }
+        float xmin0 = outputLocations[n * 5 + 0];
+        float ymin0 = outputLocations[n * 5 + 1];
+        float xmax0 = outputLocations[n * 5 + 0] + outputLocations[n * 5 + 2];
+        float ymax0 = outputLocations[n * 5 + 1] + outputLocations[n * 5 + 3];
+
         for (int j = i + 1; j < validCount; ++j) {
             int m = order[j];
             if (m == -1 || classIds[m] != filterId) {
                 continue;
             }
-            float xmin0 = outputLocations[n * 5 + 0];
-            float ymin0 = outputLocations[n * 5 + 1];
-            float xmax0 = outputLocations[n * 5 + 0] + outputLocations[n * 5 + 2];
-            float ymax0 = outputLocations[n * 5 + 1] + outputLocations[n * 5 + 3];
-
             float xmin1 = outputLocations[m * 5 + 0];
             float ymin1 = outputLocations[m * 5 + 1];
             float xmax1 = outputLocations[m * 5 + 0] + outputLocations[m * 5 + 2];
@@ -509,14 +509,17 @@ static float eu_distance(float* input) {
 }
 
 void l2_normalize(float* input) {
-	float sum = 0;
+    float sum = 0;
     for (int i = 0; i < FACENET_FEATURE_DIM; ++i) {
-		sum = sum + input[i] * input[i];
-	}
-	sum = sqrt(sum);
+        sum = sum + input[i] * input[i];
+    }
+    sum = sqrt(sum);
+    if (sum < 1e-10f) {
+        return;
+    }
     for (int i = 0; i < FACENET_FEATURE_DIM; ++i) {
-		input[i] = input[i] / sum;
-	}
+        input[i] = input[i] / sum;
+    }
 }
 
 float compare_eu_distance(float* input1, float* input2) {
@@ -534,6 +537,9 @@ float cos_similarity(float* input1, float* input2) {
 	}
 	float tmp1 = eu_distance(input1);
 	float tmp2 = eu_distance(input2);
+    if (tmp1 < 1e-10f || tmp2 < 1e-10f) {
+        return 0.0f;
+    }
 	return sum / (tmp1 * tmp2);
 }
 

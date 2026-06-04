@@ -371,11 +371,11 @@ private:
     int padding_;
 
     // 运行状态
-    bool initialized_;
+    std::atomic<bool> initialized_;
     std::atomic<bool> running_;
 
     // 摄像头状态（优雅降级支持）
-    bool camera_initialized_;       // 摄像头是否成功初始化
+    std::atomic<bool> camera_initialized_;       // 摄像头是否成功初始化
     std::string camera_error_;      // 摄像头错误信息
     
     // 模型状态（LLM 资源管理）

@@ -11,7 +11,7 @@
 - [P0 — 严重问题（需立即修复）](#p0--严重问题需立即修复)
   - [1. FeatureLibrary 无锁访问](#1-featurelibrary-无锁访问)
   - [2. initialized_/camera_initialized_ 非原子变量](#2-initialized_camera_initialized_-非原子变量)
-  - [3. ReactAgent::running_ 数据竞争](#3-reactagentrunning_-数据竞争)
+  - [3. ReactAgent::running_ 数据竞争（已修复）](#3-reactagentrunning_-数据竞争已修复)
   - [4. NPU 资源互斥缺失](#4-npu-资源互斥缺失)
   - [5. device_build.sh 未指定 Release 模式](#5-device_buildsh-未指定-release-模式)
 - [P1 — 高优先级（显著性能影响）](#p1--高优先级显著性能影响)
@@ -54,7 +54,7 @@
   - [40. 摄像头全局状态阻止多实例](#40-摄像头全局状态阻止多实例)
   - [41. FPS 计数器数据竞争](#41-fps-计数器数据竞争)
   - [42. 设备路径未校验](#42-设备路径未校验)
-  - [43. 单例内存泄漏](#43-单例内存泄漏)
+  - [43. LocalLLMThread 单例生命周期风险](#43-localllmthread-单例生命周期风险)
   - [44. MPP 解码可能阻塞 stop()](#44-mpp-解码可能阻塞-stop)
   - [45. GUI 组件无上限](#45-gui-组件无上限)
   - [46. 静默丢帧无统计](#46-静默丢帧无统计)
@@ -73,12 +73,17 @@
 
 **文件:** `include/app/feature_library.h:98-118`
 
+**当前状态（2026-06-04）:** 已修复。`size()`、`empty()` 已加 `shared_lock`，`get_names()` / `get_user_ids()` 已改为加锁后返回拷贝。
+
 ```cpp
-// ❌ 无锁读取，可能与写操作并发
-size_t size() const { return lib_feature_.size(); }
-bool empty() const { return lib_feature_.empty(); }
-const std::vector<std::string>& get_names() const { return lib_face_name_; }
-const std::vector<int>& get_user_ids() const { return lib_user_ids_; }
+size_t size() const {
+    std::shared_lock<std::shared_mutex> lock(mutex_);
+    return lib_feature_.size();
+}
+std::vector<std::string> get_names() const {
+    std::shared_lock<std::shared_mutex> lock(mutex_);
+    return lib_face_name_;
+}
 ```
 
 **风险:** GUI 线程调用这些方法时，识别线程可能正在修改 vector，导致**未定义行为/崩溃**。
@@ -102,9 +107,11 @@ std::vector<std::string> get_names() const {
 
 **文件:** `include/app/face_recognition_app.h:374-383`
 
+**当前状态（2026-06-04）:** 已修复。两个状态已改为 `std::atomic<bool>`。
+
 ```cpp
-bool initialized_;          // ❌ 非原子，多线程读写
-bool camera_initialized_;   // ❌ 非原子，多线程读写
+std::atomic<bool> initialized_;
+std::atomic<bool> camera_initialized_;
 std::atomic<bool> models_loaded_;  // ✅ 原子
 std::atomic<bool> running_;        // ✅ 原子
 ```
@@ -115,11 +122,14 @@ std::atomic<bool> running_;        // ✅ 原子
 
 ---
 
-### 3. ReactAgent::running_ 数据竞争
+### 3. ReactAgent::running_ 数据竞争（已修复）
 
-**文件:** `src/agent/react_agent.cc:25,192`
+**文件:** `include/agent/react_agent.h:148`、`src/agent/react_agent.cc:25,192`
 
 ```cpp
+// 当前代码：running_ 已经是 atomic
+std::atomic<bool> running_{false};
+
 // run() 中读取（Agent 工作线程）
 while (running_ && iteration < max_iterations) { ... }
 
@@ -127,9 +137,9 @@ while (running_ && iteration < max_iterations) { ... }
 void ReactAgent::stop() { running_ = false; }
 ```
 
-**风险:** 跨线程访问非原子 bool，属于 C++ 标准定义的**数据竞争（UB）**。
+**当前状态:** 该项在当前版本已修复。`running_` 已定义为 `std::atomic<bool>`，因此不再是非原子 bool 数据竞争。
 
-**修复:** 改为 `std::atomic<bool>`。
+**建议:** 从 P0 修复清单中移除，仅保留为历史记录。
 
 ---
 
@@ -137,9 +147,9 @@ void ReactAgent::stop() { running_ = false; }
 
 **文件:** `src/app/face_recognition_app.cc:471-598`、`src/app/local_llm_thread.cc`
 
-**问题:** RKNN（人脸识别）和 RKLLM（语言模型）共享同一 NPU 硬件，但**没有程序化的互斥机制**。完全依赖 GUI 层手动调用 `release_models()` → `initModel()` 的顺序。
+**问题:** RKNN（人脸识别）和 RKLLM（语言模型）共享同一 NPU 硬件。当前 GUI 层已有 `QFutureWatcher`、`rknn_switching_`、`releaseModelAsync()` 等流程控制，但缺少跨 RKNN/RKLLM 的**集中资源仲裁器**。资源状态分散在 GUI、`FaceRecognitionApp` 和 `LocalLLMThread` 中，仍依赖 `release_models()` → `initModel()` / `releaseModelAsync()` → `reload_models()` 的调用顺序。
 
-**风险:** 如果 GUI 有 bug，两个子系统同时使用 NPU 会导致**未定义行为**。500ms sleep 等待 `rknn_destroy` 完成也是脆弱的硬编码等待。
+**风险:** 如果状态机遗漏边界条件、并发切页或异步回调乱序，两个子系统仍可能同时初始化/使用 NPU。`500ms` sleep 等待 `rknn_destroy` 完成也是脆弱的硬编码等待。
 
 **修复:** 实现 `NpuResourceManager`，用状态机管理 NPU 访问权：
 
@@ -161,8 +171,9 @@ public:
 
 **文件:** `device_build.sh:64`
 
+**当前状态（2026-06-04）:** 暂不修改脚本。当前使用交叉编译流程，`cross_build.sh` 已显式传入 `-DCMAKE_BUILD_TYPE=Release`；`device_build.sh` 保持原状。
+
 ```bash
-# ❌ 无优化标志，隐式 -O0
 cmake ../.. -DTARGET_NAME=face_recognition_cap
 ```
 
@@ -218,6 +229,8 @@ for (int i = 0; i < kInputLocLen; ++i) {
 ### 8. NMS 算法效率
 
 **文件:** `src/core/postprocess.cc:83-114`
+
+**当前状态（2026-06-04）:** 已部分修复。外层候选框坐标已移出内层循环，避免重复加载和重复计算；整体排序/NMS 算法仍可继续优化。
 
 ```cpp
 // ❌ 内层循环每次重新从 vector 加载 box 坐标
@@ -277,12 +290,14 @@ attendance_service_->auto_determine_check_type(user_id);
 
 **文件:** `src/app/face_recognition_app.cc:287-307`
 
+**当前状态（2026-06-04）:** 已修复。YOLO 输出拷贝已移出 NPU 输入锁，推理完成后再在锁外拷贝输出缓冲区。
+
 ```cpp
 {
     std::lock_guard<std::mutex> lock(preprocess_thread_->get_npu_mem_mutex());
     yolov8_face_run_zero_copy(...);  // 推理 — 必须持锁
-    memcpy(output_buffers, outputs);  // ❌ 输出拷贝不需要 NPU 输入内存
 }
+memcpy(output_buffers, outputs);      // 锁外拷贝
 ```
 
 **影响:** 输出拷贝（~1MB）在锁内执行，阻塞预处理线程开始下一帧的 RGA 操作。
@@ -376,13 +391,15 @@ int facenet_inference(rknn_context *ctx, const cv::Mat& img,
 
 **文件:** `src/core/postprocess.cc:511-520`
 
+**当前状态（2026-06-04）:** 已修复。归一化前已增加零范数保护。
+
 ```cpp
 void l2_normalize(float* input) {
     float sum = 0;
     for (int i = 0; i < FACENET_FEATURE_DIM; ++i)
         sum += input[i] * input[i];
-    // ❌ 若 sum == 0（模型失败/空白图像），除零产生 NaN/Inf
     sum = sqrt(sum);
+    if (sum < 1e-10f) return;
     for (int i = 0; i < FACENET_FEATURE_DIM; ++i)
         input[i] = input[i] / sum;
 }
@@ -501,8 +518,10 @@ void l2_normalize_neon(float* input) {
 
 **文件:** `include/core/facenet.h:10`
 
+**当前状态（2026-06-04）:** 已修复。`facenet_inference` 的图像参数已改为 `const cv::Mat&`。
+
 ```cpp
-int facenet_inference(rknn_context *ctx, cv::Mat img, ...);  // ❌ 应为 const cv::Mat&
+int facenet_inference(rknn_context *ctx, const cv::Mat& img, ...);
 ```
 
 **影响:** 虽然 `cv::Mat` 使用引用计数不会深拷贝像素数据，但每次调用仍有原子引用计数增减开销，且语义上应为只读。
@@ -514,6 +533,8 @@ int facenet_inference(rknn_context *ctx, cv::Mat img, ...);  // ❌ 应为 const
 ### 21. 正则表达式重复编译
 
 **文件:** `src/agent/react_agent.cc:207-303`
+
+**当前状态（2026-06-04）:** 已部分修复。`parseStepType()` 中固定标签正则已改为 `static const QRegularExpression`；`extractContent()` 的动态 tag 正则仍按调用构造。
 
 ```cpp
 // ❌ 每次调用都重新编译正则
@@ -576,6 +597,8 @@ static const QRegularExpression re_answer("<answer>([\\s\\S]*?)</answer>");
 ### 25. RecognitionTask 拷贝而非移动
 
 **文件:** `src/app/recognition_thread.cc:57-69`
+
+**当前状态（2026-06-04）:** 已修复。`submit_task` 已改为接收 `RecognitionTask&&` 并移动入队，`PostprocessThread` 提交时使用 `std::move`。
 
 ```cpp
 bool RecognitionThread::submit_task(const RecognitionTask& task) {
@@ -680,7 +703,7 @@ const std::vector<int>& get_user_ids() const { return lib_user_ids_; }
 
 ---
 
-### 32. 统计量非原子复合读写
+### 32. 统计量 atomic 复合更新不严格
 
 **文件:** `src/app/recognition_thread.cc:281-283`
 
@@ -688,9 +711,9 @@ const std::vector<int>& get_user_ids() const { return lib_user_ids_; }
 avg_align_time_ = avg_align_time_ * 0.9f + total_align_time * 0.1f;
 ```
 
-`std::atomic<float>` 的 `operator*` 和 `operator=` 组合不是原子操作。虽然只有一个写者，但严格来说是 C++ 内存模型下的数据竞争。
+`avg_*` 成员是 `std::atomic<float>`，所以不是普通意义上的非原子数据竞争。但 `load` → 计算 → `store` 组合不是原子读改写；如果未来出现多写者，会丢更新。当前实际影响主要是统计值近似，不是崩溃风险。
 
-**修复:** 使用 `compare_exchange_weak` 循环或接受近似值（当前实际影响极低）。
+**修复:** 使用 `compare_exchange_weak` 循环实现原子 RMW，或明确接受近似值并保留当前实现（当前实际影响极低）。
 
 ---
 
@@ -803,13 +826,13 @@ return sqlite3_bind_text(stmt_, index, value.c_str(), -1, SQLITE_TRANSIENT);
 
 ---
 
-### 43. 单例内存泄漏
+### 43. LocalLLMThread 单例生命周期风险
 
 **文件:** `src/app/local_llm_thread.cc:17-26`
 
-`LocalLLMThread` 用 `new` 分配但永不 `delete`。进程退出时析构函数不被调用，线程可能未正确 join。
+`LocalLLMThread` 通过 `new LocalLLMThread(qApp)` 创建，Qt parent-child 机制通常会在 `qApp` 析构时删除对象，因此不能简单定性为内存泄漏。但 `s_instance` 裸指针不会清空，线程停止和 RKLLM 资源释放依赖应用退出析构顺序，退出阶段存在时序风险。
 
-**修复:** 使用 `std::unique_ptr` 或在 `main()` 退出前显式清理。
+**修复:** 提供显式 `shutdown()` / `destroyInstance()`，在 GUI 退出流程中先停止推理、释放模型、`wait()` 线程，再清空单例指针。
 
 ---
 
@@ -874,6 +897,8 @@ while (queue_.size() >= MAX_QUEUE_SIZE) {
 
 **文件:** `include/core/facenet.h:10`
 
+**当前状态（2026-06-04）:** 已修复。头文件已补充 `#include <opencv2/core.hpp>`。
+
 使用 `cv::Mat` 但未 `#include <opencv2/core.hpp>`，依赖调用方恰好先包含。
 
 **修复:** 添加必要的 `#include`。
@@ -912,7 +937,7 @@ C++ 中无需 `typedef struct`，直接 `struct DetectResultGroup { ... };` 即�
 
 ### 第一阶段：关键修复（1-2 天）
 
-1. 修复 P0 线程安全问题（#1, #2, #3, #31）
+1. 修复 P0 线程安全问题（#1, #2, #31；#3 当前已修复）
 2. 构建脚本添加 Release 模式（#5）
 3. NPU 资源管理器（#4）
 

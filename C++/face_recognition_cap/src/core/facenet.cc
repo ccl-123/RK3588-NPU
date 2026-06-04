@@ -237,7 +237,7 @@ create_failed:
     return ret;
 }
 
-int facenet_inference(rknn_context *ctx, cv::Mat img, rknn_input_output_num io_num, rknn_input *inputs, rknn_output *outputs, float **result){
+int facenet_inference(rknn_context *ctx, const cv::Mat& img, rknn_input_output_num io_num, rknn_input *inputs, rknn_output *outputs, float **result){
     int ret;
     if (ctx == nullptr || inputs == nullptr || outputs == nullptr || result == nullptr || img.empty()) {
         return -1;
