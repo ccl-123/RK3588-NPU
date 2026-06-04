@@ -112,7 +112,7 @@ private slots:
     void on_recognition_result(int user_id, const QString& name, float similarity, bool is_new_attendance, int check_type = 1, int status = 1);
     void drain_latest_frame();
 
-    // NPU 模型异步加载/卸载完成回调
+    // 视觉模型异步加载/卸载完成回调
     void on_rknn_models_released(bool success);
     void on_rknn_models_reloaded(bool success);
     void on_dashboard_backend_preference_changed(bool use_local, const QString& model_path);
@@ -129,7 +129,7 @@ private:
     void update_route_breadcrumb(const QString& key);
     bool finish_initialization_after_core();
 
-    // NPU 模型异步加载/卸载
+    // 视觉模型异步加载/卸载；NPU 资源所有权由 NpuResourceManager 仲裁。
     void release_rknn_models_async();
     void reload_rknn_models_async();
     void maybe_start_local_llm();
@@ -178,11 +178,10 @@ private:
     std::chrono::steady_clock::time_point last_fps_time_;
     std::atomic<bool> closing_{false};
     std::atomic<bool> init_in_progress_{false};
-    std::atomic<bool> rknn_switching_{false};   // NPU 模型切换中（防止重复触发）
+    std::atomic<bool> rknn_switching_{false};   // 视觉模型异步加载/卸载中（防止重复触发）
     std::atomic<bool> waiting_for_llm_release_{false};    // 等待本地 LLM 释放完成
-    std::atomic<bool> rknn_released_for_llm_{false};      // RKNN 是否已为本地 LLM 释放
 
-    // NPU 模型异步切换 Future Watcher
+    // 视觉模型异步切换 Future Watcher
     QFutureWatcher<bool>* rknn_release_watcher_;
     QFutureWatcher<bool>* rknn_reload_watcher_;
 

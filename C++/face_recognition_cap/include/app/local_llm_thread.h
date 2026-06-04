@@ -120,6 +120,7 @@ private:
     std::atomic<bool> inferring_;
     std::atomic<bool> abort_requested_;
     std::atomic<bool> stop_requested_;
+    std::atomic<bool> owns_npu_resource_;
     
     // 待处理的请求
     enum class RequestType { None, Init, Infer, Destroy };

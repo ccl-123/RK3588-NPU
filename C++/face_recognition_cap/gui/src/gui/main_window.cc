@@ -138,7 +138,7 @@ MainWindow::MainWindow(QWidget* parent)
     qRegisterMetaType<cv::Mat>("cv::Mat");
     qRegisterMetaType<std::vector<RecognitionResult>>("std::vector<RecognitionResult>");
 
-    // 初始化 NPU 模型异步切换 Watcher
+    // 初始化视觉模型异步切换 Watcher；NPU 资源所有权由 NpuResourceManager 统一仲裁。
     rknn_release_watcher_ = new QFutureWatcher<bool>(this);
     rknn_reload_watcher_ = new QFutureWatcher<bool>(this);
     connect(rknn_release_watcher_, &QFutureWatcher<bool>::finished,
@@ -175,6 +175,8 @@ MainWindow::MainWindow(QWidget* parent)
     connect(camera_pause_timer_, &QTimer::timeout, this, [this]() {
         if (closing_.load(std::memory_order_acquire) ||
             current_route_key_ != "dashboard" ||
+            !dashboard_page_ ||
+            !dashboard_page_->isLocalBackendEnabled() ||
             is_running_.load(std::memory_order_acquire) ||
             !recognition_app_) {
             return;
@@ -195,7 +197,7 @@ MainWindow::~MainWindow() {
     closing_.store(true, std::memory_order_release);
     stop_recognition();
 
-    // 等待异步 NPU 模型切换完成，避免悬空指针
+    // 等待异步视觉模型切换完成，避免悬空指针
     if (rknn_release_watcher_ && rknn_release_watcher_->isRunning()) {
         spdlog::info("Waiting for async RKNN release to complete...");
         rknn_release_watcher_->waitForFinished();
@@ -817,11 +819,9 @@ void MainWindow::setup_navigation() {
         }
     });
 
-    // ==================== NPU 资源切换逻辑 ====================
-    // RK3588 的 NPU 被 RKNN (人脸检测/识别) 和 RKLLM (语言模型) 共享
-    // 两者不能同时高效运行，必须完全互斥使用：
-    //   - 进入 Dashboard (智能看板): 释放 RKNN → 让 RKLLM 获得全部 NPU 资源
-    //   - 回到 Recognition (实时画面): 释放 RKLLM → 让 RKNN 获得全部 NPU 资源
+    // ==================== 页面驱动的模型生命周期编排 ====================
+    // NPU 资源所有权由 NpuResourceManager 集中仲裁；MainWindow 只负责
+    // 页面切换时异步触发视觉模型加载/卸载和本地 LLM 初始化/释放。
     // =========================================================
     connect(router_, &UiRouter::routeChanged, this, [this](const QString& key, QWidget*) {
         on_route_changed(key);
@@ -890,11 +890,20 @@ void MainWindow::handle_recognition_route() {
 }
 
 void MainWindow::handle_dashboard_route() {
-    // 进入智能看板页面：默认只暂停识别和摄像头，只有用户明确切到本地 LLM 才释放 RKNN
+    const bool use_local_llm = dashboard_page_ && dashboard_page_->isLocalBackendEnabled();
+    if (!use_local_llm) {
+        if (camera_pause_timer_ && camera_pause_timer_->isActive()) {
+            camera_pause_timer_->stop();
+        }
+        spdlog::info("Dashboard cloud backend active, keeping recognition pipeline running");
+        return;
+    }
+
+    // 只有本地 LLM 需要独占 NPU，进入本地模式时才暂停识别和摄像头。
     if (is_running_.load(std::memory_order_acquire)) {
         recognition_paused_for_llm_ = true;
         stop_recognition();
-        spdlog::info("Recognition paused (entering dashboard for LLM)");
+        spdlog::info("Recognition paused for local LLM");
     }
 
     if (recognition_app_ && camera_pause_timer_ && !camera_pause_timer_->isActive()) {
@@ -1662,7 +1671,7 @@ void MainWindow::closeEvent(QCloseEvent* event) {
     }
 }
 
-// ==================== NPU 模型异步切换实现 ====================
+// ==================== 视觉模型异步切换实现 ====================
 
 void MainWindow::release_rknn_models_async() {
     if (rknn_switching_.load()) {
@@ -1672,7 +1681,6 @@ void MainWindow::release_rknn_models_async() {
 
     if (!recognition_app_ || !recognition_app_->are_models_loaded()) {
         spdlog::info("RKNN models already released, skipping");
-        rknn_released_for_llm_.store(true, std::memory_order_release);
         on_rknn_models_released(true);  // 直接触发完成回调
         return;
     }
@@ -1734,11 +1742,9 @@ void MainWindow::on_rknn_models_released(bool success) {
     rknn_switching_.store(false);
     if (!success) {
         spdlog::error("Failed to release RKNN models (async callback)");
-        rknn_released_for_llm_.store(false, std::memory_order_release);
         return;
     }
 
-    rknn_released_for_llm_.store(true, std::memory_order_release);
     spdlog::info("RKNN models released (async callback)");
 
     if (current_route_key_ == "dashboard" && dashboard_page_ && dashboard_page_->isLocalBackendEnabled()) {
@@ -1758,7 +1764,6 @@ void MainWindow::on_rknn_models_reloaded(bool success) {
     rknn_switching_.store(false);
 
     if (success) {
-        rknn_released_for_llm_.store(false, std::memory_order_release);
         spdlog::info("RKNN models reloaded successfully (async callback)");
 
         // 模型加载成功后，如果是从 LLM 模式返回，启动识别
@@ -1772,7 +1777,6 @@ void MainWindow::on_rknn_models_reloaded(bool success) {
     } else {
         spdlog::error("Failed to reload RKNN models (async callback)");
         recognition_paused_for_llm_ = false;  // 即使失败也要重置标志
-        rknn_released_for_llm_.store(true, std::memory_order_release);
         ToastNotification::showMessage(this, tr("错误"), tr("人脸模型加载失败"),
                                         ToastNotification::Level::Error);
     }
@@ -1782,6 +1786,10 @@ void MainWindow::on_dashboard_backend_preference_changed(bool use_local, const Q
     pending_local_llm_model_path_ = model_path;
 
     if (!use_local) {
+        if (camera_pause_timer_ && camera_pause_timer_->isActive()) {
+            camera_pause_timer_->stop();
+        }
+
         auto* local_llm = LocalLLMThread::instance();
         if ((local_llm->isModelReady() || local_llm->isInitInProgress()) &&
             !waiting_for_llm_release_.exchange(true, std::memory_order_acq_rel)) {
@@ -1795,7 +1803,7 @@ void MainWindow::on_dashboard_backend_preference_changed(bool use_local, const Q
         return;
     }
 
-    maybe_start_local_llm();
+    handle_dashboard_route();
 }
 
 void MainWindow::maybe_start_local_llm() {
@@ -1813,18 +1821,14 @@ void MainWindow::maybe_start_local_llm() {
         return;
     }
 
-    if (recognition_app_->are_models_loaded()) {
-        if (rknn_switching_.load(std::memory_order_acquire)) {
-            spdlog::info("RKNN release already in progress, wait before init local LLM");
-            return;
-        }
-        spdlog::info("Releasing RKNN models before initializing local LLM");
-        release_rknn_models_async();
+    if (rknn_switching_.load(std::memory_order_acquire)) {
+        spdlog::info("RKNN model switch in progress, wait before init local LLM");
         return;
     }
 
-    if (!rknn_released_for_llm_.load(std::memory_order_acquire)) {
-        spdlog::info("Waiting RKNN release completion before local LLM init");
+    if (recognition_app_->are_models_loaded()) {
+        spdlog::info("Releasing RKNN models before initializing local LLM");
+        release_rknn_models_async();
         return;
     }
 

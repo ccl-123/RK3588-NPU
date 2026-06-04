@@ -419,6 +419,11 @@ void PreprocessingThread::thread_func() {
 
         // 4. RGA 直接将 NV12 解码帧写入 NPU 输入 fd，并生成 UI 预览。
         bool preprocess_ok = false;
+        bool npu_input_ready = false;
+        rga_buffer_t src_buf = {};
+        im_rect src_rect = {0, 0, decoded_width, decoded_height};
+        im_rect pat_rect = {0, 0, 0, 0};
+        rga_buffer_t pat_buf = {};
         {
             auto t_wait_start = std::chrono::steady_clock::now();
             std::unique_lock<std::mutex> lock(npu_mem_mutex_);
@@ -435,8 +440,8 @@ void PreprocessingThread::thread_func() {
 
             if (Config::Performance::USE_RGA && npu_input_mem_) {
                 // 包装 RGA 输入与输出
-                rga_buffer_t src_buf = wrapbuffer_fd(decoded_fd, decoded_width, decoded_height,
-                                                     RK_FORMAT_YCbCr_420_SP, hor_stride, ver_stride);
+                src_buf = wrapbuffer_fd(decoded_fd, decoded_width, decoded_height,
+                                        RK_FORMAT_YCbCr_420_SP, hor_stride, ver_stride);
                 rga_buffer_t dst_buf = wrapbuffer_fd(npu_input_mem_->fd, target_w_, target_h_, RK_FORMAT_BGR_888);
 
                 // 刷黑底
@@ -445,10 +450,7 @@ void PreprocessingThread::thread_func() {
                 imfill(dst_buf, whole_rect, 0x00000000);
 
                 // improcess 一气呵成：颜色转换 + 水平镜像翻转 + 缩放 + Letterbox padding 直接写入 NPU 输入物理内存
-                im_rect src_rect = {0, 0, decoded_width, decoded_height};
                 im_rect dst_rect = {pad_left_, pad_top_, resize_w_, resize_h_};
-                im_rect pat_rect = {0, 0, 0, 0};
-                rga_buffer_t pat_buf = {};
 
                 IM_STATUS resize_status = improcess(src_buf, dst_buf, pat_buf, src_rect, dst_rect, pat_rect, IM_HAL_TRANSFORM_FLIP_H);
                 auto t_input_end = std::chrono::steady_clock::now();
@@ -457,23 +459,30 @@ void PreprocessingThread::thread_func() {
                 if (resize_status != IM_STATUS_SUCCESS) {
                     spdlog::error("PreprocessingThread: RGA improcess zero-copy failed: STATUS={}", (int)resize_status);
                 } else {
-                    task.orig_img = cv::Mat(decoded_height, decoded_width, CV_8UC3);
-                    rga_buffer_t dst_orig = wrapbuffer_virtualaddr(task.orig_img.data, decoded_width, decoded_height, RK_FORMAT_BGR_888);
-                    auto t_preview_start = std::chrono::steady_clock::now();
-                    IM_STATUS preview_status = improcess(src_buf, dst_orig, pat_buf, src_rect, src_rect,
-                                                          pat_rect, IM_HAL_TRANSFORM_FLIP_H);
-                    auto t_preview_end = std::chrono::steady_clock::now();
-                    timings.preview_ms = std::chrono::duration_cast<std::chrono::microseconds>(
-                        t_preview_end - t_preview_start).count() / 1000.0;
-                    preprocess_ok = preview_status == IM_STATUS_SUCCESS;
-                    if (!preprocess_ok) {
-                        spdlog::error("PreprocessingThread: RGA preview conversion failed: STATUS={}",
-                                      static_cast<int>(preview_status));
-                    }
+                    npu_input_ready = true;
                 }
             }
+        }
 
-            if (!preprocess_ok && npu_input_mem_) {
+        if (npu_input_ready) {
+            task.orig_img = cv::Mat(decoded_height, decoded_width, CV_8UC3);
+            rga_buffer_t dst_orig = wrapbuffer_virtualaddr(task.orig_img.data, decoded_width, decoded_height, RK_FORMAT_BGR_888);
+            auto t_preview_start = std::chrono::steady_clock::now();
+            IM_STATUS preview_status = improcess(src_buf, dst_orig, pat_buf, src_rect, src_rect,
+                                                  pat_rect, IM_HAL_TRANSFORM_FLIP_H);
+            auto t_preview_end = std::chrono::steady_clock::now();
+            timings.preview_ms = std::chrono::duration_cast<std::chrono::microseconds>(
+                t_preview_end - t_preview_start).count() / 1000.0;
+            preprocess_ok = preview_status == IM_STATUS_SUCCESS;
+            if (!preprocess_ok) {
+                spdlog::error("PreprocessingThread: RGA preview conversion failed: STATUS={}",
+                              static_cast<int>(preview_status));
+            }
+        }
+
+        if (!preprocess_ok && !npu_input_ready && npu_input_mem_) {
+            {
+                std::lock_guard<std::mutex> lock(npu_mem_mutex_);
                 // 调试禁用 RGA 或硬件处理失败时，CPU 降级仍写入绑定的 NPU 内存。
                 auto t_fallback_start = std::chrono::steady_clock::now();
                 cv::Mat yuv_frame(ver_stride + ver_stride / 2, hor_stride, CV_8UC1, decoded_ptr);
@@ -493,19 +502,23 @@ void PreprocessingThread::thread_func() {
                 timings.cpu_fallback_ms = std::chrono::duration_cast<std::chrono::microseconds>(
                     t_fallback_end - t_fallback_start).count() / 1000.0;
                 timings.used_cpu_fallback = true;
+                npu_input_ready = true;
                 preprocess_ok = true;
             }
+        }
 
-            if (!preprocess_ok) {
-                spdlog::error("PreprocessingThread: NPU input memory is not registered.");
-            } else {
+        if (!preprocess_ok) {
+            spdlog::error("PreprocessingThread: NPU input memory is not registered or preview conversion failed.");
+        } else {
+            {
+                std::lock_guard<std::mutex> lock(npu_mem_mutex_);
                 npu_input_pending_ = inference_pipeline_active_;
-                std::lock_guard<std::mutex> output_lock(mutex_);
-                while (output_queue_.size() >= MAX_QUEUE_SIZE) {
-                    output_queue_.pop();
-                }
-                output_queue_.push(std::move(task));
             }
+            std::lock_guard<std::mutex> output_lock(mutex_);
+            while (output_queue_.size() >= MAX_QUEUE_SIZE) {
+                output_queue_.pop();
+            }
+            output_queue_.push(std::move(task));
         }
 
         // The packet was released after the task completed; return the V4L2 buffer

@@ -167,7 +167,7 @@ export LD_LIBRARY_PATH=./lib:$LD_LIBRARY_PATH
 
 1.  **NPU 资源互斥**:
     *   RKNN (视觉) 和 RKLLM (语言) **不能同时运行**。
-    *   我们的程序已实现自动切换：进入智能看板时会自动调用 `rknn_destroy` 释放视觉模型，然后延迟 500ms 再 `rkllm_init`。
+    *   程序通过 `NpuResourceManager` 集中仲裁 `VISION_ACTIVE` / `LLM_ACTIVE` / `IDLE` 状态；本地 LLM 初始化前会先释放视觉模型并确认没有资源冲突。
     *   **切勿**在后台手动运行其他占用 NPU 的程序。
 
 2.  **内存占用**:

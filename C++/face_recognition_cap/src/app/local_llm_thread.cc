@@ -6,6 +6,7 @@
  */
 
 #include "app/local_llm_thread.h"
+#include "app/npu_resource_manager.h"
 #include "agent/prompt_templates.h"
 #include "config/config.h"
 #include <spdlog/spdlog.h>
@@ -33,6 +34,7 @@ LocalLLMThread::LocalLLMThread(QObject* parent)
     , inferring_(false)
     , abort_requested_(false)
     , stop_requested_(false)
+    , owns_npu_resource_(false)
     , pending_request_(RequestType::None)
     , max_new_tokens_(Config::LocalLLM::MAX_NEW_TOKENS)
     , max_context_len_(Config::LocalLLM::MAX_CONTEXT_LEN) {
@@ -67,6 +69,16 @@ bool LocalLLMThread::initModel(const QString& model_path, int max_new_tokens, in
         spdlog::info("Model initialization already in progress");
         return true;
     }
+
+    auto& npu_manager = NpuResourceManager::instance();
+    if (!npu_manager.request_llm("LocalLLMThread::initModel")) {
+        const QString error = QString("NPU 正在被 %1 占用，无法初始化本地大模型")
+                                  .arg(NpuResourceManager::state_name(npu_manager.state()));
+        spdlog::warn("Cannot initialize RKLLM model: {}", error.toStdString());
+        emit modelFailed(error);
+        return false;
+    }
+    owns_npu_resource_ = true;
 
     model_path_ = model_path;
     max_new_tokens_ = max_new_tokens;
@@ -130,6 +142,9 @@ void LocalLLMThread::destroyModel() {
     }
     model_ready_ = false;
     init_in_progress_ = false;
+    if (owns_npu_resource_.exchange(false)) {
+        NpuResourceManager::instance().release_llm("LocalLLMThread::destroyModel");
+    }
 }
 
 void LocalLLMThread::releaseModelAsync() {
@@ -217,6 +232,9 @@ void LocalLLMThread::doInitModel() {
     if (ret != 0) {
         init_in_progress_ = false;
         spdlog::error("rkllm_init failed with code: {}", ret);
+        if (owns_npu_resource_.exchange(false)) {
+            NpuResourceManager::instance().release_llm("LocalLLMThread::doInitModel failed");
+        }
         emit modelFailed(QString("初始化失败: 错误码 %1").arg(ret));
         return;
     }

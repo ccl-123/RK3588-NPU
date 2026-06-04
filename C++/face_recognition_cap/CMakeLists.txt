@@ -191,6 +191,7 @@ set(APP_SOURCES
     src/app/performance_monitor.cc
     src/app/model_manager.cc
     src/app/feature_library.cc
+    src/app/npu_resource_manager.cc
     src/app/face_recognition_app.cc
     # local_llm_thread.cc 移到 GUI_SOURCES，因为依赖 Qt
 )

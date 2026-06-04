@@ -6,6 +6,7 @@
  */
 
 #include "app/face_recognition_app.h"
+#include "app/npu_resource_manager.h"
 #include "core/yolov8_face.h"
 #include "core/facenet.h"
 #include "core/postprocess.h"
@@ -17,7 +18,6 @@
 #include <sys/time.h>
 #include <iostream>
 #include <cstring>
-#include <thread>
 #include <chrono>
 
 FaceRecognitionApp::FaceRecognitionApp()
@@ -56,13 +56,24 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
 
     // 1. 初始化模型
     spdlog::info("Initializing models...");
+    auto& npu_manager = NpuResourceManager::instance();
+    if (!npu_manager.request_vision("FaceRecognitionApp::initialize")) {
+        spdlog::error("Failed to initialize models: NPU is occupied by {} ({})",
+                      NpuResourceManager::state_name(npu_manager.state()),
+                      npu_manager.active_reason());
+        return -1;
+    }
+
     if (model_manager_.init_face_detector(config_.retinaface_model_path.c_str()) != 0) {
         spdlog::error("Failed to initialize YOLOv8-face model");
+        npu_manager.release_vision("FaceRecognitionApp::initialize failed: face detector");
         return -1;
     }
 
     if (model_manager_.init_facenet(config_.facenet_model_path.c_str()) != 0) {
         spdlog::error("Failed to initialize FaceNet model");
+        model_manager_.release();
+        npu_manager.release_vision("FaceRecognitionApp::initialize failed: facenet");
         return -1;
     }
     // 初始化性能监控（先配置上报周期，再绑定 NPU 上下文避免数据被覆盖）
@@ -81,6 +92,8 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
         auto* db_manager = &db::DatabaseManager::instance();
         if (!db_manager->initialize(config_.database_path)) {
             spdlog::error("Failed to initialize database");
+            model_manager_.release();
+            npu_manager.release_vision("FaceRecognitionApp::initialize failed: database");
             return -1;
         }
 
@@ -92,6 +105,8 @@ int FaceRecognitionApp::initialize(const AppConfig& config) {
 
     if (feature_count < 0) {
         spdlog::error("Failed to load feature library");
+        model_manager_.release();
+        npu_manager.release_vision("FaceRecognitionApp::initialize failed: feature library");
         return -1;
     }
 
@@ -447,6 +462,7 @@ void FaceRecognitionApp::cleanup() {
 
     // 释放模型
     model_manager_.release();
+    NpuResourceManager::instance().release_vision("FaceRecognitionApp::cleanup");
 
     // 清空特征库
     feature_library_.clear();
@@ -467,8 +483,7 @@ void FaceRecognitionApp::cleanup() {
 // 关键点：
 //   1. 必须先停止所有使用 NPU 的工作线程
 //   2. 然后调用 rknn_destroy / rkllm_destroy 释放模型
-//   3. 等待 NPU 驱动完全释放资源（约 500ms）
-//   4. 才能加载另一个模型
+//   3. 由 NpuResourceManager 切换 VISION_ACTIVE / LLM_ACTIVE / IDLE 状态
 // =========================================================
 
 bool FaceRecognitionApp::release_models() {
@@ -513,10 +528,7 @@ bool FaceRecognitionApp::release_models() {
     // 释放 RKNN 模型（调用 rknn_destroy）
     model_manager_.release();
     models_loaded_ = false;
-
-    // 【关键】等待 NPU 驱动完全释放资源
-    // 原因：rknn_destroy 是异步的，如果立即加载 RKLLM 可能导致资源冲突崩溃
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    NpuResourceManager::instance().release_vision("FaceRecognitionApp::release_models");
 
     spdlog::info("RKNN models released, NPU resources are now available for LLM");
     return true;
@@ -539,16 +551,26 @@ bool FaceRecognitionApp::reload_models() {
     }
 
     spdlog::info("Reloading RKNN models...");
+    auto& npu_manager = NpuResourceManager::instance();
+    if (!npu_manager.request_vision("FaceRecognitionApp::reload_models")) {
+        spdlog::error("Cannot reload RKNN models: NPU is occupied by {} ({})",
+                      NpuResourceManager::state_name(npu_manager.state()),
+                      npu_manager.active_reason());
+        return false;
+    }
 
     // 重新初始化人脸检测模型
     if (model_manager_.init_face_detector(config_.retinaface_model_path.c_str()) != 0) {
         spdlog::error("Failed to reload YOLOv8-face model");
+        npu_manager.release_vision("FaceRecognitionApp::reload_models failed: face detector");
         return false;
     }
 
     // 重新初始化 FaceNet 模型
     if (model_manager_.init_facenet(config_.facenet_model_path.c_str()) != 0) {
         spdlog::error("Failed to reload FaceNet model");
+        model_manager_.release();
+        npu_manager.release_vision("FaceRecognitionApp::reload_models failed: facenet");
         return false;
     }
 
