@@ -1,65 +1,85 @@
 #ifndef _CAMERA_UTIL_H_
 #define _CAMERA_UTIL_H_
 
-#include <string.h>
+#include <cstdint>
 #include <string>
-#include <opencv2/opencv.hpp>
-#include <thread>
-#include <mutex>
-#include <atomic>
 
-#define REQ_COUNT 4
+#include "hardware/camera_mipi.h"
+#include "hardware/camera_usb.h"
 
-struct Buffer {
-    void* start;
-    size_t length;
+constexpr unsigned int CAMERA_REQ_COUNT = 4;
+
+enum class CameraBackend {
+    kNone,
+    kUsb,
+    kMipi,
+};
+
+enum class CameraFrameType {
+    kNone,
+    kUsbMjpegPacket,
+    kMipiNv12Dma,
 };
 
 /**
- * @brief 初始化 USB 摄像头 (V4L2) 并准备异步采集资源
- * @param device 设备节点名称 (例如 "0" 对应 /dev/video0)
- * @param camera_width 期望的采集宽度
- * @param camera_height 期望的采集高度
- * @return EXIT_SUCCESS 成功, EXIT_FAILURE 失败
+ * @brief 上层共用摄像头配置
  */
-int load_usb_camera(std::string device, int camera_width, int camera_height);
+struct CameraConfig {
+    std::string camera_type = "usb";     // "usb" 或 "mipi"
+    std::string device;                  // "21" 或 "/dev/video21"
+    int width = 1280;
+    int height = 720;
+    int fps = 30;
+
+    // OV13855/MIPI 专用配置
+    std::string sensor_subdev = "/dev/v4l-subdev2";
+    int crop_left = 0;
+    int crop_top = 380;
+    int crop_width = 4224;
+    int crop_height = 2376;
+    int sensor_exposure = 1928;
+    int sensor_vblank = 78;
+    int sensor_analogue_gain = 1536;
+};
 
 /**
- * @brief 从 V4L2 硬件缓冲队列中获取当前最新的 Raw MJPEG 数据包 (零拷贝)
- * @param[out] packet_data 指向原始 MJPEG 缓冲区的指针
- * @param[out] packet_size MJPEG 数据的大小（字节）
- * @param[out] buffer_index 缓冲区的底层索引，后续必须调用 release_usb_raw_packet 归还
- * @return true 成功获取, false 失败/无新数据
+ * @brief 上层共用帧对象
+ *
+ * USB 路径返回 MJPEG mmap 指针；MIPI 路径返回 NV12 DMA-BUF fd。
+ * 调用方处理完成后必须调用 release_camera_frame()。
  */
-bool read_usb_raw_packet(void** packet_data, uint32_t* packet_size, uint32_t* buffer_index);
+struct CameraFrame {
+    CameraFrameType type = CameraFrameType::kNone;
 
-/**
- * @brief 将处理完的硬件缓冲区重新放入就绪队列 (QBUF)
- * @param buffer_index 缓冲区的底层索引
- */
-void release_usb_raw_packet(uint32_t buffer_index);
+    void* raw_data = nullptr;
+    uint32_t raw_size = 0;
+    uint32_t buffer_index = 0;
 
-/**
- * @brief 获取摄像头真实采集帧率
- * @return 摄像头采集帧率（约 30 FPS）
- */
+    MipiDmaFrame mipi;
+
+    bool is_usb_mjpeg_packet() const {
+        return type == CameraFrameType::kUsbMjpegPacket;
+    }
+
+    bool is_mipi_nv12_dma() const {
+        return type == CameraFrameType::kMipiNv12Dma && mipi.dma_fd >= 0;
+    }
+};
+
+CameraConfig make_usb_camera_config(const std::string& device,
+                                    int width,
+                                    int height);
+CameraConfig make_mipi_ov13855_camera_config(const std::string& device,
+                                             int width,
+                                             int height);
+
+int load_camera(const CameraConfig& config);
+bool read_camera_frame(CameraFrame* frame);
+void release_camera_frame(const CameraFrame& frame);
 double get_camera_fps();
+bool has_camera_error();
+std::string get_camera_error();
+void close_camera();
+CameraBackend get_active_camera_backend();
 
-/**
- * @brief 查询 USB 摄像头是否出现运行时错误（如热拔出）
- * @return true 出现错误, false 正常
- */
-bool has_usb_camera_error();
-
-/**
- * @brief 获取 USB 摄像头运行时错误信息
- * @return 错误信息；若无错误则返回空字符串
- */
-std::string get_usb_camera_error();
-
-/**
- * @brief 停止采集线程并关闭摄像头设备
- */
-void close_usb_camera();
-
-#endif
+#endif // _CAMERA_UTIL_H_

@@ -211,20 +211,49 @@ double FaceRecognitionApp::get_camera_fps() const {
 /**
  * @brief 内部初始化摄像头函数
  * @return 0 成功, -1 失败
- * @note 仅支持 USB 摄像头。如果初始化失败，会将错误信息保存到 camera_error_。
+ * @note 支持 USB MJPEG 和 OV13855 MIPI NV12 DMA-BUF 摄像头。
  */
 int FaceRecognitionApp::init_camera() {
     int ret = 0;
     camera_error_.clear();
 
     if (config_.camera_type == "usb") {
-        ret = load_usb_camera(config_.device_number,
-                               config_.camera_width, config_.camera_height);
+        CameraConfig camera_config = make_usb_camera_config(
+            config_.device_number,
+            config_.camera_width,
+            config_.camera_height);
+        camera_config.fps = config_.camera_fps;
+        ret = load_camera(camera_config);
         if (ret == EXIT_SUCCESS) {
             spdlog::info("USB camera initialized successfully");
         } else {
             camera_error_ = "Failed to open USB camera /dev/video" + config_.device_number +
                            ". Please check device connection or select correct device in settings.";
+        }
+    } else if (config_.camera_type == "mipi") {
+        const std::string device = config_.device_number.empty()
+            ? std::string(Config::Camera::OV13855_DEVICE)
+            : config_.device_number;
+        CameraConfig camera_config = make_mipi_ov13855_camera_config(
+            device,
+            config_.camera_width,
+            config_.camera_height);
+        camera_config.fps = config_.camera_fps;
+        camera_config.sensor_subdev = config_.mipi_sensor_subdev;
+        camera_config.crop_left = config_.mipi_crop_left;
+        camera_config.crop_top = config_.mipi_crop_top;
+        camera_config.crop_width = config_.mipi_crop_width;
+        camera_config.crop_height = config_.mipi_crop_height;
+        camera_config.sensor_exposure = config_.mipi_sensor_exposure;
+        camera_config.sensor_vblank = config_.mipi_sensor_vblank;
+        camera_config.sensor_analogue_gain = config_.mipi_sensor_analogue_gain;
+
+        ret = load_camera(camera_config);
+        if (ret == EXIT_SUCCESS) {
+            spdlog::info("OV13855 MIPI camera initialized successfully");
+        } else {
+            camera_error_ = "Failed to open OV13855 MIPI camera " + device +
+                            ". Please check /dev/video11, /dev/v4l-subdev2, media graph and sensor power.";
         }
     } else {
         camera_error_ = "Unsupported camera type: " + config_.camera_type;
@@ -282,7 +311,7 @@ int FaceRecognitionApp::run() {
                 camera_error_ = preprocess_thread_->get_camera_error();
                 camera_initialized_ = false;
                 running_.store(false, std::memory_order_release);
-                close_usb_camera();
+                close_camera();
                 spdlog::error("Stopping recognition due to camera failure: {}", camera_error_);
                 preprocess_thread_->end_inference_pipeline();
                 return -1;
@@ -454,9 +483,7 @@ void FaceRecognitionApp::cleanup() {
 
     // 关闭摄像头（只有在摄像头已初始化时才关闭）
     if (camera_initialized_) {
-        if (config_.camera_type == "usb") {
-            close_usb_camera();
-        }
+        close_camera();
         camera_initialized_ = false;
     }
 
@@ -656,9 +683,7 @@ bool FaceRecognitionApp::reinitialize_camera(const std::string& device_number) {
 
     // 2. 关闭旧摄像头
     if (camera_initialized_) {
-        if (config_.camera_type == "usb") {
-            close_usb_camera();
-        }
+        close_camera();
         camera_initialized_ = false;
     }
 
@@ -715,9 +740,7 @@ bool FaceRecognitionApp::pause_camera() {
     }
 
     if (camera_initialized_) {
-        if (config_.camera_type == "usb") {
-            close_usb_camera();
-        }
+        close_camera();
         camera_initialized_ = false;
         spdlog::info("Camera paused");
     }
@@ -741,8 +764,8 @@ bool FaceRecognitionApp::resume_camera() {
         preprocess_thread_->stop();
         preprocess_thread_.reset();
 
-        if (camera_initialized_ && config_.camera_type == "usb") {
-            close_usb_camera();
+        if (camera_initialized_) {
+            close_camera();
         }
         camera_initialized_ = false;
         spdlog::warn("Cannot resume camera without reinitialization: {}", camera_error_);

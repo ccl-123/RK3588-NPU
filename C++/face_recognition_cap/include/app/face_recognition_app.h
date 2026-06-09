@@ -60,6 +60,15 @@ struct AppConfig {
     float facenet_threshold;            // 人脸识别阈值
     bool use_async_usb;                 // 是否使用异步USB读取
     int perf_report_interval;           // 性能报告间隔(帧数)
+    int camera_fps;                     // 摄像头采集帧率
+    std::string mipi_sensor_subdev;     // MIPI sensor subdev 控制节点
+    int mipi_crop_left;                 // MIPI ISP crop 参数
+    int mipi_crop_top;
+    int mipi_crop_width;
+    int mipi_crop_height;
+    int mipi_sensor_exposure;           // OV13855 手动曝光
+    int mipi_sensor_vblank;             // OV13855 vblank
+    int mipi_sensor_analogue_gain;      // OV13855 模拟增益
 
     AppConfig()
         : feature_lib_path(Config::Path::FEATURE_LIB)
@@ -72,6 +81,15 @@ struct AppConfig {
         , facenet_threshold(Config::Default::RECOGNITION_THRESHOLD)  // UI 可配置
         , use_async_usb(Config::Camera::USE_ASYNC_USB)
         , perf_report_interval(Config::Performance::REPORT_INTERVAL)
+        , camera_fps(Config::Camera::FPS)
+        , mipi_sensor_subdev(Config::Camera::OV13855_SENSOR_SUBDEV)
+        , mipi_crop_left(Config::Camera::OV13855_CROP_LEFT)
+        , mipi_crop_top(Config::Camera::OV13855_CROP_TOP)
+        , mipi_crop_width(Config::Camera::OV13855_CROP_WIDTH)
+        , mipi_crop_height(Config::Camera::OV13855_CROP_HEIGHT)
+        , mipi_sensor_exposure(Config::Camera::OV13855_EXPOSURE)
+        , mipi_sensor_vblank(Config::Camera::OV13855_VBLANK)
+        , mipi_sensor_analogue_gain(Config::Camera::OV13855_ANALOGUE_GAIN)
     {}
 };
 

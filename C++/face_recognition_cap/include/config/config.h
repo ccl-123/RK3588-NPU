@@ -33,7 +33,21 @@ namespace Path {
 namespace Camera {
     constexpr int WIDTH = 1280;             // 采集宽度
     constexpr int HEIGHT = 720;             // 采集高度
+    constexpr int FPS = 30;                 // 默认采集帧率
     constexpr bool USE_ASYNC_USB = true;    // 异步采集模式
+
+    // OV13855 MIPI 默认配置（参考 VisionCast mipi_13855）
+    constexpr const char* OV13855_DEVICE = "/dev/video11";
+    constexpr const char* OV13855_SENSOR_SUBDEV = "/dev/v4l-subdev2";
+    constexpr int OV13855_WIDTH = 1920;
+    constexpr int OV13855_HEIGHT = 1080;
+    constexpr int OV13855_CROP_LEFT = 0;
+    constexpr int OV13855_CROP_TOP = 380;
+    constexpr int OV13855_CROP_WIDTH = 4224;
+    constexpr int OV13855_CROP_HEIGHT = 2376;
+    constexpr int OV13855_EXPOSURE = 1928;
+    constexpr int OV13855_VBLANK = 78;
+    constexpr int OV13855_ANALOGUE_GAIN = 1536;
 }
 
 // ===== 检测阈值 [固定] =====

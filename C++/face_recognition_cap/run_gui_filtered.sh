@@ -46,5 +46,34 @@ if [[ -f "${ROOT_DIR}/fix_freq_rk3588.sh" ]]; then
   sudo bash "${ROOT_DIR}/fix_freq_rk3588.sh"
 fi
 
+# Prompt user to select camera
+echo "==========================================="
+echo "  RK3588-NPU Face Recognition Camera Selector"
+echo "==========================================="
+echo "1) USB Camera (default: /dev/video21)"
+echo "2) MIPI CSI Camera (OV13855: /dev/video11)"
+echo "==========================================="
+read -r -p "Select camera source [1-2, default: 1]: " selection
+
+CAMERA_TYPE="usb"
+CAMERA_ID="21"
+
+case "${selection}" in
+  2)
+    CAMERA_TYPE="mipi"
+    CAMERA_ID="11"
+    echo "Selected: OV13855 MIPI Camera (/dev/video11)"
+    ;;
+  *)
+    CAMERA_TYPE="usb"
+    CAMERA_ID="21"
+    echo "Selected: USB Camera (/dev/video21)"
+    ;;
+esac
+
+YOLO_MODEL="${ROOT_DIR}/install/face_recognition_cap/data/model/yolov8n-face.rknn"
+FACENET_MODEL="${ROOT_DIR}/install/face_recognition_cap/data/model/w600k_mbf.rknn"
+DB_PATH="${ROOT_DIR}/install/face_recognition_cap/data/database/face_recognition.db"
+
 # Filter noisy rk-debug fence logs while keeping ANSI colors.
-exec script -q /dev/null -c "${BIN}" 2>&1 | grep --line-buffered -vF "rk-debug out_fence_fd = 0"
+exec script -q /dev/null -c "${BIN} ${YOLO_MODEL} ${FACENET_MODEL} ${CAMERA_TYPE} ${CAMERA_ID} ${DB_PATH}" 2>&1 | grep --line-buffered -vF "rk-debug out_fence_fd = 0"

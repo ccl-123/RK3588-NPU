@@ -31,8 +31,8 @@ PreprocessingThread::PreprocessingThread(int resize_w, int resize_h,
     pad_top_ = 0;
     pad_left_ = 0;
 
-    // 初始化 MPP 硬件解码器
-    if (init_mpp() != 0) {
+    // USB MJPEG 需要 MPP 硬解；MIPI/OV13855 已由 ISP 输出 NV12 DMA-BUF。
+    if (camera_type_ == "usb" && init_mpp() != 0) {
         spdlog::error("PreprocessingThread: failed to initialize MPP hardware decoder!");
     }
 }
@@ -349,23 +349,128 @@ std::string PreprocessingThread::get_camera_error() const {
     return camera_error_;
 }
 
+bool PreprocessingThread::process_nv12_frame(int dma_fd,
+                                             void* virtual_addr,
+                                             int frame_width,
+                                             int frame_height,
+                                             int horizontal_stride,
+                                             int vertical_stride,
+                                             PreprocessTask& task,
+                                             PerformanceMonitor::PreprocessTimings& timings) {
+    bool preprocess_ok = false;
+
+    auto t_wait_start = std::chrono::steady_clock::now();
+    std::unique_lock<std::mutex> lock(npu_mem_mutex_);
+    cv_npu_input_.wait(lock, [this] {
+        return !inference_pipeline_active_ || !npu_input_pending_ || !running_;
+    });
+    auto t_wait_end = std::chrono::steady_clock::now();
+    timings.npu_input_wait_ms = std::chrono::duration_cast<std::chrono::microseconds>(
+        t_wait_end - t_wait_start).count() / 1000.0;
+    if (!running_) {
+        return false;
+    }
+
+    if (Config::Performance::USE_RGA && npu_input_mem_ && dma_fd >= 0) {
+        rga_buffer_t src_buf = wrapbuffer_fd(dma_fd, frame_width, frame_height,
+                                             RK_FORMAT_YCbCr_420_SP,
+                                             horizontal_stride, vertical_stride);
+        rga_buffer_t dst_buf = wrapbuffer_fd(npu_input_mem_->fd, target_w_, target_h_,
+                                             RK_FORMAT_BGR_888);
+
+        auto t_input_start = std::chrono::steady_clock::now();
+        im_rect whole_rect = {0, 0, target_w_, target_h_};
+        imfill(dst_buf, whole_rect, 0x00000000);
+
+        im_rect src_rect = {0, 0, frame_width, frame_height};
+        im_rect dst_rect = {pad_left_, pad_top_, resize_w_, resize_h_};
+        im_rect pat_rect = {0, 0, 0, 0};
+        rga_buffer_t pat_buf = {};
+
+        IM_STATUS resize_status = improcess(src_buf, dst_buf, pat_buf,
+                                            src_rect, dst_rect, pat_rect,
+                                            IM_HAL_TRANSFORM_FLIP_H);
+        auto t_input_end = std::chrono::steady_clock::now();
+        timings.rga_input_ms = std::chrono::duration_cast<std::chrono::microseconds>(
+            t_input_end - t_input_start).count() / 1000.0;
+        if (resize_status != IM_STATUS_SUCCESS) {
+            spdlog::error("PreprocessingThread: RGA fd-to-NPU zero-copy failed: STATUS={}",
+                          static_cast<int>(resize_status));
+        } else {
+            task.orig_img = cv::Mat(frame_height, frame_width, CV_8UC3);
+            rga_buffer_t dst_orig = wrapbuffer_virtualaddr(task.orig_img.data,
+                                                           frame_width, frame_height,
+                                                           RK_FORMAT_BGR_888);
+            auto t_preview_start = std::chrono::steady_clock::now();
+            IM_STATUS preview_status = improcess(src_buf, dst_orig, pat_buf,
+                                                 src_rect, src_rect, pat_rect,
+                                                 IM_HAL_TRANSFORM_FLIP_H);
+            auto t_preview_end = std::chrono::steady_clock::now();
+            timings.preview_ms = std::chrono::duration_cast<std::chrono::microseconds>(
+                t_preview_end - t_preview_start).count() / 1000.0;
+            preprocess_ok = preview_status == IM_STATUS_SUCCESS;
+            if (!preprocess_ok) {
+                spdlog::error("PreprocessingThread: RGA preview conversion failed: STATUS={}",
+                              static_cast<int>(preview_status));
+            }
+        }
+    }
+
+    if (!preprocess_ok && npu_input_mem_ && virtual_addr) {
+        auto t_fallback_start = std::chrono::steady_clock::now();
+        cv::Mat yuv_frame(vertical_stride + vertical_stride / 2,
+                          horizontal_stride,
+                          CV_8UC1,
+                          virtual_addr);
+        cv::Mat decoded_with_stride;
+        cv::cvtColor(yuv_frame, decoded_with_stride, cv::COLOR_YUV2BGR_NV12);
+        cv::Mat decoded_frame = decoded_with_stride(
+            cv::Rect(0, 0, frame_width, frame_height));
+
+        task.orig_img = cv::Mat(frame_height, frame_width, CV_8UC3);
+        cv::flip(decoded_frame, task.orig_img, 1);
+
+        cv::Mat npu_input(target_h_, target_w_, CV_8UC3, npu_input_mem_->virt_addr);
+        npu_input.setTo(cv::Scalar(0, 0, 0));
+        cv::Mat resized_part = npu_input(cv::Rect(pad_left_, pad_top_, resize_w_, resize_h_));
+        cv::resize(task.orig_img, resized_part, cv::Size(resize_w_, resize_h_),
+                   0, 0, cv::INTER_LINEAR);
+        auto t_fallback_end = std::chrono::steady_clock::now();
+        timings.cpu_fallback_ms = std::chrono::duration_cast<std::chrono::microseconds>(
+            t_fallback_end - t_fallback_start).count() / 1000.0;
+        timings.used_cpu_fallback = true;
+        preprocess_ok = true;
+    }
+
+    if (!preprocess_ok) {
+        spdlog::error("PreprocessingThread: NPU input memory is not registered or NV12 preprocessing failed.");
+    } else {
+        npu_input_pending_ = inference_pipeline_active_;
+        std::lock_guard<std::mutex> output_lock(mutex_);
+        while (output_queue_.size() >= MAX_QUEUE_SIZE) {
+            output_queue_.pop();
+        }
+        output_queue_.push(std::move(task));
+    }
+
+    return preprocess_ok;
+}
+
 void PreprocessingThread::thread_func() {
-    spdlog::info("PreprocessingThread: integrated capture, MPP hardware decode and RGA preprocess loop started");
+    spdlog::info("PreprocessingThread: integrated {} capture and RGA preprocess loop started",
+                 camera_type_);
 
     while (running_) {
-        void* raw_pkt_data = nullptr;
-        uint32_t raw_pkt_size = 0;
-        uint32_t raw_buf_index = 0;
+        CameraFrame camera_frame;
 
-        // 1. 底层同步抓取 V4L2 原始 MJPEG 数据包 (非阻塞/极轻量)
-        if (!read_usb_raw_packet(&raw_pkt_data, &raw_pkt_size, &raw_buf_index)) {
+        if (!read_camera_frame(&camera_frame)) {
             if (!running_) {
                 break;
             }
-            if (has_usb_camera_error()) {
+            if (has_camera_error()) {
                 {
                     std::lock_guard<std::mutex> lock(mutex_);
-                    camera_error_ = get_usb_camera_error();
+                    camera_error_ = get_camera_error();
                     wakeup_ = true;
                 }
                 camera_failed_.store(true, std::memory_order_release);
@@ -379,151 +484,70 @@ void PreprocessingThread::thread_func() {
         }
 
         PerformanceMonitor::PreprocessTimings timings;
-        timings.mjpeg_bytes = raw_pkt_size;
-
-        // 记录压缩数据传入 MPP 与解码任务总耗时。
-        auto t_dec_start = std::chrono::steady_clock::now();
-
-        // 2. JPEG uses MPP's advanced task API with an application-provided
-        // DRM output frame, as required by Rockchip's mpi_dec_test.
-        if (!mpp_initialized_ ||
-            !decode_mjpeg_packet(raw_pkt_data, raw_pkt_size, timings.mpp_input_copy_ms)) {
-            release_usb_raw_packet(raw_buf_index);
-            continue;
-        }
-
-        MppFrame frame = mpp_output_frame_;
-        if (mpp_frame_get_errinfo(frame)) {
-            spdlog::warn("PreprocessingThread: MPP decoded frame has error!");
-            release_usb_raw_packet(raw_buf_index);
-            continue;
-        }
-
-        // 解码成功！获取 DRM 类型的缓冲区和 dma-buf fd
-        MppBuffer mpp_buf = mpp_frame_get_buffer(frame);
-        int decoded_fd = mpp_buffer_get_fd(mpp_buf);
-        int decoded_width = mpp_frame_get_width(frame);
-        int decoded_height = mpp_frame_get_height(frame);
-        int hor_stride = mpp_frame_get_hor_stride(frame);
-        int ver_stride = mpp_frame_get_ver_stride(frame);
-        void* decoded_ptr = mpp_buffer_get_ptr(mpp_buf);
-
-        auto t_dec_end = std::chrono::steady_clock::now();
-        double decode_total_ms = std::chrono::duration_cast<std::chrono::microseconds>(
-            t_dec_end - t_dec_start).count() / 1000.0;
-        timings.mpp_decode_ms = std::max(0.0, decode_total_ms - timings.mpp_input_copy_ms);
-
-        // 3. 构造并执行预处理任务
         PreprocessTask task;
         gettimeofday(&task.timestamp, NULL);
-
-        // 4. RGA 直接将 NV12 解码帧写入 NPU 输入 fd，并生成 UI 预览。
         bool preprocess_ok = false;
-        bool npu_input_ready = false;
-        rga_buffer_t src_buf = {};
-        im_rect src_rect = {0, 0, decoded_width, decoded_height};
-        im_rect pat_rect = {0, 0, 0, 0};
-        rga_buffer_t pat_buf = {};
-        {
-            auto t_wait_start = std::chrono::steady_clock::now();
-            std::unique_lock<std::mutex> lock(npu_mem_mutex_);
-            cv_npu_input_.wait(lock, [this] {
-                return !inference_pipeline_active_ || !npu_input_pending_ || !running_;
-            });
-            auto t_wait_end = std::chrono::steady_clock::now();
-            timings.npu_input_wait_ms = std::chrono::duration_cast<std::chrono::microseconds>(
-                t_wait_end - t_wait_start).count() / 1000.0;
-            if (!running_) {
-                release_usb_raw_packet(raw_buf_index);
-                break;
+
+        if (camera_frame.is_usb_mjpeg_packet()) {
+            timings.mjpeg_bytes = camera_frame.raw_size;
+
+            auto t_dec_start = std::chrono::steady_clock::now();
+            if (!mpp_initialized_ ||
+                !decode_mjpeg_packet(camera_frame.raw_data,
+                                     camera_frame.raw_size,
+                                     timings.mpp_input_copy_ms)) {
+                release_camera_frame(camera_frame);
+                continue;
             }
 
-            if (Config::Performance::USE_RGA && npu_input_mem_) {
-                // 包装 RGA 输入与输出
-                src_buf = wrapbuffer_fd(decoded_fd, decoded_width, decoded_height,
-                                        RK_FORMAT_YCbCr_420_SP, hor_stride, ver_stride);
-                rga_buffer_t dst_buf = wrapbuffer_fd(npu_input_mem_->fd, target_w_, target_h_, RK_FORMAT_BGR_888);
-
-                // 刷黑底
-                auto t_input_start = std::chrono::steady_clock::now();
-                im_rect whole_rect = {0, 0, target_w_, target_h_};
-                imfill(dst_buf, whole_rect, 0x00000000);
-
-                // improcess 一气呵成：颜色转换 + 水平镜像翻转 + 缩放 + Letterbox padding 直接写入 NPU 输入物理内存
-                im_rect dst_rect = {pad_left_, pad_top_, resize_w_, resize_h_};
-
-                IM_STATUS resize_status = improcess(src_buf, dst_buf, pat_buf, src_rect, dst_rect, pat_rect, IM_HAL_TRANSFORM_FLIP_H);
-                auto t_input_end = std::chrono::steady_clock::now();
-                timings.rga_input_ms = std::chrono::duration_cast<std::chrono::microseconds>(
-                    t_input_end - t_input_start).count() / 1000.0;
-                if (resize_status != IM_STATUS_SUCCESS) {
-                    spdlog::error("PreprocessingThread: RGA improcess zero-copy failed: STATUS={}", (int)resize_status);
-                } else {
-                    npu_input_ready = true;
-                }
+            MppFrame frame = mpp_output_frame_;
+            if (mpp_frame_get_errinfo(frame)) {
+                spdlog::warn("PreprocessingThread: MPP decoded frame has error!");
+                release_camera_frame(camera_frame);
+                continue;
             }
-        }
 
-        if (npu_input_ready) {
-            task.orig_img = cv::Mat(decoded_height, decoded_width, CV_8UC3);
-            rga_buffer_t dst_orig = wrapbuffer_virtualaddr(task.orig_img.data, decoded_width, decoded_height, RK_FORMAT_BGR_888);
-            auto t_preview_start = std::chrono::steady_clock::now();
-            IM_STATUS preview_status = improcess(src_buf, dst_orig, pat_buf, src_rect, src_rect,
-                                                  pat_rect, IM_HAL_TRANSFORM_FLIP_H);
-            auto t_preview_end = std::chrono::steady_clock::now();
-            timings.preview_ms = std::chrono::duration_cast<std::chrono::microseconds>(
-                t_preview_end - t_preview_start).count() / 1000.0;
-            preprocess_ok = preview_status == IM_STATUS_SUCCESS;
-            if (!preprocess_ok) {
-                spdlog::error("PreprocessingThread: RGA preview conversion failed: STATUS={}",
-                              static_cast<int>(preview_status));
-            }
-        }
+            MppBuffer mpp_buf = mpp_frame_get_buffer(frame);
+            int decoded_fd = mpp_buffer_get_fd(mpp_buf);
+            int decoded_width = mpp_frame_get_width(frame);
+            int decoded_height = mpp_frame_get_height(frame);
+            int hor_stride = mpp_frame_get_hor_stride(frame);
+            int ver_stride = mpp_frame_get_ver_stride(frame);
+            void* decoded_ptr = mpp_buffer_get_ptr(mpp_buf);
 
-        if (!preprocess_ok && !npu_input_ready && npu_input_mem_) {
-            {
-                std::lock_guard<std::mutex> lock(npu_mem_mutex_);
-                // 调试禁用 RGA 或硬件处理失败时，CPU 降级仍写入绑定的 NPU 内存。
-                auto t_fallback_start = std::chrono::steady_clock::now();
-                cv::Mat yuv_frame(ver_stride + ver_stride / 2, hor_stride, CV_8UC1, decoded_ptr);
-                cv::Mat decoded_with_stride;
-                cv::cvtColor(yuv_frame, decoded_with_stride, cv::COLOR_YUV2BGR_NV12);
-                cv::Mat decoded_frame = decoded_with_stride(
-                    cv::Rect(0, 0, decoded_width, decoded_height));
+            auto t_dec_end = std::chrono::steady_clock::now();
+            double decode_total_ms = std::chrono::duration_cast<std::chrono::microseconds>(
+                t_dec_end - t_dec_start).count() / 1000.0;
+            timings.mpp_decode_ms = std::max(0.0, decode_total_ms - timings.mpp_input_copy_ms);
 
-                task.orig_img = cv::Mat(decoded_height, decoded_width, CV_8UC3);
-                cv::flip(decoded_frame, task.orig_img, 1);
-
-                cv::Mat npu_input(target_h_, target_w_, CV_8UC3, npu_input_mem_->virt_addr);
-                npu_input.setTo(cv::Scalar(0, 0, 0));
-                cv::Mat resized_part = npu_input(cv::Rect(pad_left_, pad_top_, resize_w_, resize_h_));
-                cv::resize(task.orig_img, resized_part, cv::Size(resize_w_, resize_h_), 0, 0, cv::INTER_LINEAR);
-                auto t_fallback_end = std::chrono::steady_clock::now();
-                timings.cpu_fallback_ms = std::chrono::duration_cast<std::chrono::microseconds>(
-                    t_fallback_end - t_fallback_start).count() / 1000.0;
-                timings.used_cpu_fallback = true;
-                npu_input_ready = true;
-                preprocess_ok = true;
-            }
-        }
-
-        if (!preprocess_ok) {
-            spdlog::error("PreprocessingThread: NPU input memory is not registered or preview conversion failed.");
+            preprocess_ok = process_nv12_frame(decoded_fd,
+                                               decoded_ptr,
+                                               decoded_width,
+                                               decoded_height,
+                                               hor_stride,
+                                               ver_stride,
+                                               task,
+                                               timings);
+        } else if (camera_frame.is_mipi_nv12_dma()) {
+            const MipiDmaFrame& mipi = camera_frame.mipi;
+            preprocess_ok = process_nv12_frame(mipi.dma_fd,
+                                               mipi.mapped_data,
+                                               mipi.width,
+                                               mipi.height,
+                                               mipi.horizontal_stride,
+                                               mipi.vertical_stride,
+                                               task,
+                                               timings);
         } else {
-            {
-                std::lock_guard<std::mutex> lock(npu_mem_mutex_);
-                npu_input_pending_ = inference_pipeline_active_;
-            }
-            std::lock_guard<std::mutex> output_lock(mutex_);
-            while (output_queue_.size() >= MAX_QUEUE_SIZE) {
-                output_queue_.pop();
-            }
-            output_queue_.push(std::move(task));
+            spdlog::warn("PreprocessingThread: unsupported camera frame type.");
         }
 
-        // The packet was released after the task completed; return the V4L2 buffer
-        // after RGA is also finished with the persistent decoded output.
-        release_usb_raw_packet(raw_buf_index);
+        // RGA has completed by this point; the V4L2 buffer can return to hardware.
+        release_camera_frame(camera_frame);
+
+        if (!running_) {
+            break;
+        }
 
         if (!preprocess_ok) {
             continue;

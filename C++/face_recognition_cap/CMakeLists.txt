@@ -148,6 +148,8 @@ set(CORE_SOURCES
 
 set(HARDWARE_SOURCES
     src/hardware/camera_util.cc
+    src/hardware/camera_usb.cc
+    src/hardware/camera_mipi.cc
 )
 
 set(DATABASE_SOURCES
