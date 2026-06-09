@@ -47,7 +47,7 @@ namespace Performance {
     constexpr int REPORT_INTERVAL = 50;         // 性能报告间隔 (帧)
     constexpr int QUEUE_MAX_SIZE = 2;           // 线程队列容量 (越小延迟越低)
     constexpr bool USE_RGA = true;              // RGA 硬件加速 (Valgrind 调试时设 false)
-    constexpr bool ENABLE_PERF_REPORT = true;   // 输出 FPS/延迟日志
+    constexpr bool ENABLE_PERF_REPORT = false;   // 输出 FPS/延迟日志
 }
 
 // ===== 默认值 [UI 可配置] =====

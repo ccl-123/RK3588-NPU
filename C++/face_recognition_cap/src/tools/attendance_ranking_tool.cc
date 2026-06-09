@@ -99,7 +99,7 @@ QJsonObject AttendanceRankingTool::parametersSchema() const {
                 {"description", "结束日期，格式 YYYY-MM-DD，与 start_date 配合使用"}
             }}
         }},
-        {"required", QJsonArray{}}
+        {"required", QJsonArray{"scope", "ranking_type"}}
     };
 }
 

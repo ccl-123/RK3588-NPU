@@ -27,15 +27,11 @@ QString format_datetime_text(const QJsonObject& data) {
 
 QString format_status_text(const QJsonObject& data) {
     return QString(
-        "设备ID: %1\n"
-        "位置: %2\n"
-        "摄像头: /dev/video%3 (%4x%5)\n"
-        "识别阈值: %6\n"
-        "重复打卡间隔: %7秒\n"
-        "LLM模型: %8"
-    ).arg(data.value("device_id").toString())
-     .arg(data.value("location").toString())
-     .arg(data.value("camera_id").toInt())
+        "摄像头: /dev/video%1 (%2x%3)\n"
+        "识别阈值: %4\n"
+        "重复打卡间隔: %5秒\n"
+        "LLM模型: %6"
+    ).arg(data.value("camera_id").toInt())
      .arg(data.value("camera_width").toInt())
      .arg(data.value("camera_height").toInt())
      .arg(data.value("recognition_threshold").toDouble(), 0, 'f', 2)
@@ -135,7 +131,6 @@ QJsonObject SystemTool::buildSystemStatusData() {
     const QString llm_model_path = QString::fromUtf8(Config::LocalLLM::getModelPath());
     return QJsonObject{
         {"device_id", QString(Config::Default::DEVICE_ID)},
-        {"location", QString(Config::Default::LOCATION)},
         {"camera_id", Config::Default::CAMERA_ID},
         {"camera_width", Config::Camera::WIDTH},
         {"camera_height", Config::Camera::HEIGHT},

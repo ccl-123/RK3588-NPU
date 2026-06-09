@@ -2,16 +2,21 @@
 # device_build.sh — ELF RK3588 开发板本地构建（Ubuntu 22.04 aarch64）
 # 在板端编译并安装到 install/face_recognition_cap/；PC 交叉编译请用 cross_build.sh
 
-set -e
+set -euo pipefail
 
-GCC_COMPILER=aarch64-linux-gnu
+GCC_COMPILER=${GCC_COMPILER:-aarch64-linux-gnu}
 AARCH64_LIB_DIR="/usr/lib/aarch64-linux-gnu"
+BUILD_JOBS=${BUILD_JOBS:-2}
 
-#export LD_LIBRARY_PATH=${TOOL_CHAIN}/lib64:$LD_LIBRARY_PATH
-export CC=${GCC_COMPILER}-gcc
-export CXX=${GCC_COMPILER}-g++
+if [[ "$(uname -m)" == "aarch64" ]]; then
+  export CC=${CC:-gcc}
+  export CXX=${CXX:-g++}
+else
+  export CC=${CC:-${GCC_COMPILER}-gcc}
+  export CXX=${CXX:-${GCC_COMPILER}-g++}
+fi
 
-ROOT_PWD=$( cd "$( dirname $0 )" && cd -P "$( dirname "$SOURCE" )" && pwd )
+ROOT_PWD="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 resolve_runtime_lib() {
   local soname="$1"
@@ -40,6 +45,12 @@ resolve_runtime_lib() {
 copy_runtime_lib() {
   local soname="$1"
   local resolved=""
+  local target="${LIB_DIR}/${soname}"
+
+  if [[ -e "${target}" || -L "${target}" ]]; then
+    echo "✓ ${soname} 已存在，跳过复制: ${target}"
+    return 0
+  fi
 
   if resolved="$(resolve_runtime_lib "${soname}")"; then
     cp -Lf "${resolved}" "${LIB_DIR}/"
@@ -51,25 +62,28 @@ copy_runtime_lib() {
 
 # build
 BUILD_DIR=${ROOT_PWD}/build/build_linux_aarch64
+INSTALL_DIR=${ROOT_PWD}/install/face_recognition_cap
 
-if [[ ! -d "${BUILD_DIR}" ]]; then
-  mkdir -p ${BUILD_DIR}
+mkdir -p "${BUILD_DIR}"
+
+cmake -S "${ROOT_PWD}" -B "${BUILD_DIR}" \
+  -DTARGET_NAME=face_recognition_cap \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX="${INSTALL_DIR}"
+
+cmake --build "${BUILD_DIR}" --target face_recognition_cap_gui --parallel "${BUILD_JOBS}"
+
+if [[ ! -x "${INSTALL_DIR}/db_tool" ]]; then
+  echo "未找到已安装的 db_tool，开始构建..."
+  cmake --build "${BUILD_DIR}" --target db_tool --parallel "${BUILD_JOBS}"
+else
+  echo "db_tool 已存在，跳过构建: ${INSTALL_DIR}/db_tool"
 fi
 
-cd ${BUILD_DIR}
-# 仅在首次构建或 CMake 配置已变更时重新运行 cmake
-if [[ ! -f "CMakeCache.txt" || "${ROOT_PWD}/CMakeLists.txt" -nt "CMakeCache.txt" ]]; then
-  rm -f CMakeCache.txt
-  rm -rf CMakeFiles
-  cmake ../.. -DTARGET_NAME=face_recognition_cap
-fi
-make -j2
-make install
+cmake --install "${BUILD_DIR}"
 
 # 打包运行时依赖，确保板端直接运行 install 目录中的 GUI 时能找到日志库。
-LIB_DIR="${ROOT_PWD}/install/face_recognition_cap/lib"
+LIB_DIR="${INSTALL_DIR}/lib"
 mkdir -p "${LIB_DIR}"
 copy_runtime_lib "libspdlog.so.1"
 copy_runtime_lib "libfmt.so.8"
-
-cd -

@@ -26,6 +26,7 @@ AttendanceService::~AttendanceService() {
 int AttendanceService::record_attendance(int user_id, const std::string& user_name,
                                         float similarity, const std::string& face_image_path,
                                         int check_type) {
+    std::lock_guard<std::mutex> record_lock(record_attendance_mutex_);
     std::time_t current_time = std::time(nullptr);
     WorkScheduleConfig schedule = get_work_schedule_snapshot();
     
@@ -309,18 +310,15 @@ std::vector<AttendanceStatistics> AttendanceService::get_statistics_range(
     for (const auto& ds : dao_stats) {
         AttendanceStatistics s;
         s.date = ds.date;
-        s.total_count = ds.total_records;
-        s.late_count = ds.late_count;
-        s.early_leave_count = ds.early_leave_count;
-        // 注意：DAO 返回的是 distinct users，这里映射到 check_in_count 可能不完全准确，
-        // 但对于趋势图来说，attendance_rate 通常分母是 registered_users，分子是 present_users。
-        // 在这里我们把 distinct_users 视为“出勤人数”
-        s.check_in_count = ds.distinct_users; 
-        
-        // 其他字段如 check_out_count, normal_count 在聚合查询中未细分，设为 0 或估算
-        // 如果需要精确的 check_out_count，需要在 SQL 中增加 SUM(CASE WHEN check_type=2...)
-        s.check_out_count = 0; 
+        s.total_count = ds.total_users;
+        s.check_in_count = ds.check_in_users;
+        s.check_out_count = ds.check_out_users;
+        s.late_count = ds.late_users;
+        s.early_leave_count = ds.early_leave_users;
         s.normal_count = s.total_count - s.late_count - s.early_leave_count;
+        if (s.normal_count < 0) {
+            s.normal_count = 0;
+        }
         
         result.push_back(s);
     }

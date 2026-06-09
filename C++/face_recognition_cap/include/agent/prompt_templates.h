@@ -8,7 +8,10 @@
 #include <QDateTime>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonValue>
 #include <QString>
+#include <QStringList>
 #include "service/attendance_service.h"
 #include "agent/tool_types.h"
 
@@ -34,13 +37,42 @@ public:
             const QString desc = tool.value("description").toString();
             overview += QString("- %1: %2\n").arg(name, desc);
 
-            const QJsonObject props = tool.value("parameters").toObject().value("properties").toObject();
+            const QJsonObject parameters = tool.value("parameters").toObject();
+            const QJsonObject props = parameters.value("properties").toObject();
+            const QJsonArray required = parameters.value("required").toArray();
             if (!props.isEmpty()) {
                 overview += "  参数:\n";
                 for (auto it = props.begin(); it != props.end(); ++it) {
                     const QJsonObject prop = it.value().toObject();
-                    overview += QString("  - %1: %2\n")
-                        .arg(it.key(), prop.value("description").toString());
+                    bool is_required = false;
+                    for (const auto& key : required) {
+                        if (key.toString() == it.key()) {
+                            is_required = true;
+                            break;
+                        }
+                    }
+                    overview += QString("  - %1%2: %3\n")
+                        .arg(it.key(),
+                             is_required ? QStringLiteral("（必填）") : QString(),
+                             prop.value("description").toString());
+                }
+            }
+
+            const QJsonArray any_of = parameters.value("anyOf").toArray();
+            if (!any_of.isEmpty()) {
+                QStringList alternatives;
+                for (const auto& item : any_of) {
+                    const QJsonArray alt_required = item.toObject().value("required").toArray();
+                    QStringList keys;
+                    for (const auto& key : alt_required) {
+                        keys.append(key.toString());
+                    }
+                    if (!keys.isEmpty()) {
+                        alternatives.append(keys.join("+"));
+                    }
+                }
+                if (!alternatives.isEmpty()) {
+                    overview += QString("  约束: %1 至少满足一项\n").arg(alternatives.join(" 或 "));
                 }
             }
         }
@@ -106,6 +138,16 @@ public:
 4. 如果问题可以直接回答，则不要调用工具
 5. 调用工具时不要同时输出 <answer>，等工具返回后再回答
 
+## 工具选择规则
+1. 问全局考勤统计、全员打卡明细、迟到或早退名单：优先用 query_attendance
+2. 问某一个员工的考勤、最近打卡、异常打卡：用 lookup_user_attendance
+3. 问某个部门的考勤摘要、异常、缺勤或明细：用 lookup_department_attendance
+4. 问谁没签到、谁只签到没签退、谁缺勤或连续缺勤：用 lookup_missing_attendance
+5. 问排行、最多、最少、最高、最低：用 lookup_attendance_ranking
+6. 问员工基础信息、员工列表、用户数量：用 query_user
+7. 问当前时间、系统状态、考勤规则：用 system_info
+8. 只有需要额外算术时才用 calculator
+
 ## 工具结果输入
 系统在工具执行后，会额外提供一段"工具执行结果"观察信息。
 你必须基于该观察信息继续判断：
@@ -113,7 +155,7 @@ public:
 2. 还是已经可以直接输出 <answer>最终回答</answer>
 
 ## 回答格式
-- 需要数据时：<tool_call>{"name":"query_attendance","arguments":{"date_range":"today"}}</tool_call>
+- 需要数据时：<tool_call>{"name":"query_attendance","arguments":{"query_type":"stats","date_range":"today"}}</tool_call>
 - 给出答案时：<answer>最终回答内容</answer>
 
 ## 重要规则
@@ -121,7 +163,9 @@ public:
 2. 每次只调用一个工具
 3. 收到工具结果后，根据需要继续调用下一个工具，或输出 <answer>...</answer>
 4. 回答简洁，使用中文
-5. 思考过程尽量简短，快速做出决定)");
+5. 思考过程尽量简短，快速做出决定
+6. 只能回答工具结果中明确出现的信息；没有出现的字段不要补充或猜测
+7. 不要输出内部字段或无关字段，例如记录ID、设备ID、相似度、地点、备注、图片路径)");
     }
 
     static QString buildAgentPrompt(const QString& system_prompt,
@@ -155,20 +199,63 @@ public:
         return QString::fromUtf8("你是考勤助手，负责分析考勤数据并回答问题。简洁回答，直接给出结论。用户不管问什么都必须回答。");
     }
 
+    static bool shouldDropObservationField(const QString& key) {
+        const QString normalized = key.toLower();
+        return normalized == "record_id" ||
+               normalized == "device_id" ||
+               normalized == "similarity" ||
+               normalized == "location" ||
+               normalized == "remark" ||
+               normalized == "face_image" ||
+               normalized == "face_image_path";
+    }
+
+    static QJsonValue sanitizeToolOutputValue(const QJsonValue& value) {
+        if (value.isObject()) {
+            QJsonObject sanitized;
+            const QJsonObject obj = value.toObject();
+            for (auto it = obj.begin(); it != obj.end(); ++it) {
+                if (!shouldDropObservationField(it.key())) {
+                    sanitized.insert(it.key(), sanitizeToolOutputValue(it.value()));
+                }
+            }
+            return sanitized;
+        }
+
+        if (value.isArray()) {
+            QJsonArray sanitized;
+            const QJsonArray arr = value.toArray();
+            for (const auto& item : arr) {
+                sanitized.append(sanitizeToolOutputValue(item));
+            }
+            return sanitized;
+        }
+
+        return value;
+    }
+
+    static QJsonObject sanitizeToolOutputObject(const QJsonObject& output) {
+        return sanitizeToolOutputValue(output).toObject();
+    }
+
     static QString buildToolObservationPrompt(const ToolExecutionResult& result) {
+        const QJsonObject sanitized_output = sanitizeToolOutputObject(result.output);
+        const QString display_text = result.promptText().trimmed();
         return QString(
             "## 工具执行结果\n"
             "- call_id: %1\n"
             "- tool: %2\n"
             "- status: %3\n"
-            "- output: %4\n\n"
-            "请基于以上工具结果继续回答用户问题。"
+            "- display_text:\n%4\n"
+            "- structured_output: %5\n\n"
+            "请优先基于 display_text 回答，并只把 structured_output 作为事实校验。"
             "如果还需要额外信息，可以继续调用一个合适的工具；"
             "如果信息已经足够，请输出 <answer>最终回答</answer>。"
         ).arg(result.call_id.isEmpty() ? QStringLiteral("-") : result.call_id,
               result.name,
               result.ok ? QStringLiteral("ok") : QStringLiteral("error"),
-              QString::fromUtf8(QJsonDocument(result.output).toJson(QJsonDocument::Compact)));
+              display_text.isEmpty() ? QStringLiteral("-") : display_text,
+              QString::fromUtf8(QJsonDocument(sanitized_output).toJson(QJsonDocument::Compact)));
     }
 };
 
@@ -317,29 +404,7 @@ public:
  * <tool_call>{"name":"lookup_missing_attendance","arguments":{"query_type":"consecutive_absent","days":2,"date":"2026-04-01"}}</tool_call>
  *
  * ----------------------------------------------------------------------
- * 6. lookup_user_attendance
- * ----------------------------------------------------------------------
- * 功能：
- * - 查询单个员工在今日/本周/本月/指定区间内的考勤摘要
- * - 查询单个员工的详细打卡记录
- * - 查询单个员工最近一次打卡
- * - 查询单个员工的异常打卡
- *
- * 关键参数：
- * - query_type:
- *   - summary / records / latest / anomaly
- * - user_id / name:
- *   - 二选一，用于定位员工
- * - date_range / date / start_date + end_date:
- *   - 查询范围
- *
- * 示例：
- * <tool_call>{"name":"lookup_user_attendance","arguments":{"name":"张三","query_type":"summary","date_range":"week"}}</tool_call>
- * <tool_call>{"name":"lookup_user_attendance","arguments":{"user_id":1001,"query_type":"latest","date_range":"month"}}</tool_call>
- * <tool_call>{"name":"lookup_user_attendance","arguments":{"name":"李四","query_type":"anomaly","start_date":"2026-03-01","end_date":"2026-03-31"}}</tool_call>
- *
- * ----------------------------------------------------------------------
- * 7. query_user
+ * 6. query_user
  * ----------------------------------------------------------------------
  * 功能：
  * - 查询用户统计
@@ -365,7 +430,7 @@ public:
  * <tool_call>{"name":"query_user","arguments":{"action":"list_all"}}</tool_call>
  *
  * ----------------------------------------------------------------------
- * 8. system_info
+ * 7. system_info
  * ----------------------------------------------------------------------
  * 功能：
  * - 查询当前日期时间
@@ -387,7 +452,7 @@ public:
  * <tool_call>{"name":"system_info","arguments":{"query_type":"all"}}</tool_call>
  *
  * ----------------------------------------------------------------------
- * 9. help
+ * 8. help
  * ----------------------------------------------------------------------
  * 功能：
  * - 查询全部帮助
@@ -409,7 +474,7 @@ public:
  * <tool_call>{"name":"help","arguments":{"topic":"user"}}</tool_call>
  *
  * ----------------------------------------------------------------------
- * 10. calculator
+ * 9. calculator
  * ----------------------------------------------------------------------
  * 功能：
  * - 执行简单数学表达式

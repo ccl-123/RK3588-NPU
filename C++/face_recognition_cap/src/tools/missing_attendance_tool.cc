@@ -49,7 +49,7 @@ QJsonObject MissingAttendanceTool::parametersSchema() const {
                 {"description", "仅用于 consecutive_absent，表示连续缺勤天数，默认 2"}
             }}
         }},
-        {"required", QJsonArray{}}
+        {"required", QJsonArray{"query_type"}}
     };
 }
 

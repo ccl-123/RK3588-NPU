@@ -106,7 +106,7 @@ CMAKE_ARGS=(
     
     # 构建类型
     "-DCMAKE_BUILD_TYPE=Release"
-    "-DCMAKE_INSTALL_PREFIX=${INSTALL_DIR}"
+    "-DCMAKE_INSTALL_PREFIX=${INSTALL_DIR}/face_recognition_cap"
     
     # 编译标志
     "-DCMAKE_CXX_FLAGS=-I/usr/include -DSPDLOG_HEADER_ONLY -DFMT_HEADER_ONLY"
@@ -209,8 +209,7 @@ if [ "$DO_DEPLOY" = true ]; then
 
     # 传输核心可执行文件
     echo "  -> 传输核心可执行文件..."
-    ${SCP_CMD} ${INSTALL_DIR}/face_recognition_cap/face_recognition_cap \
-        ${INSTALL_DIR}/face_recognition_cap/face_recognition_cap_gui \
+    ${SCP_CMD} ${INSTALL_DIR}/face_recognition_cap/face_recognition_cap_gui \
         ${DEVICE_USER}@${DEVICE_IP}:${DEVICE_TARGET_DIR}/face_recognition_cap/
     if [ $? -eq 0 ]; then
         echo "     ✓ 核心可执行文件传输完成"
@@ -241,7 +240,7 @@ if [ "$DO_DEPLOY" = true ]; then
         echo ""
         echo "在设备上运行:"
         echo "  ssh ${DEVICE_USER}@${DEVICE_IP}"
-        echo "  cd ${DEVICE_TARGET_DIR}"
+        echo "  cd ${DEVICE_TARGET_DIR}/face_recognition_cap"
         echo "  export LD_LIBRARY_PATH=./lib:\$LD_LIBRARY_PATH"
         echo "  ./face_recognition_cap_gui   # GUI 版本"
     else

@@ -160,15 +160,19 @@ std::vector<AttendanceRecordDAO::DailyStats> AttendanceRecordDAO::get_daily_stat
     
     std::vector<DailyStats> stats_list;
     
-    // 使用 GROUP BY 优化统计查询，一次查询即可获取一段时间的数据
+    // 使用 GROUP BY 优化统计查询，一次查询即可获取一段时间的数据。
+    // 这里按“人数”聚合，与 AttendanceService::get_statistics(date) 的字段语义保持一致。
     // SUBSTR(check_time, 1, 10) 提取 'YYYY-MM-DD'
     std::string sql = R"(
         SELECT 
             SUBSTR(check_time, 1, 10) as day,
-            COUNT(*) as total,
-            SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END) as late,
-            SUM(CASE WHEN status = 3 THEN 1 ELSE 0 END) as early,
-            COUNT(DISTINCT user_id) as users
+            COUNT(DISTINCT user_id) as total_users,
+            COUNT(DISTINCT CASE WHEN check_type = 1 THEN user_id END) as check_in_users,
+            COUNT(DISTINCT CASE WHEN check_type = 2 THEN user_id END) as check_out_users,
+            COUNT(DISTINCT CASE WHEN status = 2 THEN user_id END) as late_users,
+            COUNT(DISTINCT CASE WHEN status = 3 THEN user_id END) as early_leave_users,
+            COUNT(DISTINCT CASE WHEN status = 1 THEN user_id END) as normal_users,
+            COUNT(*) as total_records
         FROM attendance_records
         WHERE check_time >= ? AND check_time <= ?
         GROUP BY day
@@ -187,10 +191,13 @@ std::vector<AttendanceRecordDAO::DailyStats> AttendanceRecordDAO::get_daily_stat
     while (stmt->step()) {
         DailyStats stat;
         stat.date = stmt->get_column_string(0);
-        stat.total_records = stmt->get_column_int(1);
-        stat.late_count = stmt->get_column_int(2);
-        stat.early_leave_count = stmt->get_column_int(3);
-        stat.distinct_users = stmt->get_column_int(4);
+        stat.total_users = stmt->get_column_int(1);
+        stat.check_in_users = stmt->get_column_int(2);
+        stat.check_out_users = stmt->get_column_int(3);
+        stat.late_users = stmt->get_column_int(4);
+        stat.early_leave_users = stmt->get_column_int(5);
+        stat.normal_users = stmt->get_column_int(6);
+        stat.total_records = stmt->get_column_int(7);
         stats_list.push_back(stat);
     }
     

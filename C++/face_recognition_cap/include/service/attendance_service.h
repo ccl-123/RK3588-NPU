@@ -216,6 +216,9 @@ private:
     // 最近打卡缓存：按 user_id 保存最后一次打卡时间和类型
     mutable std::mutex recent_check_cache_mutex_;
     std::unordered_map<int, RecentCheckCacheEntry> recent_check_cache_;
+
+    // 串行化同一进程内的重复检查与插入，避免识别回调并发产生重复打卡。
+    std::mutex record_attendance_mutex_;
 };
 
 } // namespace service

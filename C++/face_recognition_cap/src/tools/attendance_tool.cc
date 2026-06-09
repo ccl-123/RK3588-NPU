@@ -50,7 +50,6 @@ QJsonObject record_to_json(const db::AttendanceRecord& record) {
         {"status", attendance_status_text(record.status)},
         {"similarity", record.similarity},
         {"device_id", QString::fromStdString(record.device_id)},
-        {"location", QString::fromStdString(record.location)},
         {"remark", QString::fromStdString(record.remark)},
     };
 }

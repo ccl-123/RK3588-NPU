@@ -632,8 +632,12 @@ void AiAnalysisService::initializeAgent(service::AttendanceService* attendance_s
     config.skip_system_prompt = false;
 
     agent_service_ = std::make_unique<agent::AgentService>(config, nullptr);
-    if (attendance_svc || user_svc) {
-        agent_service_->registerBuiltinTools(attendance_svc, user_svc);
+    service::AttendanceService* enabled_attendance =
+        Config::Agent::Tools::ENABLE_ATTENDANCE ? attendance_svc : nullptr;
+    service::UserService* enabled_user =
+        Config::Agent::Tools::ENABLE_USER ? user_svc : nullptr;
+    if (enabled_attendance || enabled_user) {
+        agent_service_->registerBuiltinTools(enabled_attendance, enabled_user);
     }
     spdlog::info("Cloud Agent initialized with {} tools (skip_system_prompt={})",
         agent_service_->getToolCount(), config.skip_system_prompt);

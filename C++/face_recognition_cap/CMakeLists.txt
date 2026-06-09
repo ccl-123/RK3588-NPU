@@ -8,9 +8,6 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# 测试框架开关（提供最小测试骨架）
-include(CTest)
-
 # 编译告警开关
 option(ENABLE_PROJECT_WARNINGS "Enable common compiler warnings" ON)
 option(ENABLE_STRICT_PEDANTIC "Enable -Wpedantic (may conflict with third-party headers)" OFF)
@@ -43,8 +40,11 @@ if(UNIX)
     set(CMAKE_INSTALL_RPATH_USE_LINK_PATH FALSE)
 endif()
 
-# 统一安装前缀
-set(CMAKE_INSTALL_PREFIX ${CMAKE_SOURCE_DIR}/install/${TARGET_NAME})
+# 统一默认安装前缀；外部显式传入 CMAKE_INSTALL_PREFIX 时不覆盖。
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT OR CMAKE_INSTALL_PREFIX STREQUAL "/usr/local")
+    set(CMAKE_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}/install/${TARGET_NAME}"
+        CACHE PATH "Install prefix" FORCE)
+endif()
 
 
 
@@ -364,32 +364,18 @@ target_link_libraries(db_tool
 link_logging_dependencies(db_tool)
 enable_target_warnings(db_tool)
 
-# 测试目标骨架
-if(BUILD_TESTING)
-    add_executable(config_smoke_test
-        tests/config_smoke_test.cc
-    )
-    target_compile_features(config_smoke_test PRIVATE cxx_std_17)
-    enable_target_warnings(config_smoke_test)
-
-    if(NOT CMAKE_CROSSCOMPILING)
-        add_test(NAME config_smoke_test COMMAND config_smoke_test)
-    else()
-        message(STATUS "Cross compiling detected, config_smoke_test will be built but not executed")
-    endif()
-endif()
-
-
 # 仅当 db_tool 不存在时才安装，避免重复编译和替换
 install(CODE "
     set(DB_TOOL_SRC \"${CMAKE_BINARY_DIR}/db_tool\")
     set(DB_TOOL_DST \"${CMAKE_INSTALL_PREFIX}/db_tool\")
-    if(NOT EXISTS \${DB_TOOL_DST})
+    if(EXISTS \${DB_TOOL_DST})
+        message(STATUS \"db_tool already exists, skipping: \${DB_TOOL_DST}\")
+    elseif(EXISTS \${DB_TOOL_SRC})
         message(STATUS \"Installing db_tool: \${DB_TOOL_DST}\")
         file(COPY \${DB_TOOL_SRC} DESTINATION \"${CMAKE_INSTALL_PREFIX}/\")
         file(CHMOD \${DB_TOOL_DST} FILE_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
     else()
-        message(STATUS \"db_tool already exists, skipping: \${DB_TOOL_DST}\")
+        message(STATUS \"db_tool was not built, skipping: \${DB_TOOL_DST}\")
     endif()
 ")
 

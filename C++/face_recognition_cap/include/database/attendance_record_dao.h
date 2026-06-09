@@ -124,10 +124,13 @@ public:
      */
     struct DailyStats {
         std::string date;
-        int total_records;
-        int late_count;
-        int early_leave_count;
-        int distinct_users;
+        int total_users = 0;
+        int check_in_users = 0;
+        int check_out_users = 0;
+        int late_users = 0;
+        int early_leave_users = 0;
+        int normal_users = 0;
+        int total_records = 0;
     };
 
     /**

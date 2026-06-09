@@ -38,7 +38,6 @@ QJsonObject record_to_json(const db::AttendanceRecord& record) {
         {"status", attendance_status_text(record.status)},
         {"similarity", record.similarity},
         {"device_id", QString::fromStdString(record.device_id)},
-        {"location", QString::fromStdString(record.location)},
         {"remark", QString::fromStdString(record.remark)},
     };
 }
@@ -94,7 +93,11 @@ QJsonObject UserAttendanceTool::parametersSchema() const {
                 {"description", "结束日期，格式 YYYY-MM-DD，与 start_date 配合使用"}
             }}
         }},
-        {"required", QJsonArray{}}
+        {"required", QJsonArray{}},
+        {"anyOf", QJsonArray{
+            QJsonObject{{"required", QJsonArray{"user_id"}}},
+            QJsonObject{{"required", QJsonArray{"name"}}}
+        }}
     };
 }
 
