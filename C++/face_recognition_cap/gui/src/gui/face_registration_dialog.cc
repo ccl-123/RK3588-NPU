@@ -15,7 +15,11 @@
 #include <QFormLayout>
 #include <QMessageBox>
 #include <QCoreApplication>
+#include <QFrame>
+#include <QGuiApplication>
 #include <QDir>
+#include <QScrollArea>
+#include <QScreen>
 #include <QTimer>
 #include <QPainter>
 #include <QSpacerItem>
@@ -99,9 +103,29 @@ void FaceRegistrationDialog::hideEvent(QHideEvent* event) {
 
 void FaceRegistrationDialog::setup_ui() {
     setWindowTitle(tr("人脸注册"));
-    resize(880, 640);
+    if (auto* screen = QGuiApplication::primaryScreen()) {
+        const QRect available = screen->availableGeometry();
+        resize(qMax(520, qMin(880, available.width() - 48)),
+               qMax(420, qMin(640, available.height() - 48)));
+    } else {
+        resize(880, 640);
+    }
 
-    auto main_layout = new QVBoxLayout(this);
+    auto root_layout = new QVBoxLayout(this);
+    root_layout->setContentsMargins(0, 0, 0, 0);
+    root_layout->setSpacing(0);
+
+    auto scroll = new QScrollArea(this);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    root_layout->addWidget(scroll);
+
+    auto content = new QWidget(scroll);
+    scroll->setWidget(content);
+
+    auto main_layout = new QVBoxLayout(content);
     main_layout->setContentsMargins(24, 24, 24, 24);
     main_layout->setSpacing(24);
 
@@ -133,7 +157,7 @@ void FaceRegistrationDialog::setup_ui() {
     preview_layout->setSpacing(12);
 
     preview_label_ = new QLabel(capture_card);
-    preview_label_->setMinimumSize(420, 320);
+    preview_label_->setMinimumSize(320, 240);
     preview_label_->setAlignment(Qt::AlignCenter);
     preview_label_->setStyleSheet("border: 1px dashed #d9d9d9; border-radius: 12px; background: #f5f6fb;");
 
@@ -150,7 +174,7 @@ void FaceRegistrationDialog::setup_ui() {
     auto collected_label = new QLabel(tr("已采集"), capture_card);
     collected_label->setObjectName("Caption");
     captured_faces_list_ = new QListWidget(capture_card);
-    captured_faces_list_->setMinimumWidth(220);
+    captured_faces_list_->setMinimumWidth(180);
     captured_faces_list_->setSelectionMode(QAbstractItemView::SingleSelection);
     connect(captured_faces_list_, &QListWidget::currentRowChanged,
             this, &FaceRegistrationDialog::on_face_selected);

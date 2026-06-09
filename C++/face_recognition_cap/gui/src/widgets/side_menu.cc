@@ -16,8 +16,11 @@
 
 SideMenu::SideMenu(QWidget* parent)
     : QWidget(parent)
+    , logo_icon_(nullptr)
     , logo_label_(nullptr)
-    , list_widget_(new QListWidget(this)) {
+    , version_label_(nullptr)
+    , list_widget_(new QListWidget(this))
+    , compact_mode_(false) {
     setObjectName("SideMenu");
     setFixedWidth(220);
     setAttribute(Qt::WA_StyledBackground, true);
@@ -35,14 +38,14 @@ SideMenu::SideMenu(QWidget* parent)
     logo_layout->setContentsMargins(16, 0, 16, 0);
     
     // Logo 图标 - 使用 SVG 图标替代 emoji
-    auto logo_icon = new QLabel(logo_container);
-    logo_icon->setPixmap(SvgIconManager::icon(":/icons/ui/app-logo.svg", QSize(28, 28)).pixmap(28, 28));
-    logo_icon->setFixedSize(28, 28);
+    logo_icon_ = new QLabel(logo_container);
+    logo_icon_->setPixmap(SvgIconManager::icon(":/icons/ui/app-logo.svg", QSize(28, 28)).pixmap(28, 28));
+    logo_icon_->setFixedSize(28, 28);
     
     logo_label_ = new QLabel(tr("考勤系统"), logo_container);
     logo_label_->setObjectName("LogoLabel");
     
-    logo_layout->addWidget(logo_icon);
+    logo_layout->addWidget(logo_icon_);
     logo_layout->addSpacing(8);
     logo_layout->addWidget(logo_label_);
     logo_layout->addStretch();
@@ -81,9 +84,9 @@ SideMenu::SideMenu(QWidget* parent)
     auto footer_layout = new QHBoxLayout(footer);
     footer_layout->setContentsMargins(20, 0, 20, 0);
     
-    auto version_label = new QLabel("v2.1.0", footer);
-    version_label->setObjectName("VersionLabel");
-    footer_layout->addWidget(version_label);
+    version_label_ = new QLabel("v2.1.0", footer);
+    version_label_->setObjectName("VersionLabel");
+    footer_layout->addWidget(version_label_);
     footer_layout->addStretch();
     
     layout->addWidget(footer);
@@ -94,12 +97,22 @@ SideMenu::SideMenu(QWidget* parent)
     // 不使用内联样式，让全局 QSS 控制主题
 }
 
+void SideMenu::setCompactMode(bool compact) {
+    if (compact_mode_ == compact) {
+        return;
+    }
+    compact_mode_ = compact;
+    applyCompactMode();
+}
+
 void SideMenu::setItems(const QList<SideMenu::Item>& items) {
     list_widget_->clear();
     for (const auto& item : items) {
-        auto list_item = new QListWidgetItem(item.text);
+        auto list_item = new QListWidgetItem(compact_mode_ ? QString() : item.text);
         list_item->setData(Qt::UserRole, item.key);
-        list_item->setSizeHint(QSize(-1, 48));  // 固定高度
+        list_item->setData(Qt::UserRole + 1, item.text);
+        list_item->setToolTip(item.text);
+        list_item->setSizeHint(QSize(-1, compact_mode_ ? 44 : 48));
         if (!item.icon.isEmpty()) {
             // 使用浅色图标以便在深色背景上可见
             list_item->setIcon(SvgIconManager::icon(item.icon, QSize(20, 20), QColor("#8c8c8c")));
@@ -108,6 +121,27 @@ void SideMenu::setItems(const QList<SideMenu::Item>& items) {
     }
     if (list_widget_->count() > 0) {
         list_widget_->setCurrentRow(0);
+    }
+}
+
+void SideMenu::applyCompactMode() {
+    setFixedWidth(compact_mode_ ? 72 : 220);
+
+    if (logo_label_) {
+        logo_label_->setVisible(!compact_mode_);
+    }
+    if (version_label_) {
+        version_label_->setVisible(!compact_mode_);
+    }
+    if (list_widget_) {
+        list_widget_->setIconSize(compact_mode_ ? QSize(22, 22) : QSize(20, 20));
+        for (int i = 0; i < list_widget_->count(); ++i) {
+            auto* item = list_widget_->item(i);
+            const QString text = item->data(Qt::UserRole + 1).toString();
+            item->setText(compact_mode_ ? QString() : text);
+            item->setSizeHint(QSize(-1, compact_mode_ ? 44 : 48));
+            item->setTextAlignment(compact_mode_ ? Qt::AlignCenter : Qt::AlignVCenter);
+        }
     }
 }
 
@@ -136,4 +170,3 @@ void SideMenu::paintEvent(QPaintEvent* event) {
     style()->drawPrimitive(QStyle::PE_Widget, &opt, &p, this);
     QWidget::paintEvent(event);
 }
-

@@ -35,10 +35,14 @@
 #include <QFileInfo>
 #include <QCoreApplication>
 #include <QDir>
+#include <QGuiApplication>
 #include <QCloseEvent>
 #include <QTimer>
 #include <QThread>
 #include <QStackedWidget>
+#include <QScreen>
+#include <QResizeEvent>
+#include <QWindow>
 #include <QDateTime>
 #include <QDate>
 #include <QTableWidgetItem>
@@ -87,6 +91,17 @@ QPixmap make_circular_pixmap(const QPixmap& source, int size) {
     painter.setPen(QPen(QColor(255, 255, 255, 80), 1));
     painter.drawEllipse(0, 0, size - 1, size - 1);
     return output;
+}
+
+QRect available_geometry_for(const QWidget* widget) {
+    QScreen* screen = nullptr;
+    if (widget && widget->windowHandle()) {
+        screen = widget->windowHandle()->screen();
+    }
+    if (!screen) {
+        screen = QGuiApplication::primaryScreen();
+    }
+    return screen ? screen->availableGeometry() : QRect(0, 0, 1440, 900);
 }
 }  // namespace
 
@@ -732,7 +747,7 @@ void MainWindow::load_users() {
 
 void MainWindow::setup_ui() {
     setWindowTitle("人脸识别考勤系统");
-    resize(1440, 900);
+    apply_initial_window_geometry();
 
     QWidget* host = new QWidget(this);
     setCentralWidget(host);
@@ -766,12 +781,53 @@ void MainWindow::setup_ui() {
     setup_pages();
     setup_navigation();
     connect_page_signals();
+    update_chrome_compact_mode();
     // 主题由 ThemeManager 在 main_gui.cc 中初始化，不再在此调用 apply_theme()
 
     connect(title_bar_, &TitleBar::requestMinimize, this, &MainWindow::showMinimized);
     connect(title_bar_, &TitleBar::requestMaximize, this, &MainWindow::on_action_toggle_maximize);
     connect(title_bar_, &TitleBar::requestClose, this, &MainWindow::close);
     connect(title_bar_, &TitleBar::requestToggleTheme, this, &MainWindow::on_action_toggle_theme);
+}
+
+void MainWindow::apply_initial_window_geometry() {
+    const QRect available = available_geometry_for(this);
+    if (!available.isValid() || available.isEmpty()) {
+        resize(1440, 900);
+        return;
+    }
+
+    const bool small_screen = available.width() <= 1024 || available.height() <= 600;
+    const QSize preferred(1440, 900);
+    const int margin = small_screen ? 0 : 48;
+    const QSize max_size(qMax(480, available.width() - margin),
+                         qMax(360, available.height() - margin));
+    QSize target = small_screen ? available.size() : preferred.boundedTo(max_size);
+
+    const QSize min_size(qMin(640, available.width()), qMin(420, available.height()));
+    target = target.expandedTo(min_size).boundedTo(available.size());
+    setMinimumSize(min_size);
+    resize(target);
+    move(available.center() - rect().center());
+}
+
+void MainWindow::update_chrome_compact_mode() {
+    const QRect available = available_geometry_for(this);
+    const bool compact = width() <= 1100 ||
+                         available.width() <= 1024 ||
+                         available.height() <= 600;
+    if (compact_chrome_ == compact) {
+        return;
+    }
+
+    compact_chrome_ = compact;
+    const int side_width = compact_chrome_ ? 72 : 220;
+    if (side_menu_) {
+        side_menu_->setCompactMode(compact_chrome_);
+    }
+    if (title_bar_) {
+        title_bar_->setSideBarWidth(side_width);
+    }
 }
 
 void MainWindow::setup_pages() {
@@ -1637,6 +1693,12 @@ void MainWindow::on_action_toggle_maximize() {
     if (title_bar_) {
         title_bar_->updateMaximizeIcon();
     }
+    QTimer::singleShot(0, this, [this]() {
+        update_chrome_compact_mode();
+        if (title_bar_) {
+            title_bar_->updateMaximizeIcon();
+        }
+    });
 }
 
 void MainWindow::changeEvent(QEvent* event) {
@@ -1644,10 +1706,16 @@ void MainWindow::changeEvent(QEvent* event) {
 
     // 窗口状态变化时更新 TitleBar 的最大化图标
     if (event->type() == QEvent::WindowStateChange) {
+        update_chrome_compact_mode();
         if (title_bar_) {
             title_bar_->updateMaximizeIcon();
         }
     }
+}
+
+void MainWindow::resizeEvent(QResizeEvent* event) {
+    QMainWindow::resizeEvent(event);
+    update_chrome_compact_mode();
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {

@@ -86,6 +86,7 @@ signals:
 protected:
     void closeEvent(QCloseEvent* event) override;
     void changeEvent(QEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
 
 public slots:
     // 数据刷新槽（公开，供子窗口调用）
@@ -128,6 +129,8 @@ private:
     void handle_settings_route();
     void update_route_breadcrumb(const QString& key);
     bool finish_initialization_after_core();
+    void apply_initial_window_geometry();
+    void update_chrome_compact_mode();
 
     // 视觉模型异步加载/卸载；NPU 资源所有权由 NpuResourceManager 仲裁。
     void release_rknn_models_async();
@@ -209,6 +212,7 @@ private:
     int last_displayed_user_id_;
     std::atomic<int> user_confirm_duration_ms_;                 // 用户确认时长（可配置，默认1秒）
     bool restart_recognition_after_camera_recovery_ = false;    // 摄像头异常恢复后自动重启识别
+    bool compact_chrome_ = false;                               // 小屏幕下收窄侧栏和标题占位
     static constexpr int USER_DETECTION_TIMEOUT_MS = 500;       // 用户检测超时（500ms，帧间隔容差）
     
     // 陌生人持续检测机制（基于时间而非帧数）

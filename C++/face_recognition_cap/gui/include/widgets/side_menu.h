@@ -34,6 +34,8 @@ public:
 
     explicit SideMenu(QWidget* parent = nullptr);
 
+    void setCompactMode(bool compact);
+
     /**
      * @brief 设置菜单项
      */
@@ -57,6 +59,11 @@ private slots:
     void handleSelectionChanged();
 
 private:
+    void applyCompactMode();
+
+    QLabel* logo_icon_;
     QLabel* logo_label_;
+    QLabel* version_label_;
     QListWidget* list_widget_;
+    bool compact_mode_;
 };

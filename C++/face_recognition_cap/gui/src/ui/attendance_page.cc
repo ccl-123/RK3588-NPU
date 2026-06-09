@@ -10,8 +10,10 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
+#include <QFrame>
 #include <QHeaderView>
 #include <QFileDialog>
+#include <QScrollArea>
 #include <QDir>
 #include <QMessageBox>
 #include <QInputDialog>
@@ -70,7 +72,23 @@ void AttendancePage::setUserService(service::UserService* service) {
 }
 
 void AttendancePage::setup_ui() {
-    auto main_layout = new QVBoxLayout(this);
+    auto root_layout = new QVBoxLayout(this);
+    root_layout->setContentsMargins(0, 0, 0, 0);
+    root_layout->setSpacing(0);
+
+    auto scroll = new QScrollArea(this);
+    scroll->setObjectName("AttendanceScroll");
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    root_layout->addWidget(scroll);
+
+    auto content = new QWidget(scroll);
+    content->setObjectName("AttendanceContent");
+    scroll->setWidget(content);
+
+    auto main_layout = new QVBoxLayout(content);
     main_layout->setContentsMargins(32, 24, 32, 24);
     main_layout->setSpacing(24);
 
@@ -267,7 +285,10 @@ void AttendancePage::create_records_table() {
     records_table_->setColumnWidth(4, 120);
     records_table_->setColumnWidth(5, 100);
     
-    records_table_->horizontalHeader()->setStretchLastSection(true);
+    records_table_->setMinimumHeight(240);
+    records_table_->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    records_table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    records_table_->horizontalHeader()->setStretchLastSection(false);
     records_table_->verticalHeader()->setDefaultSectionSize(48);
     records_table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     records_table_->setEditTriggers(QAbstractItemView::NoEditTriggers);

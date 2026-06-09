@@ -66,6 +66,7 @@
         <file alias="moon.svg">icons/ui/moon.svg</file>
         <file alias="maximize.svg">icons/ui/maximize.svg</file>
         <file alias="minimize.svg">icons/ui/minimize.svg</file>
+        <file alias="restore.svg">icons/ui/restore.svg</file>
         <file alias="bell.svg">icons/ui/bell.svg</file>
         <file alias="bell-off.svg">icons/ui/bell-off.svg</file>
         <file alias="volume.svg">icons/ui/volume.svg</file>

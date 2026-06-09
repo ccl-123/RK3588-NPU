@@ -13,6 +13,8 @@
 #include <QHBoxLayout>
 #include <QFont>
 #include <QFile>
+#include <QGuiApplication>
+#include <QScreen>
 #include <QTextStream>
 #include <QSysInfo>
 #include <QVariant>
@@ -21,7 +23,13 @@ AboutDialog::AboutDialog(QWidget* parent)
     : QDialog(parent)
 {
     setWindowTitle(QString::fromUtf8("关于人脸识别考勤系统"));
-    setFixedSize(640, 520);
+    if (auto* screen = QGuiApplication::primaryScreen()) {
+        const QRect available = screen->availableGeometry();
+        resize(qMax(360, qMin(640, available.width() - 48)),
+               qMax(320, qMin(520, available.height() - 48)));
+    } else {
+        resize(640, 520);
+    }
 
     setup_ui();
 }
@@ -154,4 +162,3 @@ QString AboutDialog::get_license_info() {
         "MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT."
     );
 }
-

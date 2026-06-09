@@ -10,6 +10,7 @@
 #include "widgets/icon_button.h"
 #include "widgets/news_ticker.h"
 
+#include <QAbstractButton>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMenu>
@@ -20,6 +21,7 @@
 
 TitleBar::TitleBar(QWidget* parent)
     : QWidget(parent)
+    , left_spacer_(new QWidget(this))
     , title_label_(new QLabel(this))
     , breadcrumb_label_(new QLabel(this))
     , news_ticker_(new NewsTicker(this))
@@ -27,7 +29,8 @@ TitleBar::TitleBar(QWidget* parent)
     , user_button_(new IconButton(this))
     , minimize_button_(new IconButton(this))
     , maximize_button_(new IconButton(this))
-    , close_button_(new IconButton(this)) {
+    , close_button_(new IconButton(this))
+    , dragging_(false) {
     setObjectName("TitleBar");
     setFixedHeight(56);
     setAttribute(Qt::WA_StyledBackground, true);
@@ -36,11 +39,9 @@ TitleBar::TitleBar(QWidget* parent)
     layout->setContentsMargins(0, 0, 16, 0);
     layout->setSpacing(8);
 
-    // 左侧占位区域（与侧边栏宽度对齐：220px）
-    auto left_spacer = new QWidget(this);
-    left_spacer->setFixedWidth(220);
-    left_spacer->setObjectName("TitleBarSpacer");
-    layout->addWidget(left_spacer);
+    left_spacer_->setFixedWidth(220);
+    left_spacer_->setObjectName("TitleBarSpacer");
+    layout->addWidget(left_spacer_);
 
     // 面包屑导航（带左边距）
     breadcrumb_label_->setObjectName("Breadcrumb");
@@ -130,6 +131,13 @@ void TitleBar::setHeadlines(const QStringList& headlines) {
     }
 }
 
+void TitleBar::setSideBarWidth(int width) {
+    if (!left_spacer_) {
+        return;
+    }
+    left_spacer_->setFixedWidth(qMax(0, width));
+}
+
 void TitleBar::setUserMenu(QMenu* menu) {
     if (!menu) {
         return;
@@ -161,29 +169,44 @@ void TitleBar::setUserMenu(QMenu* menu) {
 }
 
 void TitleBar::mousePressEvent(QMouseEvent* event) {
-    if (event->button() == Qt::LeftButton) {
-        drag_pos_ = event->globalPos() - parentWidget()->frameGeometry().topLeft();
+    dragging_ = false;
+    QWidget* parent = parentWidget();
+    if (event->button() == Qt::LeftButton && parent &&
+        !parent->isMaximized() && !parent->isFullScreen() &&
+        isDragArea(event->pos())) {
+        drag_pos_ = event->globalPos() - parent->frameGeometry().topLeft();
+        dragging_ = true;
         event->accept();
+        return;
     }
+    QWidget::mousePressEvent(event);
 }
 
 void TitleBar::mouseMoveEvent(QMouseEvent* event) {
-    if (event->buttons() & Qt::LeftButton) {
-        // 只有在非最大化状态下才允许拖动
-        QWidget* parent = parentWidget();
-        if (parent && !parent->isMaximized() && !parent->isFullScreen()) {
-            parent->move(event->globalPos() - drag_pos_);
-        }
+    QWidget* parent = parentWidget();
+    if (dragging_ && (event->buttons() & Qt::LeftButton) && parent &&
+        !parent->isMaximized() && !parent->isFullScreen()) {
+        parent->move(event->globalPos() - drag_pos_);
         event->accept();
+        return;
     }
+    QWidget::mouseMoveEvent(event);
+}
+
+void TitleBar::mouseReleaseEvent(QMouseEvent* event) {
+    if (event->button() == Qt::LeftButton) {
+        dragging_ = false;
+    }
+    QWidget::mouseReleaseEvent(event);
 }
 
 void TitleBar::mouseDoubleClickEvent(QMouseEvent* event) {
-    if (event->button() == Qt::LeftButton) {
-        // 双击标题栏切换最大化状态
+    if (event->button() == Qt::LeftButton && isDragArea(event->pos())) {
         emit requestMaximize();
         event->accept();
+        return;
     }
+    QWidget::mouseDoubleClickEvent(event);
 }
 
 void TitleBar::updateMaximizeIcon() {
@@ -193,14 +216,31 @@ void TitleBar::updateMaximizeIcon() {
     }
 
     if (parent->isMaximized() || parent->isFullScreen()) {
-        // 已最大化，显示恢复图标
-        maximize_button_->setSvg(":/icons/ui/minimize.svg", QSize(16, 16));
+        maximize_button_->setSvg(":/icons/ui/restore.svg", QSize(16, 16));
         maximize_button_->setToolTip(tr("还原"));
     } else {
-        // 正常状态，显示最大化图标
         maximize_button_->setSvg(":/icons/ui/maximize.svg", QSize(16, 16));
         maximize_button_->setToolTip(tr("最大化"));
     }
+}
+
+bool TitleBar::isDragArea(const QPoint& pos) const {
+    if (!rect().contains(pos)) {
+        return false;
+    }
+
+    QWidget* child = childAt(pos);
+    if (!child || child == this) {
+        return true;
+    }
+
+    for (QWidget* current = child; current && current != this; current = current->parentWidget()) {
+        if (qobject_cast<QAbstractButton*>(current) || current == news_ticker_) {
+            return false;
+        }
+    }
+
+    return child == left_spacer_ || child == title_label_ || child == breadcrumb_label_;
 }
 
 void TitleBar::paintEvent(QPaintEvent* event) {

@@ -20,7 +20,7 @@ VideoDisplayWidget::VideoDisplayWidget(QWidget* parent)
     , display_frame_count_(0)
     , last_display_fps_time_(std::chrono::steady_clock::now())
 {
-    setMinimumSize(640, 480);
+    setMinimumSize(320, 240);
     setAttribute(Qt::WA_OpaquePaintEvent);
 }
 

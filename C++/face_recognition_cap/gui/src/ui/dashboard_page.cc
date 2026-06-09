@@ -1218,7 +1218,7 @@ void DashboardPage::setup_ui() {
     insight_header_layout->addWidget(ai_analysis_btn_);
 
     insight_card->setHeaderWidget(insight_header);
-    insight_card->setMinimumHeight(980);
+    insight_card->setMinimumHeight(560);
     auto insight_layout = new QVBoxLayout(insight_card->bodyContainer());
     insight_layout->setContentsMargins(0, 0, 0, 0);
     insight_layout->setSpacing(10);
@@ -1228,7 +1228,7 @@ void DashboardPage::setup_ui() {
     ai_scroll_->setFrameShape(QFrame::NoFrame);
     ai_scroll_->setObjectName("AiChatScroll");
     ai_scroll_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    ai_scroll_->setMinimumHeight(560);
+    ai_scroll_->setMinimumHeight(280);
 
     ai_chat_container_ = new QWidget(ai_scroll_);
     ai_chat_container_->setObjectName("AiChatContainer");

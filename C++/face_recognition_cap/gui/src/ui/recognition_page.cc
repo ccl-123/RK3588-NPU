@@ -16,9 +16,11 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QDate>
+#include <QFrame>
 #include <QLabel>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QStyle>
 #include <QVBoxLayout>
 #include <QVariant>
@@ -152,7 +154,23 @@ RecognitionPage::RecognitionPage(QWidget* parent)
         }
     });
 
-    auto layout = new QHBoxLayout(this);
+    auto root_layout = new QVBoxLayout(this);
+    root_layout->setContentsMargins(0, 0, 0, 0);
+    root_layout->setSpacing(0);
+
+    auto scroll = new QScrollArea(this);
+    scroll->setObjectName("RecognitionScroll");
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    root_layout->addWidget(scroll);
+
+    auto content = new QWidget(scroll);
+    content->setObjectName("RecognitionContent");
+    scroll->setWidget(content);
+
+    auto layout = new QHBoxLayout(content);
     layout->setContentsMargins(24, 24, 24, 24);
     layout->setSpacing(20);
 
@@ -477,7 +495,7 @@ CardWidget* RecognitionPage::createVideoCard() {
     auto info_panel = new QWidget(container);
     info_panel->setObjectName("UserInfoPanel");
     info_panel->setAttribute(Qt::WA_StyledBackground, true);
-    info_panel->setFixedHeight(100);
+    info_panel->setMinimumHeight(84);
 
     auto info_layout = new QHBoxLayout(info_panel);
     info_layout->setContentsMargins(20, 16, 20, 16);
@@ -513,12 +531,13 @@ CardWidget* RecognitionPage::createVideoCard() {
     
     user_name_label_ = new QLabel(tr("等待识别..."), info_panel);
     user_name_label_->setObjectName("UserNameLabel");
-    user_name_label_->setMinimumWidth(150);  // 最小宽度
-    user_name_label_->setMaximumWidth(300);  // 最大宽度，支持较长的名字
+    user_name_label_->setMinimumWidth(120);
+    user_name_label_->setMaximumWidth(260);
     
     // 签到成功标签容器（固定宽度，防止显示/隐藏时布局抖动）
     auto status_container = new QWidget(info_panel);
-    status_container->setFixedWidth(130);  // 固定宽度容器（适应更大的标签）
+    status_container->setMinimumWidth(96);
+    status_container->setMaximumWidth(130);
     status_container->setAttribute(Qt::WA_TranslucentBackground);
     auto status_layout = new QHBoxLayout(status_container);
     status_layout->setContentsMargins(0, 0, 0, 0);
@@ -598,7 +617,8 @@ CardWidget* RecognitionPage::createVideoCard() {
     auto similarity_card = new QWidget(metrics_container);
     similarity_card->setObjectName("MetricCard");
     similarity_card->setAttribute(Qt::WA_StyledBackground, true);
-    similarity_card->setFixedWidth(90);
+    similarity_card->setMinimumWidth(76);
+    similarity_card->setMaximumWidth(90);
     
     auto sim_layout = new QVBoxLayout(similarity_card);
     sim_layout->setContentsMargins(12, 8, 12, 8);
@@ -634,7 +654,7 @@ QWidget* RecognitionPage::createInfoBar() {
     auto info_bar = new QWidget();
     info_bar->setObjectName("InfoBar");
     info_bar->setAttribute(Qt::WA_StyledBackground, true);
-    info_bar->setFixedHeight(100);  // 与用户信息栏同高
+    info_bar->setMinimumHeight(84);
     
     auto layout = new QHBoxLayout(info_bar);
     layout->setContentsMargins(24, 16, 24, 16);
@@ -794,7 +814,7 @@ QWidget* RecognitionPage::createStatusBar() {
     auto status_bar = new QWidget();
     status_bar->setObjectName("DetectionStatusBar");
     status_bar->setAttribute(Qt::WA_StyledBackground, true);
-    status_bar->setFixedHeight(100);  // 与用户信息栏同高
+    status_bar->setMinimumHeight(84);
     
     auto layout = new QHBoxLayout(status_bar);
     layout->setContentsMargins(24, 16, 24, 16);
@@ -842,14 +862,15 @@ QWidget* RecognitionPage::createStatusBar() {
     holiday_layout->addWidget(holiday_status_label_);
     holiday_layout->addWidget(holiday_countdown_label_);
 
-    holiday_card->setMinimumWidth(220);
+    holiday_card->setMinimumWidth(160);
     layout->addWidget(holiday_card, 2);
     
     // ===== 人脸检测状态卡片 =====
     auto face_card = new QWidget(status_bar);
     face_card->setObjectName("FaceDetectionCard");
     face_card->setAttribute(Qt::WA_StyledBackground, true);
-    face_card->setFixedWidth(130);  // 缩窄，突出节假日卡
+    face_card->setMinimumWidth(110);
+    face_card->setMaximumWidth(130);
     auto face_card_layout = new QVBoxLayout(face_card);
     face_card_layout->setContentsMargins(16, 12, 16, 12);
     face_card_layout->setSpacing(4);
@@ -887,7 +908,7 @@ QWidget* RecognitionPage::createStatusBar() {
     detection_progress_bar_->setRange(0, 100);
     detection_progress_bar_->setValue(0);
     detection_progress_bar_->setTextVisible(false);
-    detection_progress_bar_->setFixedSize(160, 8);
+    detection_progress_bar_->setFixedSize(120, 8);
     detection_progress_bar_->setVisible(true);
     
     progress_card_layout->addWidget(detection_status_label_);

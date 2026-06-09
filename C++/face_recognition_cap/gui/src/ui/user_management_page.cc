@@ -10,7 +10,9 @@
 #include <QHBoxLayout>
 #include <QPushButton>
 #include <QVBoxLayout>
+#include <QFrame>
 #include <QHeaderView>
+#include <QScrollArea>
 #include <QLabel>
 #include <QMessageBox>
 #include <QVariant>
@@ -67,13 +69,30 @@ void UserManagementPage::showEvent(QShowEvent* event) {
 }
 
 void UserManagementPage::setup_ui() {
-    auto main_layout = new QVBoxLayout(this);
+    auto root_layout = new QVBoxLayout(this);
+    root_layout->setContentsMargins(0, 0, 0, 0);
+    root_layout->setSpacing(0);
+
+    auto scroll = new QScrollArea(this);
+    scroll->setObjectName("UserManagementScroll");
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    root_layout->addWidget(scroll);
+
+    auto content = new QWidget(scroll);
+    content->setObjectName("UserManagementContent");
+    scroll->setWidget(content);
+
+    auto main_layout = new QVBoxLayout(content);
     main_layout->setContentsMargins(32, 24, 32, 24);
     main_layout->setSpacing(24);
 
     auto card = new CardWidget(this);
     card->setTitle(tr("用户管理"));
     card->setSubtitle(tr("查看、筛选并维护考勤用户"));
+    card->setMinimumWidth(760);
     main_layout->addWidget(card);
 
     auto body_layout = new QVBoxLayout(card->bodyContainer());
@@ -134,10 +153,18 @@ void UserManagementPage::setup_ui() {
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->verticalHeader()->setVisible(false);
     table_->setEmptyText(tr("暂无用户数据"));
+    table_->setMinimumHeight(260);
+    table_->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     
-    // 设置列宽策略：所有列按比例分配空间
     table_->horizontalHeader()->setStretchLastSection(false);
-    table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    table_->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    table_->setColumnWidth(0, 70);
+    table_->setColumnWidth(1, 120);
+    table_->setColumnWidth(2, 120);
+    table_->setColumnWidth(3, 120);
+    table_->setColumnWidth(4, 120);
+    table_->setColumnWidth(5, 90);
+    table_->setColumnWidth(6, 90);
     
     // 为状态列设置自定义绘制代理，避免使用 setCellWidget 导致的列错位问题
     table_->setItemDelegateForColumn(5, new StatusItemDelegate(table_));
@@ -374,4 +401,3 @@ ModernTableView* UserManagementPage::table() const {
 SearchInput* UserManagementPage::searchInput() const {
     return search_input_;
 }
-
