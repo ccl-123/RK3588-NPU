@@ -70,6 +70,9 @@ CLAUDE.md
 GEMINI.md
 AGENTS.md
 .serena
+.agent_cache/
+.agents/
+.codex/
 源代码说明.txt
 # Qt Creator
 *.pro.user
