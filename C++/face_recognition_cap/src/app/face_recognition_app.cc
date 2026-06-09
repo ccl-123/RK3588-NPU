@@ -234,6 +234,11 @@ int FaceRecognitionApp::init_camera() {
         const std::string device = config_.device_number.empty()
             ? std::string(Config::Camera::OV13855_DEVICE)
             : config_.device_number;
+        
+        // Force OV13855 MIPI camera to 1920x1080 to match its calibrated 3A server profile (1080p30).
+        config_.camera_width = Config::Camera::OV13855_WIDTH;
+        config_.camera_height = Config::Camera::OV13855_HEIGHT;
+
         CameraConfig camera_config = make_mipi_ov13855_camera_config(
             device,
             config_.camera_width,

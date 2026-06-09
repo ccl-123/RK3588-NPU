@@ -445,6 +445,10 @@ int load_mipi_camera(const MipiCameraConfig& config)
         return EXIT_FAILURE;
     }
 
+    // Re-apply sensor controls right after stream starts to override any default controls
+    // set during the hardware stream-on sequence or initial 3A server handshake.
+    configure_sensor_controls(config);
+
     active_width = static_cast<int>(
         is_mplane_type(active_type) ? fmt.fmt.pix_mp.width : fmt.fmt.pix.width);
     active_height = static_cast<int>(
