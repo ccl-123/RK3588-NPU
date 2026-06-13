@@ -610,22 +610,18 @@ void AudioManager::applyAlsaVolume(int volume) {
     QPointer<AudioManager> self = this;
     QtConcurrent::run([self, cardNum, volume]() {
         if (!self) return;
-        // 尝试多个控件，优先级：Master -> PCM -> Output 1/2
-        // es8388 声卡使用 Output 1/2，其他声卡可能使用 Master/PCM
-        QStringList controls = {"Master", "PCM", "Output 1", "Output 2"};
+        // 尝试多个控件，并且对于所有存在的控制项都设置音量并解除静音 (unmute)
+        // 兼容 es8388 (Output 1/2), nau8822 (Headphone/Speaker/PCM), 以及标准 Master
+        QStringList controls = {"Master", "PCM", "Headphone", "Speaker", "Output 1", "Output 2"};
 
         for (const QString& ctrl : controls) {
             QStringList args;
-            args << "-c" << cardNum << "sset" << ctrl << QString("%1%").arg(volume);
+            args << "-c" << cardNum << "sset" << ctrl << QString("%1%").arg(volume) << "unmute";
 
             QProcess proc;
             proc.start("amixer", args);
             if (proc.waitForFinished(1000) && proc.exitCode() == 0) {
-                spdlog::debug("AudioManager: Volume set via {} to {}%", ctrl.toStdString(), volume);
-                // Master/PCM 成功后就返回，Output 1/2 需要同时设置
-                if (ctrl == "Master" || ctrl == "PCM") {
-                    break;
-                }
+                spdlog::debug("AudioManager: Volume set/unmuted via {} to {}%", ctrl.toStdString(), volume);
             }
         }
         if (!self) return;
