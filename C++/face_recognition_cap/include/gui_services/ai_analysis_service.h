@@ -2,10 +2,6 @@
 #define AI_ANALYSIS_SERVICE_H
 
 #include <QObject>
-#include <QNetworkAccessManager>
-#include <QNetworkReply>
-#include <QTimer>
-#include <QPointer>
 #include <QThread>
 #include <atomic>
 #include <memory>
@@ -26,26 +22,12 @@ class AiAnalysisService : public QObject {
 public:
     static AiAnalysisService* instance();
 
-    // 发起 AI 分析请求
-    // stats: 当日统计数据
-    // trend_summary: 趋势简报
-    // detail_records: 详细记录字符串
-    void requestAnalysis(const service::AttendanceStatistics& stats,
-                         const QString& trend_summary,
-                         const QString& detail_records = "",
-                         const QString& user_prompt = "",
-                         int range_days = 1);
-
-    // 新增：Agent 对话接口
+    // Agent 对话接口
     void requestAgentChat(const QString& user_input);
 
     // 新增：初始化 Agent
     void initializeAgent(service::AttendanceService* attendance_svc,
                          service::UserService* user_svc);
-
-    // 新增：Agent 模式开关
-    void setAgentMode(bool enabled);
-    bool isAgentMode() const { return agent_mode_; }
 
     // 取消当前分析请求
     void cancelAnalysis();
@@ -82,14 +64,6 @@ private:
     // 清理当前请求
     void cleanup();
 
-    // 执行云端请求（带重试）
-    void doCloudRequest(const service::AttendanceStatistics& stats,
-                        const QString& trend_summary,
-                        const QString& detail_records,
-                        const QString& user_prompt,
-                        int range_days,
-                        int retry_count = 0);
-
     /**
      * @brief 创建同步的云端 LLM 回调函数
      * @return LLM 回调函数
@@ -101,40 +75,7 @@ private:
      */
     QString doSyncCloudRequest(const QString& prompt);
 
-    QNetworkAccessManager* network_manager_;
-
-    // SSE 缓冲区，用于处理粘包/分包
-    QByteArray sse_buffer_;
-
-    // 当前请求
-    QPointer<QNetworkReply> current_reply_;
-
-    // 超时定时器
-    QTimer* timeout_timer_;
-    QTimer* total_timeout_timer_;
-
-    // 重试相关
-    static constexpr int MAX_RETRIES = 3;
-    static constexpr int TIMEOUT_MS = 60000;  // 60秒超时
-    static constexpr int TOTAL_TIMEOUT_MS = 5 * 60 * 1000;  // 5分钟总超时
-    static constexpr int RETRY_DELAY_MS = 2000;  // 重试延迟2秒
-
-    // 当前请求参数（用于重试）
-    service::AttendanceStatistics current_stats_;
-    QString current_trend_summary_;
-    QString current_detail_records_;
-    QString current_user_prompt_;
-    int current_range_days_;
-    int current_retry_count_;
-
-    // 防止重复 emit analysisFinished
-    bool completed_;
-
-    // 增量输出缓冲
-    QString incremental_buffer_;
-
     // Agent 相关
-    bool agent_mode_ = true;
     std::atomic<bool> agent_running_{false};
     std::atomic<bool> agent_cancel_requested_{false};
     std::atomic<bool> agent_failed_{false};

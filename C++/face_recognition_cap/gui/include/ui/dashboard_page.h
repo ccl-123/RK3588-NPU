@@ -114,18 +114,7 @@ private:
     QPushButton* ai_voice_btn_;   // 语音识别按钮
     QLabel* asr_status_label_;   // ASR 状态标签
     QString ai_last_prompt_;
-    QString ai_skip_prefix_;
-    int ai_data_range_days_;
-
-    // 数据范围选择按钮
-    QPushButton* ai_data_today_btn_;
-    QPushButton* ai_data_7day_btn_;
-    QPushButton* ai_data_30day_btn_;
-    QPushButton* ai_data_qa_btn_;  // 纯问答模式按钮（不附带考勤数据）
-    QLabel* ai_data_range_label_;  // 显示当前选中的数据范围
     ChatRenderMessage current_assistant_message_;
-
-    void update_data_range_buttons();  // 更新按钮选中状态
 
 private slots:
     void on_ai_analysis_clicked();
@@ -135,7 +124,6 @@ private slots:
     void on_ai_error(const QString& error);
     void on_ai_analysis_started();
     void on_ai_analysis_cancelled();
-    void on_data_range_changed(int days);
 
     // ASR 语音识别
     void on_voice_btn_clicked();
@@ -152,16 +140,11 @@ private slots:
     void on_local_llm_progress(int percent);
     void on_local_llm_released();
 
-    void on_agent_mode_toggled(bool checked);
-
 private:
     // LLM 后端切换
     QPushButton* backend_toggle_btn_;
     QLabel* backend_status_label_;
     bool is_local_llm_;
 
-    // Agent 模式切换（仅本地 LLM 可用）
-    QPushButton* agent_mode_btn_;
     QLabel* agent_status_label_;
-    bool is_agent_mode_;
 };

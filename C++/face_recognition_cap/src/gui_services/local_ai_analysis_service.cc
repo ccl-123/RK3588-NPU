@@ -1,19 +1,16 @@
 /**
  * @file local_ai_analysis_service.cc
- * @brief 本地 RKLLM 分析服务，支持 Chat 和 Agent 双模式。
+ * @brief 本地 RKLLM Agent 分析服务。
  *
  * 架构说明：
- * - Chat 模式：传统提示词模式，将考勤数据附带到 prompt 中发送给 LLM
- * - Agent 模式：ReAct 智能体模式，LLM 通过工具调用自主获取所需数据
+ * - ReAct 智能体模式：LLM 通过工具调用自主获取所需数据
  *
  * 流式输出机制：
- * - Chat 模式：直接转发 LLM 输出的每个 chunk
- * - Agent 模式：检测 <answer> 标签后开始流式输出最终答案
+ * - 检测 <answer> 标签后开始流式输出最终答案
  */
 #include "gui_services/local_ai_analysis_service.h"
 
 #include "app/local_llm_thread.h"
-#include "gui_services/ai_prompt_builder.h"
 #include "config/config.h"
 #include "agent/agent_service.h"
 #include "agent/agent_worker.h"
@@ -43,9 +40,6 @@ LocalAiAnalysisService::LocalAiAnalysisService(QObject* parent)
     auto local_llm = LocalLLMThread::instance();
     connect(local_llm, &LocalLLMThread::modelReady, this, &LocalAiAnalysisService::onLocalLLMReady);
     connect(local_llm, &LocalLLMThread::modelFailed, this, &LocalAiAnalysisService::onLocalLLMFailed);
-    connect(local_llm, &LocalLLMThread::chunkReady, this, &LocalAiAnalysisService::onLocalLLMChunk);
-    connect(local_llm, &LocalLLMThread::inferenceFinished, this, &LocalAiAnalysisService::onLocalLLMFinished);
-    connect(local_llm, &LocalLLMThread::errorOccurred, this, &LocalAiAnalysisService::onLocalLLMError);
     connect(local_llm, &LocalLLMThread::modelReleased, this, &LocalAiAnalysisService::onLocalLLMReleased);
 }
 
@@ -149,62 +143,6 @@ void LocalAiAnalysisService::cancelAnalysis() {
     emit analysisCancelled();
 }
 
-void LocalAiAnalysisService::requestAnalysis(const service::AttendanceStatistics& stats,
-                                             const QString& trend_summary,
-                                             const QString& detail_records,
-                                             const QString& user_prompt,
-                                             int range_days) {
-    if (local_analyzing_) {
-        spdlog::warn("Previous local analysis is still running, cancelling it");
-        cancelAnalysis();
-    }
-
-    if (!isLocalLLMReady()) {
-        emit errorOccurred("本地模型未初始化，请先加载模型");
-        return;
-    }
-
-    // 如果 Agent 模式开启且 Agent 已初始化，使用 Agent 模式进行智能工具调用
-    if (agent_mode_ && agent_service_ && agent_service_->getToolCount() > 0) {
-        spdlog::info("Using Agent mode with {} tools", agent_service_->getToolCount());
-
-        // 构建用户问题（Agent 会自动调用工具获取数据）
-        QString agent_input = user_prompt;
-        if (agent_input.isEmpty()) {
-            if (range_days == 0) {
-                // 纯问答模式，需要用户输入
-                emit errorOccurred("请输入您的问题");
-                return;
-            } else if (range_days == 1) {
-                agent_input = "请分析今日考勤情况";
-            } else {
-                agent_input = QString("请分析近%1日的考勤情况").arg(range_days);
-            }
-        }
-
-        // 调用 Agent 模式
-        requestAgentChat(agent_input);
-        return;
-    }
-
-    // Chat 模式：使用传统提示词模式（附带数据上下文）
-    spdlog::info("Using Chat mode (agent_mode={}, agent_initialized={})",
-        agent_mode_, agent_service_ != nullptr);
-    if (agent_service_) {
-        agent_service_->resetLlmSessionCache();
-    }
-    LocalLLMThread::instance()->resetContext();
-    QString prompt = AiPromptBuilder::buildPrompt(
-        stats, trend_summary, detail_records, user_prompt, range_days);
-
-    local_analyzing_ = true;
-    beginStreamRequest();
-    emit analysisStarted();
-    emitStreamEvent("model", "start", "status");
-    spdlog::info("Sending prompt to local LLM ({} chars)", prompt.length());
-    LocalLLMThread::instance()->requestInference(prompt, false);
-}
-
 // ==================== LLM 事件处理 ====================
 
 void LocalAiAnalysisService::onLocalLLMReady() {
@@ -222,35 +160,6 @@ void LocalAiAnalysisService::onLocalLLMFailed(const QString& error) {
     }
     emitStreamEvent("model", "error", "status", "本地模型加载失败: " + error);
     emit errorOccurred("本地模型加载失败: " + error);
-}
-
-void LocalAiAnalysisService::onLocalLLMChunk(const QString& chunk) {
-    // Agent 模式：由 requestAgentChat 内部的 llm_callback 处理
-    // Chat 模式：直接转发给 UI
-    if (agent_running_ || !local_analyzing_) {
-        return;
-    }
-    emitAssistantDelta(chunk, "model");
-}
-
-void LocalAiAnalysisService::onLocalLLMFinished() {
-    // Agent 模式：由 requestAgentChat 统一触发 analysisFinished
-    if (agent_running_ || !local_analyzing_) {
-        return;
-    }
-    local_analyzing_ = false;
-    emitStreamEvent("model", "done", "assistant", QString(), QJsonObject(), true);
-    emit analysisFinished();
-}
-
-void LocalAiAnalysisService::onLocalLLMError(const QString& error) {
-    // Agent 模式：由 llm_callback 内部处理
-    if (agent_running_ || !local_analyzing_) {
-        return;
-    }
-    local_analyzing_ = false;
-    emitStreamEvent("model", "error", "status", error);
-    emit errorOccurred(error);
 }
 
 void LocalAiAnalysisService::onLocalLLMReleased() {
@@ -415,13 +324,6 @@ void LocalAiAnalysisService::requestAgentChat(const QString& user_input) {
 
     thread->start();
     spdlog::info("Agent worker thread started");
-}
-
-// ==================== Agent 模式控制 ====================
-
-void LocalAiAnalysisService::setAgentMode(bool enabled) {
-    agent_mode_ = enabled;
-    spdlog::info("Agent mode {}", enabled ? "enabled" : "disabled");
 }
 
 void LocalAiAnalysisService::clearAgentHistory() {

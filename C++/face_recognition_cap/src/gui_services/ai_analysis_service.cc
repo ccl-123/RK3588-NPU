@@ -9,13 +9,14 @@
 #include "gui_services/ai_analysis_service.h"
 #include "service/attendance_service.h"
 #include "config/config.h"
-#include "gui_services/ai_prompt_builder.h"
 #include "gui_services/llm_protocol_adapter.h"
 #include "agent/agent_worker.h"
 #include "agent/incremental_response_parser.h"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QCoreApplication>
 #include <QTimer>
@@ -87,14 +88,10 @@ AiAnalysisService* AiAnalysisService::instance() {
 }
 
 AiAnalysisService::AiAnalysisService(QObject* parent)
-    : QObject(parent)
-    , current_retry_count_(0)
-    , completed_(false)
-    , agent_mode_(true) {
+    : QObject(parent) {
     qRegisterMetaType<agent::AgentStreamEvent>("agent::AgentStreamEvent");
     qRegisterMetaType<agent::ToolInvocation>("agent::ToolInvocation");
     qRegisterMetaType<agent::ToolExecutionResult>("agent::ToolExecutionResult");
-    network_manager_ = new QNetworkAccessManager(this);
 
     if (std::strlen(Config::LlamaCpp::getBaseUrl()) == 0) {
         spdlog::warn("LLAMA_CPP_SERVER_URL is not set; remote OpenAI-compatible LLM is disabled");
@@ -108,54 +105,6 @@ AiAnalysisService::AiAnalysisService(QObject* parent)
                      std::strlen(Config::LlamaCpp::getApiKey()));
     }
 
-    // 空闲超时定时器：流式响应期间没有任何数据到达时触发。
-    timeout_timer_ = new QTimer(this);
-    timeout_timer_->setSingleShot(true);
-    connect(timeout_timer_, &QTimer::timeout, this, [this]() {
-        if (current_reply_) {
-            spdlog::warn("AI analysis request timeout");
-
-            // 检查是否需要重试
-            if (current_retry_count_ < MAX_RETRIES) {
-                spdlog::info("Retrying AI analysis request ({}/{})",
-                            current_retry_count_ + 1, MAX_RETRIES);
-
-                // 清理当前请求
-                if (current_reply_) {
-                    current_reply_->abort();
-                    current_reply_->deleteLater();
-                    current_reply_.clear();
-                }
-                if (total_timeout_timer_) {
-                    total_timeout_timer_->stop();
-                }
-
-                // 延迟后重试
-                QTimer::singleShot(RETRY_DELAY_MS * (current_retry_count_ + 1), this, [this]() {
-                    doCloudRequest(current_stats_, current_trend_summary_,
-                             current_detail_records_, current_user_prompt_,
-                             current_range_days_,
-                             current_retry_count_ + 1);
-                });
-            } else {
-                emit errorOccurred("请求超时，请检查网络连接后重试");
-                cleanup();
-            }
-        }
-    });
-
-    // 总超时定时器：防止服务端持续发送碎片数据导致请求永久不结束。
-    total_timeout_timer_ = new QTimer(this);
-    total_timeout_timer_->setSingleShot(true);
-    connect(total_timeout_timer_, &QTimer::timeout, this, [this]() {
-        if (!current_reply_) {
-            return;
-        }
-        spdlog::warn("AI analysis request total timeout");
-        emitStreamEvent("model", "error", "status", "请求总耗时超时，请稍后重试");
-        emit errorOccurred("请求总耗时超时，请稍后重试");
-        cleanup();
-    });
 }
 
 AiAnalysisService::~AiAnalysisService() {
@@ -202,20 +151,6 @@ void AiAnalysisService::emitAssistantDelta(const QString& text,
 }
 
 void AiAnalysisService::cleanup() {
-    if (timeout_timer_) {
-        timeout_timer_->stop();
-    }
-    if (total_timeout_timer_) {
-        total_timeout_timer_->stop();
-    }
-
-    if (current_reply_) {
-        current_reply_->abort();
-        current_reply_->deleteLater();
-        current_reply_.clear();
-    }
-
-    // 清理 Agent 相关
     if (agent_running_.load()) {
         agent_cancel_requested_ = true;
         if (agent_service_) {
@@ -235,279 +170,19 @@ void AiAnalysisService::cleanup() {
             // 线程的实际清理由其 finished 信号连接的 deleteLater 完成。
         }
     }
-
-    sse_buffer_.clear();
-    incremental_buffer_.clear();
-    current_retry_count_ = 0;
-    completed_ = false;  // 重置完成标志，为下一次请求做准备
 }
 
 bool AiAnalysisService::isAnalyzing() const {
-    return current_reply_ != nullptr || agent_running_.load();
+    return agent_running_.load();
 }
 
 void AiAnalysisService::cancelAnalysis() {
-    // 取消 HTTP 请求
-    if (current_reply_) {
-        spdlog::info("Cloud AI analysis cancelled by user");
-        cleanup();
-        emit analysisCancelled();
-        return;
-    }
-
-    // 取消 Agent 请求
     if (agent_running_.load()) {
         spdlog::info("Cloud Agent analysis cancelled by user");
-        agent_cancel_requested_ = true;
-        agent_active_request_id_ = 0;
-        if (agent_service_) {
-            if (agent_service_->thread() != QThread::currentThread()) {
-                QMetaObject::invokeMethod(agent_service_.get(), &agent::AgentService::stop, Qt::QueuedConnection);
-            } else {
-                agent_service_->stop();
-            }
-        }
-        if (current_worker_) {
-            current_worker_->requestStop();
-        }
-        if (current_thread_) {
-            current_thread_->requestInterruption();
-            current_thread_->quit();
-        }
+        cleanup();
         agent_running_ = false;
         emit analysisCancelled();
     }
-}
-
-void AiAnalysisService::requestAnalysis(const service::AttendanceStatistics& stats,
-                                        const QString& trend_summary,
-                                        const QString& detail_records,
-                                        const QString& user_prompt,
-                                        int range_days) {
-    // 如果已有请求在进行，先取消
-    if (current_reply_) {
-        spdlog::warn("Previous AI analysis request is still running, cancelling it");
-        cleanup();
-    }
-
-    // 保存参数用于重试
-    current_stats_ = stats;
-    current_trend_summary_ = trend_summary;
-    current_detail_records_ = detail_records;
-    current_retry_count_ = 0;
-    current_user_prompt_ = user_prompt;
-    current_range_days_ = range_days;
-    completed_ = false;  // 重置完成标志
-    incremental_buffer_.clear();  // 清空增量缓冲
-    beginStreamRequest();
-
-    // 发送开始信号
-    emit analysisStarted();
-    emitStreamEvent("model", "start", "status");
-
-    doCloudRequest(stats, trend_summary, detail_records, user_prompt, range_days, 0);
-}
-
-void AiAnalysisService::doCloudRequest(const service::AttendanceStatistics& stats,
-                                       const QString& trend_summary,
-                                       const QString& detail_records,
-                                       const QString& user_prompt,
-                                       int range_days,
-                                       int retry_count) {
-    current_retry_count_ = retry_count;
-
-    QUrl url(build_remote_url());
-    if (url.isEmpty() || !url.isValid()) {
-        const QString message = QStringLiteral("未配置 OpenAI 兼容服务地址，请设置 LLAMA_CPP_SERVER_URL");
-        spdlog::error("Remote LLM request failed: LLAMA_CPP_SERVER_URL is not set");
-        emitStreamEvent("model", "error", "status", message);
-        emit errorOccurred(message);
-        QTimer::singleShot(0, this, &AiAnalysisService::cleanup);
-        return;
-    }
-
-    QNetworkRequest request(url);
-
-    // 设置请求头（SSE 接口需要 Content-Type 和 Accept）
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    request.setRawHeader("Accept", "text/event-stream");  // 关键：告诉代理/CDN 这是 SSE 流
-    apply_remote_auth(request);
-
-    // 构建 Prompt
-    QString content = AiPromptBuilder::buildPrompt(
-        stats, trend_summary, detail_records, user_prompt, range_days);
-
-    QJsonObject jsonBody = build_remote_request(content, true);
-
-    if (retry_count > 0) {
-        spdlog::info("Retrying AI analysis request ({}/{})", retry_count, MAX_RETRIES);
-    } else {
-        spdlog::info("Sending AI analysis request (provider=openai-compatible)...");
-    }
-
-    // 清空缓冲区
-    sse_buffer_.clear();
-
-    current_reply_ = network_manager_->post(request, QJsonDocument(jsonBody).toJson());
-    QNetworkReply* reply = current_reply_;
-
-    // 启动空闲超时和总超时定时器
-    timeout_timer_->start(TIMEOUT_MS);
-    total_timeout_timer_->start(TOTAL_TIMEOUT_MS);
-
-    // 处理 OpenAI-compatible SSE 事件流，支持多行 data 拼接并防止重复 emit
-    connect(reply, &QNetworkReply::readyRead, this, [this, reply]() {
-        if (!current_reply_ || current_reply_ != reply) {
-            return;  // 请求已被取消
-        }
-
-        // 重置超时定时器（有数据到达）
-        if (timeout_timer_->isActive()) {
-            timeout_timer_->start(TIMEOUT_MS);
-        }
-
-        sse_buffer_.append(reply->readAll());
-
-        const auto events = consume_remote_events(sse_buffer_);
-        for (const auto& event : events) {
-            if (event.kind == "delta") {
-                const QString content = event.text;
-                if (!content.isEmpty()) {
-                    incremental_buffer_.append(content);
-                    emitAssistantDelta(content, "model", event.final);
-                }
-                continue;
-            }
-
-            if (event.kind == "reasoning" && !event.text.isEmpty()) {
-                emitStreamEvent("model", "reasoning", "reasoning", event.text);
-                continue;
-            }
-
-            if (event.kind == "error") {
-                const QJsonObject error = event.data.value("error").toObject();
-                const QJsonValue code_value = error.value("code");
-                const QString code = code_value.isString()
-                    ? code_value.toString()
-                    : QString::number(code_value.toInt());
-                const QString message = error.value("message").toString(event.text);
-                timeout_timer_->stop();
-                total_timeout_timer_->stop();
-                const QString error_text = code.isEmpty() || code == "0"
-                    ? message
-                    : QString("错误 %1: %2").arg(code, message);
-                emitStreamEvent("model", "error", "status", error_text);
-                emit errorOccurred(error_text);
-
-                QTimer::singleShot(0, this, &AiAnalysisService::cleanup);
-            }
-        }
-    });
-
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        if (!current_reply_ || current_reply_ != reply) {
-            reply->deleteLater();
-            return;  // 请求已被取消
-        }
-
-        timeout_timer_->stop();
-        total_timeout_timer_->stop();
-
-        int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-
-        if (httpStatus != 200) {
-            QString err = reply->errorString();
-            spdlog::error("AI request failed: HTTP {} (expected 200), {}", httpStatus, err.toStdString());
-
-            // 读取响应体以获取详细错误信息
-            QByteArray responseData = reply->readAll();
-            if (!responseData.isEmpty()) {
-                QJsonDocument doc = QJsonDocument::fromJson(responseData);
-                if (doc.isObject()) {
-                    QJsonObject root = doc.object();
-                    if (root.contains("error")) {
-                        QJsonObject error = root["error"].toObject();
-                        QString errorMsg = error["message"].toString();
-                        const QJsonValue error_code = error["code"];
-                        const QString errorCode = error_code.isString()
-                            ? error_code.toString()
-                            : QString::number(error_code.toInt());
-                        spdlog::error("Server error: code={}, message={}", errorCode.toStdString(), errorMsg.toStdString());
-
-                        emit errorOccurred(QString("服务器错误 %1: %2").arg(errorCode, errorMsg));
-                        QTimer::singleShot(0, this, &AiAnalysisService::cleanup);
-                        reply->deleteLater();
-                        return;
-                    }
-                }
-            }
-
-            // 网络错误，检查是否需要重试
-            if (current_retry_count_ < MAX_RETRIES &&
-                (reply->error() == QNetworkReply::TimeoutError ||
-                 reply->error() == QNetworkReply::TemporaryNetworkFailureError ||
-                 reply->error() == QNetworkReply::NetworkSessionFailedError)) {
-
-                spdlog::info("Network error, will retry ({}/{})",
-                            current_retry_count_ + 1, MAX_RETRIES);
-                reply->deleteLater();
-                current_reply_.clear();
-
-                // 延迟后重试
-                QTimer::singleShot(RETRY_DELAY_MS * (current_retry_count_ + 1), this, [this]() {
-                    doCloudRequest(current_stats_, current_trend_summary_,
-                             current_detail_records_, current_user_prompt_,
-                             current_range_days_,
-                             current_retry_count_ + 1);
-                });
-                return;
-            }
-
-            emit errorOccurred("网络请求失败: " + err);
-            QTimer::singleShot(0, this, &AiAnalysisService::cleanup);
-            reply->deleteLater();
-            return;
-        }
-
-        // HTTP 200 成功：SSE 连接关闭，这才是真正的结束时机
-        spdlog::info("SSE connection finished (HTTP 200), total received: {} chars", incremental_buffer_.length());
-
-        // 在连接关闭时才触发 analysisFinished
-        // 这确保了所有数据都已接收完毕，按钮状态才会改变
-        if (!completed_) {
-            completed_ = true;
-
-            if (!incremental_buffer_.isEmpty()) {
-                spdlog::info("AI analysis completed (connection closed, {} chars)", incremental_buffer_.length());
-                emitStreamEvent("model", "done", "assistant", QString(), QJsonObject(), true);
-                emit analysisFinished();
-            } else {
-                // 没有收到任何数据，视为错误
-                spdlog::warn("SSE connection closed without receiving any data");
-                emitStreamEvent("model", "error", "status", "服务器未返回任何数据");
-                emit errorOccurred("服务器未返回任何数据");
-            }
-        }
-
-        //  正常完成：只清理资源，不调用 abort()
-        // 手动清理，避免调用 cleanup() 中的 abort()
-        if (timeout_timer_) {
-            timeout_timer_->stop();
-        }
-        if (total_timeout_timer_) {
-            total_timeout_timer_->stop();
-        }
-        if (current_reply_) {
-            current_reply_->deleteLater();
-            current_reply_.clear();
-        }
-        sse_buffer_.clear();
-        incremental_buffer_.clear();
-        current_retry_count_ = 0;
-        completed_ = false;
-
-        reply->deleteLater();
-    });
 }
 
 // ==================== Cloud Agent 功能实现 ====================
@@ -644,11 +319,6 @@ void AiAnalysisService::initializeAgent(service::AttendanceService* attendance_s
     }
     spdlog::info("Cloud Agent initialized with {} tools (skip_system_prompt={})",
         agent_service_->getToolCount(), config.skip_system_prompt);
-}
-
-void AiAnalysisService::setAgentMode(bool enabled) {
-    agent_mode_ = enabled;
-    spdlog::info("Cloud Agent mode {}", enabled ? "enabled" : "disabled");
 }
 
 void AiAnalysisService::clearAgentHistory() {

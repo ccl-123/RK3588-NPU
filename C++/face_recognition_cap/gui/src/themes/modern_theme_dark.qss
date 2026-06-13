@@ -1891,44 +1891,6 @@ QProgressBar#DashboardRankBar::chunk {
     color: #8c8c8c;
 }
 
-#AiQuickSeparator {
-    color: #434343;
-    background: transparent;
-}
-
-#AiRangeLabel {
-    color: #8c8c8c;
-    font-size: 12px;
-    background: transparent;
-}
-
-#AiDataRangeButton {
-    background-color: #262626;
-    color: #8c8c8c;
-    border: 1px solid #434343;
-    border-radius: 12px;
-    padding: 4px 12px;
-    font-size: 12px;
-}
-
-#AiDataRangeButton:hover {
-    background-color: #15395b;
-    color: #69c0ff;
-    border-color: #3c9ae8;
-}
-
-#AiDataRangeButton:checked {
-    background-color: #177ddc;
-    color: #ffffff;
-    border-color: #177ddc;
-}
-
-#AiDataRangeButton:disabled {
-    background-color: #1f1f1f;
-    color: #595959;
-    border-color: #303030;
-}
-
 #BackendToggle {
     background-color: #112a45;
     color: #69c0ff;
@@ -1953,48 +1915,6 @@ QProgressBar#DashboardRankBar::chunk {
 #BackendToggle:checked:hover {
     background-color: #1f3318;
     border-color: #73d13d;
-}
-
-#AgentModeToggle {
-    background-color: #2b1d0f;
-    color: #ffa940;
-    border: 1px solid #613400;
-    border-radius: 4px;
-    padding: 4px 10px;
-    font-size: 12px;
-    font-weight: 500;
-}
-
-#AgentModeToggle:hover {
-    background-color: #3d2a16;
-    border-color: #ffa940;
-}
-
-#AgentModeToggle:checked {
-    background-color: #162312;
-    color: #73d13d;
-    border-color: #274916;
-}
-
-#AgentModeToggle:checked:hover {
-    background-color: #1f3318;
-    border-color: #73d13d;
-}
-
-#AgentModeToggle:disabled {
-    background-color: #1f1f1f;
-    color: #595959;
-    border-color: #303030;
-}
-
-#AiDataRangeLabel {
-    color: #73d13d;
-    font-size: 11px;
-    background: transparent;
-}
-
-#AiDataRangeLabel[rangeState="inactive"] {
-    color: #8c8c8c;
 }
 
 #BackendStatusLabel {
@@ -2081,4 +2001,3 @@ QProgressBar#DashboardRankBar::chunk {
     font-weight: bold;
     background: transparent;
 }
-
