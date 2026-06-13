@@ -2,6 +2,7 @@
 #include "gui_services/ai_analysis_service.h"
 #include "gui_services/local_ai_analysis_service.h"
 #include "gui_services/ai_prompt_builder.h"
+#include "gui_services/asr_service.h"
 #include "app/local_llm_thread.h"
 #include "config/config.h"
 
@@ -341,6 +342,8 @@ DashboardPage::DashboardPage(QWidget* parent)
     , ai_chat_spacer_(nullptr)
     , ai_input_(nullptr)
     , ai_send_btn_(nullptr)
+    , ai_voice_btn_(nullptr)
+    , asr_status_label_(nullptr)
     , ai_data_range_days_(1)
     , ai_data_today_btn_(nullptr)
     , ai_data_7day_btn_(nullptr)
@@ -372,6 +375,15 @@ DashboardPage::DashboardPage(QWidget* parent)
     connect(local_service, &LocalAiAnalysisService::analysisCancelled, this, &DashboardPage::on_ai_analysis_cancelled);
     connect(local_service, &LocalAiAnalysisService::localLLMReady, this, &DashboardPage::on_local_llm_ready);
     connect(local_service, &LocalAiAnalysisService::localLLMReleased, this, &DashboardPage::on_local_llm_released);
+
+    // 连接 ASR 语音识别服务信号
+    auto asr = AsrService::instance();
+    connect(asr, &AsrService::transcriptionReady, this, &DashboardPage::on_asr_transcription);
+    connect(asr, &AsrService::transcriptionFinished, this, &DashboardPage::on_asr_finished);
+    connect(asr, &AsrService::asrError, this, &DashboardPage::on_asr_error);
+    connect(asr, &AsrService::recordingStateChanged, this, &DashboardPage::on_asr_recording_state);
+    connect(asr, &AsrService::transcribingStateChanged, this, &DashboardPage::on_asr_transcribing_state);
+    connect(asr, &AsrService::recordingDurationChanged, this, &DashboardPage::on_asr_duration);
 }
 
 void DashboardPage::setAttendanceService(service::AttendanceService* service) {
@@ -1406,7 +1418,25 @@ void DashboardPage::setup_ui() {
     ai_input_->setInputMethodHints(Qt::ImhNone); // 允许所有输入
     connect(ai_input_, &QLineEdit::returnPressed, this, &DashboardPage::on_ai_input_send);
     input_layout->addWidget(ai_input_, 1);
-    
+
+    // 语音输入按钮（点击开始/点击停止）
+    ai_voice_btn_ = new QPushButton(input_row);
+    ai_voice_btn_->setObjectName("AiVoiceButton");
+    ai_voice_btn_->setCheckable(true);
+    ai_voice_btn_->setFixedSize(40, 40);
+    ai_voice_btn_->setCursor(Qt::PointingHandCursor);
+    ai_voice_btn_->setToolTip(tr("点击开始语音输入，再次点击停止"));
+    ai_voice_btn_->setIcon(SvgIconManager::icon(":/icons/actions/mic.svg", QSize(20, 20), QColor("#595959")));
+    ai_voice_btn_->setIconSize(QSize(20, 20));
+    connect(ai_voice_btn_, &QPushButton::clicked, this, &DashboardPage::on_voice_btn_clicked);
+    input_layout->addWidget(ai_voice_btn_);
+
+    // ASR 状态标签（录音中/识别中）
+    asr_status_label_ = new QLabel(input_row);
+    asr_status_label_->setObjectName("AsrStatusLabel");
+    asr_status_label_->hide();
+    input_layout->addWidget(asr_status_label_);
+
     // 本地/云端 LLM 切换按钮（浅色风格，显示当前模式）
     backend_toggle_btn_ = new QPushButton(remote_backend_display_name(), input_row);
     backend_toggle_btn_->setObjectName("BackendToggle");
@@ -2078,4 +2108,103 @@ void DashboardPage::on_agent_mode_toggled(bool checked) {
     spdlog::info("Agent mode toggled: {}, data range buttons {}",
                  checked ? "Agent" : "Chat",
                  enable_range_btns ? "enabled" : "disabled");
+}
+
+// ==================== ASR 语音识别 ====================
+
+void DashboardPage::on_voice_btn_clicked() {
+    auto asr = AsrService::instance();
+
+    if (asr->isRecording()) {
+        // 正在录音 → 停止
+        asr->stopRecording();
+    } else if (asr->isTranscribing()) {
+        // 正在识别 → 取消
+        asr->cancel();
+    } else {
+        // 开始录音
+        if (is_analyzing_) {
+            ToastNotification::showMessage(this, tr("语音识别"), tr("请等待当前分析完成"), ToastNotification::Level::Warning, 2000);
+            if (ai_voice_btn_) ai_voice_btn_->setChecked(false);
+            return;
+        }
+        if (!asr->isApiKeyConfigured()) {
+            ToastNotification::showMessage(this, tr("语音识别"), tr("未配置 MIMO_ASR_API_KEY"), ToastNotification::Level::Error, 3000);
+            if (ai_voice_btn_) ai_voice_btn_->setChecked(false);
+            return;
+        }
+        asr->startRecording();
+    }
+}
+
+void DashboardPage::on_asr_transcription(const QString& text) {
+    // 流式填入输入框
+    if (ai_input_) {
+        ai_input_->setText(text);
+        ai_input_->setFocus();
+    }
+}
+
+void DashboardPage::on_asr_finished(const QString& fullText) {
+    Q_UNUSED(fullText);
+    spdlog::info("ASR: transcription finished, text in input box");
+    // 文本已通过 transcriptionReady 填入，用户可以确认后手动发送
+}
+
+void DashboardPage::on_asr_error(const QString& error) {
+    spdlog::error("ASR error: {}", error.toStdString());
+    ToastNotification::showMessage(this, tr("语音识别"), error, ToastNotification::Level::Error, 3000);
+
+    // 重置按钮状态
+    if (ai_voice_btn_) {
+        ai_voice_btn_->setChecked(false);
+    }
+}
+
+void DashboardPage::on_asr_recording_state(bool recording) {
+    if (!ai_voice_btn_) return;
+
+    if (recording) {
+        // 录音中：红色图标，checked 状态
+        ai_voice_btn_->setChecked(true);
+        ai_voice_btn_->setIcon(SvgIconManager::icon(
+            ":/icons/actions/mic.svg", QSize(20, 20), QColor("#f5222d")));
+        ai_voice_btn_->setToolTip(tr("录音中...点击停止"));
+
+        if (asr_status_label_) {
+            asr_status_label_->setText(tr("录音中 0s"));
+            asr_status_label_->show();
+        }
+    } else {
+        // 停止录音
+        ai_voice_btn_->setChecked(false);
+        ai_voice_btn_->setIcon(SvgIconManager::icon(
+            ":/icons/actions/mic.svg", QSize(20, 20), QColor("#595959")));
+        ai_voice_btn_->setToolTip(tr("点击开始语音输入"));
+    }
+}
+
+void DashboardPage::on_asr_transcribing_state(bool transcribing) {
+    if (transcribing) {
+        if (asr_status_label_) {
+            asr_status_label_->setText(tr("识别中..."));
+            asr_status_label_->show();
+        }
+        if (ai_voice_btn_) {
+            ai_voice_btn_->setEnabled(false);  // 识别中禁止操作
+        }
+    } else {
+        if (asr_status_label_) {
+            asr_status_label_->hide();
+        }
+        if (ai_voice_btn_) {
+            ai_voice_btn_->setEnabled(true);
+        }
+    }
+}
+
+void DashboardPage::on_asr_duration(int seconds) {
+    if (asr_status_label_ && asr_status_label_->isVisible()) {
+        asr_status_label_->setText(tr("录音中 %1s").arg(seconds));
+    }
 }

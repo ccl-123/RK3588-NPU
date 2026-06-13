@@ -209,6 +209,7 @@ if(Qt5_FOUND)
         src/gui_services/ai_prompt_builder.cc
         src/gui_services/local_ai_analysis_service.cc
         src/gui_services/llm_protocol_adapter.cc
+        src/gui_services/asr_service.cc
     )
 
     set(GUI_UTILS_SOURCES
@@ -266,6 +267,7 @@ if(Qt5_FOUND)
         include/gui_services/ai_analysis_service.h
         include/gui_services/ai_prompt_builder.h
         include/gui_services/local_ai_analysis_service.h
+        include/gui_services/asr_service.h
         gui/include/themes/theme_manager.h
         include/gui_utils/svg_icon_manager.h
         include/gui_utils/stack_router.h
@@ -342,6 +344,7 @@ if(Qt5_FOUND)
         Qt5::Multimedia
         Qt5::Network
         Qt5::Concurrent
+        dl
     )
     link_logging_dependencies(${TARGET_NAME}_gui)
     enable_target_warnings(${TARGET_NAME}_gui)

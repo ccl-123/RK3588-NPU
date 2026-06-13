@@ -111,6 +111,8 @@ private:
     QSpacerItem* ai_chat_spacer_;
     QLineEdit* ai_input_;
     QPushButton* ai_send_btn_;
+    QPushButton* ai_voice_btn_;   // 语音识别按钮
+    QLabel* asr_status_label_;   // ASR 状态标签
     QString ai_last_prompt_;
     QString ai_skip_prefix_;
     int ai_data_range_days_;
@@ -134,6 +136,15 @@ private slots:
     void on_ai_analysis_started();
     void on_ai_analysis_cancelled();
     void on_data_range_changed(int days);
+
+    // ASR 语音识别
+    void on_voice_btn_clicked();
+    void on_asr_transcription(const QString& text);
+    void on_asr_finished(const QString& fullText);
+    void on_asr_error(const QString& error);
+    void on_asr_recording_state(bool recording);
+    void on_asr_transcribing_state(bool transcribing);
+    void on_asr_duration(int seconds);
     
     // 后端切换相关
     void on_backend_toggled(bool checked);

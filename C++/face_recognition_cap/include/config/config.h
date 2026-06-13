@@ -221,4 +221,41 @@ namespace LlamaCpp {
     }
 }
 
+// ===== MiMo ASR 语音识别 [环境变量] =====
+// 用途：
+//   云端语音识别（ASR），将麦克风录音上传至小米 MiMo 平台进行转写。
+//
+// 需要配置的环境变量：
+//   export MIMO_ASR_API_KEY="sk-your-mimo-api-key"
+//
+// 注意：此 API Key 与 LLAMA_CPP_SERVER_API_KEY 独立，不共用。
+namespace MiMoASR {
+    constexpr const char* API_KEY_ENV = "MIMO_ASR_API_KEY";
+    constexpr const char* BASE_URL_ENV = "MIMO_ASR_BASE_URL";
+    constexpr const char* DEFAULT_BASE_URL = "https://token-plan-cn.xiaomimimo.com/v1/chat/completions";
+    constexpr const char* LANGUAGE_ENV = "MIMO_ASR_LANGUAGE";
+    constexpr const char* DEFAULT_LANGUAGE = "zh";
+    constexpr const char* MODEL = "mimo-v2.5-asr";
+    constexpr int SAMPLE_RATE = 16000;          // 采样率 (Hz)
+    constexpr int SAMPLE_SIZE = 16;             // 采样位深 (bits)
+    constexpr int CHANNELS = 1;                 // 单声道
+    constexpr int MAX_RECORD_SECONDS = 60;      // 最大录音时长 (秒)
+    constexpr int REQUEST_TIMEOUT_MS = 30000;   // HTTP 请求超时 (毫秒)
+
+    inline const char* getBaseUrl() {
+        static const char* v = std::getenv(BASE_URL_ENV);
+        return (v && v[0] != '\0') ? v : DEFAULT_BASE_URL;
+    }
+
+    inline const char* getLanguage() {
+        static const char* v = std::getenv(LANGUAGE_ENV);
+        return (v && v[0] != '\0') ? v : DEFAULT_LANGUAGE;
+    }
+
+    inline const char* getApiKey() {
+        static const char* v = std::getenv(API_KEY_ENV);
+        return (v && v[0] != '\0') ? v : "";
+    }
+}
+
 } // namespace Config

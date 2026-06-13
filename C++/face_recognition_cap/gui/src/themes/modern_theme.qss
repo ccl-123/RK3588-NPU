@@ -2042,3 +2042,34 @@ QProgressBar#DashboardRankBar::chunk {
 #AiChatSendButton:hover {
     background-color: #4096ff;
 }
+
+#AiVoiceButton {
+    min-height: 40px;
+    min-width: 40px;
+    border-radius: 10px;
+    border: 1px solid #d9d9d9;
+    background-color: #ffffff;
+}
+
+#AiVoiceButton:hover {
+    background-color: #f5f5f5;
+    border-color: #4096ff;
+}
+
+#AiVoiceButton:checked {
+    background-color: #fff1f0;
+    border-color: #ff4d4f;
+}
+
+#AiVoiceButton:disabled {
+    background-color: #f5f5f5;
+    border-color: #d9d9d9;
+}
+
+#AsrStatusLabel {
+    color: #ff4d4f;
+    font-size: 12px;
+    font-weight: bold;
+    background: transparent;
+}
+

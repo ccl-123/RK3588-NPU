@@ -42,6 +42,8 @@
         <file alias="eye.svg">icons/actions/eye.svg</file>
         <file alias="eye-off.svg">icons/actions/eye-off.svg</file>
         <file alias="copy.svg">icons/actions/copy.svg</file>
+        <file alias="mic.svg">icons/actions/mic.svg</file>
+        <file alias="mic-off.svg">icons/actions/mic-off.svg</file>
     </qresource>
     
     <!-- Status Icons -->
