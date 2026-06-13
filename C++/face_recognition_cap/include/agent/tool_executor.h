@@ -27,7 +27,8 @@ public:
      * @brief 构造函数
      * @param registry 工具注册表（不转移所有权）
      */
-    explicit ToolExecutor(ToolRegistry* registry);
+    explicit ToolExecutor(ToolRegistry* registry,
+                          bool include_structured_tool_output = true);
 
     /**
      * @brief 解析 LLM 输出中的工具调用
@@ -60,6 +61,7 @@ public:
 
 private:
     ToolRegistry* registry_;
+    bool include_structured_tool_output_;
 
     /**
      * @brief 从文本中提取 JSON 字符串

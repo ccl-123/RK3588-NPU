@@ -59,7 +59,7 @@ public:
      * @brief 请求推理（异步）
      * @param prompt 用户输入的提示词
      */
-    void requestInference(const QString& prompt);
+    void requestInference(const QString& prompt, bool keep_history = true);
 
     // 中止当前推理
     void abortInference();
@@ -126,6 +126,7 @@ private:
     enum class RequestType { None, Init, Infer, Destroy };
     RequestType pending_request_;
     QString pending_prompt_;
+    bool pending_keep_history_;
     QMutex mutex_;
     QWaitCondition condition_;
     

@@ -190,6 +190,10 @@ void LocalAiAnalysisService::requestAnalysis(const service::AttendanceStatistics
     // Chat 模式：使用传统提示词模式（附带数据上下文）
     spdlog::info("Using Chat mode (agent_mode={}, agent_initialized={})",
         agent_mode_, agent_service_ != nullptr);
+    if (agent_service_) {
+        agent_service_->resetLlmSessionCache();
+    }
+    LocalLLMThread::instance()->resetContext();
     QString prompt = AiPromptBuilder::buildPrompt(
         stats, trend_summary, detail_records, user_prompt, range_days);
 
@@ -198,18 +202,24 @@ void LocalAiAnalysisService::requestAnalysis(const service::AttendanceStatistics
     emit analysisStarted();
     emitStreamEvent("model", "start", "status");
     spdlog::info("Sending prompt to local LLM ({} chars)", prompt.length());
-    LocalLLMThread::instance()->requestInference(prompt);
+    LocalLLMThread::instance()->requestInference(prompt, false);
 }
 
 // ==================== LLM 事件处理 ====================
 
 void LocalAiAnalysisService::onLocalLLMReady() {
     spdlog::info("Local LLM model loaded");
+    if (agent_service_) {
+        agent_service_->resetLlmSessionCache();
+    }
     emit localLLMReady();
 }
 
 void LocalAiAnalysisService::onLocalLLMFailed(const QString& error) {
     spdlog::error("Local LLM init failed: {}", error.toStdString());
+    if (agent_service_) {
+        agent_service_->resetLlmSessionCache();
+    }
     emitStreamEvent("model", "error", "status", "本地模型加载失败: " + error);
     emit errorOccurred("本地模型加载失败: " + error);
 }
@@ -245,6 +255,9 @@ void LocalAiAnalysisService::onLocalLLMError(const QString& error) {
 
 void LocalAiAnalysisService::onLocalLLMReleased() {
     local_analyzing_ = false;
+    if (agent_service_) {
+        agent_service_->resetLlmSessionCache();
+    }
     spdlog::info("Local LLM model released");
     emit localLLMReleased();
 }
@@ -260,6 +273,9 @@ void LocalAiAnalysisService::initializeAgent(service::AttendanceService* attenda
     agent::AgentConfig config;
     config.max_iterations = Config::Agent::MAX_ITERATIONS;
     config.stream_output = Config::Agent::STREAM_OUTPUT;
+    config.use_llm_session_cache = true;
+    config.include_tool_overview = true;
+    config.include_structured_tool_output = false;
 
     agent_service_ = std::make_unique<agent::AgentService>(config, nullptr);
 

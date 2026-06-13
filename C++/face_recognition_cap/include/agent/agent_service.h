@@ -68,6 +68,11 @@ public:
     void clearHistory();
 
     /**
+     * @brief 仅标记 LLM 端会话缓存失效，不清理 ConversationMemory
+     */
+    void resetLlmSessionCache();
+
+    /**
      * @brief 停止当前执行
      */
     void stop();

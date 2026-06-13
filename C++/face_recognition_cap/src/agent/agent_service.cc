@@ -99,7 +99,14 @@ QString AgentService::chat(const QString& user_input,
 void AgentService::clearHistory() {
     if (memory_) {
         memory_->clearSession();
+        resetLlmSessionCache();
         spdlog::info("Conversation history cleared");
+    }
+}
+
+void AgentService::resetLlmSessionCache() {
+    if (agent_) {
+        agent_->resetLlmSessionCache();
     }
 }
 

@@ -36,6 +36,7 @@ LocalLLMThread::LocalLLMThread(QObject* parent)
     , stop_requested_(false)
     , owns_npu_resource_(false)
     , pending_request_(RequestType::None)
+    , pending_keep_history_(true)
     , max_new_tokens_(Config::LocalLLM::MAX_NEW_TOKENS)
     , max_context_len_(Config::LocalLLM::MAX_CONTEXT_LEN) {
     
@@ -90,7 +91,7 @@ bool LocalLLMThread::initModel(const QString& model_path, int max_new_tokens, in
     return true;
 }
 
-void LocalLLMThread::requestInference(const QString& prompt) {
+void LocalLLMThread::requestInference(const QString& prompt, bool keep_history) {
     if (!model_ready_) {
         if (init_in_progress_) {
             emit errorOccurred("模型正在初始化，请稍候");
@@ -104,6 +105,7 @@ void LocalLLMThread::requestInference(const QString& prompt) {
     if (inferring_) {
         spdlog::info("Model busy, queueing new inference request");
         pending_prompt_ = prompt;
+        pending_keep_history_ = keep_history;
         pending_request_ = RequestType::Infer;
         abort_requested_ = true;
         if (llm_handle_) {
@@ -113,6 +115,7 @@ void LocalLLMThread::requestInference(const QString& prompt) {
     }
 
     pending_prompt_ = prompt;
+    pending_keep_history_ = keep_history;
     pending_request_ = RequestType::Infer;
     condition_.wakeOne();
 }
@@ -258,12 +261,15 @@ void LocalLLMThread::doInference() {
     emit inferenceStarted();
 
     QString current_prompt;
+    bool keep_history = true;
     {
         QMutexLocker locker(&mutex_);
         current_prompt = pending_prompt_;
+        keep_history = pending_keep_history_;
     }
 
-    spdlog::info("Starting inference, prompt length: {}", current_prompt.length());
+    spdlog::info("Starting inference, prompt length: {}, keep_history={}",
+        current_prompt.length(), keep_history);
 
     RKLLMInput input;
     memset(&input, 0, sizeof(RKLLMInput));
@@ -276,7 +282,7 @@ void LocalLLMThread::doInference() {
     RKLLMInferParam infer_param;
     memset(&infer_param, 0, sizeof(RKLLMInferParam));
     infer_param.mode = RKLLM_INFER_GENERATE;
-    infer_param.keep_history = 1; // 保持多轮对话
+    infer_param.keep_history = keep_history ? 1 : 0;
 
     // 同步运行 run (但在独立线程中，所以不阻塞 UI)
     // 结果会通过 callback 回调

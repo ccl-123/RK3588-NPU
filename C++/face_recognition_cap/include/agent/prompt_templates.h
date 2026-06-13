@@ -172,7 +172,8 @@ public:
                                     const QString& tools_json,
                                     const QString& context,
                                     const QString& user_input,
-                                    bool skip_system_prompt) {
+                                    bool skip_system_prompt,
+                                    bool include_tool_overview = true) {
         QString prompt;
 
         if (!skip_system_prompt) {
@@ -180,7 +181,9 @@ public:
         }
 
         if (!tools_json.isEmpty()) {
-            prompt += buildToolOverview(tools_json);
+            if (include_tool_overview) {
+                prompt += buildToolOverview(tools_json);
+            }
             prompt += "## 可用工具\n";
             prompt += "以下 JSON 数组是本轮唯一可用的工具定义，请严格以此为准：\n";
             prompt += tools_json + "\n\n";
@@ -238,24 +241,34 @@ public:
         return sanitizeToolOutputValue(output).toObject();
     }
 
-    static QString buildToolObservationPrompt(const ToolExecutionResult& result) {
+    static QString buildToolObservationPrompt(const ToolExecutionResult& result,
+                                              bool include_structured_output = true) {
         const QJsonObject sanitized_output = sanitizeToolOutputObject(result.output);
         const QString display_text = result.promptText().trimmed();
+        const QString error_line = result.error.isEmpty()
+            ? QString()
+            : QString("- error: %1\n").arg(result.error);
+        const QString structured_line = include_structured_output
+            ? QString("- structured_output: %1\n")
+                  .arg(QString::fromUtf8(QJsonDocument(sanitized_output).toJson(QJsonDocument::Compact)))
+            : QString();
         return QString(
             "## 工具执行结果\n"
             "- call_id: %1\n"
             "- tool: %2\n"
             "- status: %3\n"
             "- display_text:\n%4\n"
-            "- structured_output: %5\n\n"
-            "请优先基于 display_text 回答，并只把 structured_output 作为事实校验。"
+            "%5"
+            "%6\n"
+            "请基于 display_text 回答。"
             "如果还需要额外信息，可以继续调用一个合适的工具；"
             "如果信息已经足够，请输出 <answer>最终回答</answer>。"
         ).arg(result.call_id.isEmpty() ? QStringLiteral("-") : result.call_id,
               result.name,
               result.ok ? QStringLiteral("ok") : QStringLiteral("error"),
               display_text.isEmpty() ? QStringLiteral("-") : display_text,
-              QString::fromUtf8(QJsonDocument(sanitized_output).toJson(QJsonDocument::Compact)));
+              error_line,
+              structured_line);
     }
 };
 

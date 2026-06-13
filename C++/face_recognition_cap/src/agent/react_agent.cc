@@ -16,7 +16,7 @@ ReactAgent::ReactAgent(ToolRegistry* tools,
                        QObject* parent)
     : QObject(parent)
     , tools_(tools)
-    , executor_(tools)
+    , executor_(tools, config.include_structured_tool_output)
     , memory_(memory)
     , config_(config) {}
 
@@ -29,11 +29,18 @@ QString ReactAgent::run(const QString& user_input,
     consecutive_same_call_ = 0;
     last_tool_result_text_.clear();
 
-    // 获取上下文（历史对话，不含当前这轮）
-    QString context = memory_ ? memory_->getContext() : QString();
-
-    // 构建初始 Prompt（完整版，包含系统提示 + 工具定义 + 历史 + 用户问题）
-    QString prompt = buildPrompt(user_input, context);
+    const bool use_cached_session = config_.use_llm_session_cache && llm_session_cache_valid_;
+    QString prompt;
+    if (use_cached_session) {
+        prompt = buildIncrementalUserPrompt(user_input);
+        spdlog::info("ReAct using cached local LLM session, prompt length={}", prompt.length());
+    } else {
+        // 获取上下文（历史对话，不含当前这轮）
+        QString context = memory_ ? memory_->getContext() : QString();
+        // 构建初始 Prompt（完整版，包含系统提示 + 工具定义 + 历史 + 用户问题）
+        prompt = buildPrompt(user_input, context);
+        spdlog::info("ReAct using cold/full prompt, prompt length={}", prompt.length());
+    }
 
     // 记录用户消息
     if (memory_) {
@@ -56,6 +63,11 @@ QString ReactAgent::run(const QString& user_input,
         if (llm_output.isEmpty()) {
             spdlog::warn("LLM returned empty output");
             break;
+        }
+
+        if (config_.use_llm_session_cache && !llm_session_cache_valid_) {
+            llm_session_cache_valid_ = true;
+            spdlog::info("Local LLM session cache marked ready");
         }
 
         // 解析输出类型
@@ -202,6 +214,12 @@ QString ReactAgent::getSystemPrompt() const {
 
 void ReactAgent::setSystemPrompt(const QString& prompt) {
     config_.system_prompt = prompt;
+    resetLlmSessionCache();
+}
+
+void ReactAgent::resetLlmSessionCache() {
+    llm_session_cache_valid_ = false;
+    spdlog::info("LLM session cache invalidated");
 }
 
 ReactAgent::StepType ReactAgent::parseStepType(const QString& output) {
@@ -309,7 +327,17 @@ QString ReactAgent::buildPrompt(const QString& user_input, const QString& contex
         tools_json,
         context,
         user_input,
-        config_.skip_system_prompt);
+        config_.skip_system_prompt,
+        config_.include_tool_overview);
+}
+
+QString ReactAgent::buildIncrementalUserPrompt(const QString& user_input) {
+    return QString(
+        "## 当前问题\n"
+        "用户: %1\n\n"
+        "请基于已缓存的系统规则、工具定义和对话上下文继续处理。"
+        "需要查询数据时继续输出 <tool_call>，信息充分时输出 <answer>最终回答</answer>。\n"
+    ).arg(user_input);
 }
 
 QString ReactAgent::getDefaultSystemPrompt() const {

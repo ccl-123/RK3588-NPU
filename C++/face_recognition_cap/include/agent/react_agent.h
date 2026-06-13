@@ -24,6 +24,9 @@ struct AgentConfig {
     bool stream_output = true;      ///< 是否流式输出
     QString system_prompt;          ///< 系统提示词（可选，使用默认）
     bool skip_system_prompt = false; ///< 跳过系统提示（云端 LLM 已在服务端预设）
+    bool use_llm_session_cache = false; ///< LLM 端是否保留会话 KV cache
+    bool include_tool_overview = true;  ///< prompt 中是否额外加入工具总览
+    bool include_structured_tool_output = true; ///< 工具结果是否附带结构化 JSON
 
     AgentConfig() = default;
 };
@@ -89,6 +92,12 @@ public:
      * @param prompt 系统提示词
      */
     void setSystemPrompt(const QString& prompt);
+
+    /**
+     * @brief 标记 LLM 端会话缓存失效
+     * @note 本地 RKLLM 释放/清空 KV cache 后调用。ConversationMemory 不受影响。
+     */
+    void resetLlmSessionCache();
 
 signals:
     /**
@@ -186,10 +195,17 @@ private:
     QString buildPrompt(const QString& user_input, const QString& context);
 
     /**
+     * @brief 构建本地 LLM 会话缓存已就绪时的增量用户输入
+     */
+    QString buildIncrementalUserPrompt(const QString& user_input);
+
+    /**
      * @brief 获取默认系统提示词
      * @return 默认提示词
      */
     QString getDefaultSystemPrompt() const;
+
+    bool llm_session_cache_valid_ = false;
 };
 
 } // namespace agent

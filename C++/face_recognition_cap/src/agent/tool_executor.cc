@@ -13,8 +13,10 @@
 
 namespace agent {
 
-ToolExecutor::ToolExecutor(ToolRegistry* registry)
-    : registry_(registry) {}
+ToolExecutor::ToolExecutor(ToolRegistry* registry,
+                           bool include_structured_tool_output)
+    : registry_(registry)
+    , include_structured_tool_output_(include_structured_tool_output) {}
 
 ToolCall ToolExecutor::parseToolCall(const QString& llm_output) {
     ToolCall call;
@@ -98,7 +100,7 @@ ToolExecutionResult ToolExecutor::execute(const ToolCall& call) {
 }
 
 QString ToolExecutor::formatToolResponse(const ToolExecutionResult& result) {
-    return PromptTemplates::buildToolObservationPrompt(result);
+    return PromptTemplates::buildToolObservationPrompt(result, include_structured_tool_output_);
 }
 
 bool ToolExecutor::hasToolCall(const QString& llm_output) const {
