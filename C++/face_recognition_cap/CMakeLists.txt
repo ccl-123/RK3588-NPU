@@ -232,6 +232,8 @@ if(Qt5_FOUND)
         src/gui_services/local_ai_analysis_service.cc
         src/gui_services/llm_protocol_adapter.cc
         src/gui_services/asr_service.cc
+        src/gui_services/asr_service_cloud.cc
+        src/gui_services/asr_service_local.cc
     )
 
     set(GUI_UTILS_SOURCES
