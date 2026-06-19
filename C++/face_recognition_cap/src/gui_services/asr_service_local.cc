@@ -63,7 +63,8 @@ QString get_resolved_model_dir() {
 }
 
 [[maybe_unused]] QString local_model_file(const char* file_name) {
-    static const QString resolved_model_dir = get_resolved_model_dir();
+    // Non-static: re-resolve each time to support dynamic/hot model configuration (Issue 6)
+    const QString resolved_model_dir = get_resolved_model_dir();
     return QDir(resolved_model_dir).filePath(QString::fromUtf8(file_name));
 }
 
@@ -110,86 +111,115 @@ bool AsrService::loadLocalRecognizer() {
         return false;
     }
 
-    // Abort any existing load task by incrementing load ID, and join the finished thread
+    // Increment load generation ID
     int current_id = ++local_load_id_;
+
+    // Set up cancellation token for background thread (Issue 2)
+    if (local_load_cancel_token_) {
+        local_load_cancel_token_->store(true);
+    }
+    local_load_cancel_token_ = std::make_shared<std::atomic<bool>>(false);
+    auto cancel_token = local_load_cancel_token_;
+
+    // Pass resolved model configuration parameters by value (No raw 'this' captured in thread)
+    QString encoder_path = local_model_file(Config::LocalASR::ENCODER);
+    QString decoder_path = local_model_file(Config::LocalASR::DECODER);
+    QString joiner_path = local_model_file(Config::LocalASR::JOINER);
+    QString tokens_path = local_model_file(Config::LocalASR::TOKENS);
+
     if (local_load_thread_.joinable()) {
         local_load_thread_.join();
     }
 
-    local_load_thread_ = std::thread([this, current_id]() {
+    local_load_thread_ = std::thread([cancel_token, encoder_path, decoder_path, joiner_path, tokens_path, current_id]() {
         try {
             spdlog::info("Local ASR: Start loading model in background thread (load_id: {})...", current_id);
+
+            if (cancel_token->load()) {
+                spdlog::info("Local ASR: Loading cancelled early (load_id: {}).", current_id);
+                return;
+            }
+
             sherpa_onnx::cxx::OnlineRecognizerConfig config;
             config.feat_config.sample_rate = Config::LocalASR::SAMPLE_RATE;
             config.feat_config.feature_dim = Config::LocalASR::FEATURE_DIM;
-            config.model_config.transducer.encoder = local_model_file(Config::LocalASR::ENCODER).toStdString();
-            config.model_config.transducer.decoder = local_model_file(Config::LocalASR::DECODER).toStdString();
-            config.model_config.transducer.joiner = local_model_file(Config::LocalASR::JOINER).toStdString();
-            config.model_config.tokens = local_model_file(Config::LocalASR::TOKENS).toStdString();
+            config.model_config.transducer.encoder = encoder_path.toStdString();
+            config.model_config.transducer.decoder = decoder_path.toStdString();
+            config.model_config.transducer.joiner = joiner_path.toStdString();
+            config.model_config.tokens = tokens_path.toStdString();
             config.model_config.provider = "cpu";
             config.model_config.num_threads = Config::LocalASR::NUM_THREADS;
             config.model_config.modeling_unit = "cjkchar";
             config.decoding_method = "greedy_search";
 
+            if (cancel_token->load()) {
+                spdlog::info("Local ASR: Loading cancelled before model creation (load_id: {}).", current_id);
+                return;
+            }
+
             auto recognizer = sherpa_onnx::cxx::OnlineRecognizer::Create(config);
 
-            // Check if this thread has been cancelled/superseded before proceeding
-            if (current_id != local_load_id_.load()) {
-                spdlog::info("Local ASR: Model loaded but discarded because thread was superseded (load_id: {}).", current_id);
+            // Double check cancellation token right after model creation
+            if (cancel_token->load()) {
+                spdlog::info("Local ASR: Model loaded but discarded because thread was cancelled/superseded (load_id: {}).", current_id);
                 return;
             }
 
             if (!recognizer.Get()) {
-                local_loading_ = false;
-                QMetaObject::invokeMethod(this, [this, current_id]() {
-                    if (current_id != local_load_id_.load()) return;
-                    emit localLoadingChanged(false);
-                    if (backend_mode_.load() == AsrBackendMode::Local) {
-                        emit asrError(QStringLiteral("本地 ASR 模型初始化失败"));
-                        backend_mode_ = AsrBackendMode::Cloud;
-                        emit backendModeChanged(AsrBackendMode::Cloud);
+                QMetaObject::invokeMethod(AsrService::instance(), [cancel_token, current_id]() {
+                    if (cancel_token->load()) return;
+                    AsrService* service = AsrService::instance();
+                    if (current_id != service->local_load_id_.load()) return;
+
+                    service->local_loading_ = false;
+                    emit service->localLoadingChanged(false);
+                    if (service->backend_mode_.load() == AsrBackendMode::Local) {
+                        emit service->asrError(QStringLiteral("本地 ASR 模型初始化失败"));
+                        service->backend_mode_ = AsrBackendMode::Cloud;
+                        emit service->backendModeChanged(AsrBackendMode::Cloud);
                     }
                 }, Qt::QueuedConnection);
                 return;
             }
 
-            {
-                std::lock_guard<std::mutex> lock(local_mutex_);
-                if (current_id == local_load_id_.load() && backend_mode_.load() == AsrBackendMode::Local) {
-                    local_recognizer_ = std::make_unique<sherpa_onnx::cxx::OnlineRecognizer>(std::move(recognizer));
-                    local_ready_ = true;
-                    local_loading_ = false;
-                    QMetaObject::invokeMethod(this, [this, current_id]() {
-                        if (current_id != local_load_id_.load()) return;
-                        emit localLoadingChanged(false);
-                        if (local_ready_.load()) {
-                            emit localReadyChanged(true);
-                        }
-                    }, Qt::QueuedConnection);
-                    spdlog::info("Local ASR loaded successfully (load_id: {}).", current_id);
-                    return;
-                }
-            }
+            auto recognizer_ptr = std::make_shared<sherpa_onnx::cxx::OnlineRecognizer>(std::move(recognizer));
 
-            // User switched away from Local mode or loading was cancelled
-            spdlog::info("Local ASR: Loaded, but backend mode is no longer Local or load was cancelled. Releasing loaded model (load_id: {}).", current_id);
-            local_loading_ = false;
-            QMetaObject::invokeMethod(this, [this, current_id]() {
-                if (current_id != local_load_id_.load()) return;
-                emit localLoadingChanged(false);
+            QMetaObject::invokeMethod(AsrService::instance(), [recognizer_ptr, cancel_token, current_id]() {
+                if (cancel_token->load()) return;
+                AsrService* service = AsrService::instance();
+                if (current_id != service->local_load_id_.load()) return;
+                if (service->backend_mode_.load() != AsrBackendMode::Local) return;
+
+                {
+                    std::lock_guard<std::mutex> lock(service->local_mutex_);
+                    if (cancel_token->load() || current_id != service->local_load_id_.load()) return;
+                    if (service->backend_mode_.load() != AsrBackendMode::Local) return;
+                    service->local_recognizer_ = std::make_unique<sherpa_onnx::cxx::OnlineRecognizer>(std::move(*recognizer_ptr));
+                }
+                service->local_ready_ = true;
+                service->local_loading_ = false;
+                emit service->localLoadingChanged(false);
+                if (service->local_ready_.load()) {
+                    emit service->localReadyChanged(true);
+                }
+                spdlog::info("Local ASR loaded successfully (load_id: {}).", current_id);
             }, Qt::QueuedConnection);
+
         } catch (const std::exception& e) {
             QString errMsg = QString::fromUtf8(e.what());
-            local_loading_ = false;
-            local_ready_ = false;
-            QMetaObject::invokeMethod(this, [this, current_id, errMsg]() {
-                if (current_id != local_load_id_.load()) return;
-                emit localLoadingChanged(false);
-                emit localReadyChanged(false);
-                if (backend_mode_.load() == AsrBackendMode::Local) {
-                    emit asrError(QStringLiteral("本地 ASR 初始化异常: ") + errMsg);
-                    backend_mode_ = AsrBackendMode::Cloud;
-                    emit backendModeChanged(AsrBackendMode::Cloud);
+            QMetaObject::invokeMethod(AsrService::instance(), [cancel_token, current_id, errMsg]() {
+                if (cancel_token->load()) return;
+                AsrService* service = AsrService::instance();
+                if (current_id != service->local_load_id_.load()) return;
+
+                service->local_loading_ = false;
+                service->local_ready_ = false;
+                emit service->localLoadingChanged(false);
+                emit service->localReadyChanged(false);
+                if (service->backend_mode_.load() == AsrBackendMode::Local) {
+                    emit service->asrError(QStringLiteral("本地 ASR 初始化异常: ") + errMsg);
+                    service->backend_mode_ = AsrBackendMode::Cloud;
+                    emit service->backendModeChanged(AsrBackendMode::Cloud);
                 }
             }, Qt::QueuedConnection);
         }
@@ -202,8 +232,14 @@ bool AsrService::loadLocalRecognizer() {
 void AsrService::releaseLocalRecognizer() {
     cancelLocalSession();
 
-    // Increment load ID to invalidate any active background loading thread
+    // Increment load ID and flag the cancellation token to abort any active background loading thread
     ++local_load_id_;
+    if (local_load_cancel_token_) {
+        local_load_cancel_token_->store(true);
+    }
+    if (local_load_thread_.joinable()) {
+        local_load_thread_.join();
+    }
 
     bool was_loading = local_loading_.exchange(false);
     if (was_loading) {
@@ -287,11 +323,13 @@ void AsrService::stopLocalSession() {
 }
 
 void AsrService::cancelLocalSession() {
-    if (!local_session_active_.load() && !local_decode_running_) {
-        return;
-    }
+    bool should_cancel = local_session_active_.load();
     {
         std::lock_guard<std::mutex> lock(local_queue_mutex_);
+        should_cancel = should_cancel || local_decode_running_;
+        if (!should_cancel) {
+            return;
+        }
         local_decode_running_ = false;
         local_input_finished_ = true;
         std::queue<std::vector<int16_t>> empty;
