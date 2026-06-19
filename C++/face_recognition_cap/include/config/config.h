@@ -258,4 +258,21 @@ namespace MiMoASR {
     }
 }
 
+// ===== 本地 Sherpa ONNX ASR [固定] =====
+// 用途：
+//   本地流式语音识别。模型路径按当前板端 install 目录固定。
+namespace LocalASR {
+    constexpr const char* MODEL_DIR =
+        "/home/elf/open_project/RK3588-NPU/C++/face_recognition_cap/install/face_recognition_cap/data/model/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30";
+    constexpr const char* ENCODER = "encoder.int8.onnx";
+    constexpr const char* DECODER = "decoder.onnx";
+    constexpr const char* JOINER = "joiner.int8.onnx";
+    constexpr const char* TOKENS = "tokens.txt";
+    constexpr int SAMPLE_RATE = 16000;
+    constexpr int SAMPLE_SIZE = 16;
+    constexpr int CHANNELS = 1;
+    constexpr int FEATURE_DIM = 80;
+    constexpr int NUM_THREADS = 2;
+}
+
 } // namespace Config

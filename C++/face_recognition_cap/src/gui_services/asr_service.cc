@@ -8,16 +8,25 @@
 #include "gui_services/asr_service.h"
 #include "config/config.h"
 
+#include <QDir>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QNetworkRequest>
 #include <QCoreApplication>
 #include <QThread>
+#include <QMetaObject>
 #include <spdlog/spdlog.h>
 
+#if ENABLE_LOCAL_SHERPA_ASR
+#include "sherpa-onnx/c-api/cxx-api.h"
+#endif
+
+#include <algorithm>
 #include <cstring>
 #include <dlfcn.h>
+#include <limits>
 
 // ==================== ALSA 动态绑定（参考 VisionCast） ====================
 
@@ -141,6 +150,30 @@ std::string detect_capture_device() {
     return "default";
 }
 
+[[maybe_unused]] QString local_model_file(const char* file_name) {
+    return QDir(QString::fromUtf8(Config::LocalASR::MODEL_DIR)).filePath(QString::fromUtf8(file_name));
+}
+
+#if ENABLE_LOCAL_SHERPA_ASR
+bool local_model_files_exist(QString* missing_file) {
+    const QStringList files = {
+        local_model_file(Config::LocalASR::ENCODER),
+        local_model_file(Config::LocalASR::DECODER),
+        local_model_file(Config::LocalASR::JOINER),
+        local_model_file(Config::LocalASR::TOKENS),
+    };
+    for (const QString& file : files) {
+        if (!QFileInfo::exists(file)) {
+            if (missing_file) {
+                *missing_file = file;
+            }
+            return false;
+        }
+    }
+    return true;
+}
+#endif
+
 }  // namespace
 
 // ==================== AsrService 实现 ====================
@@ -183,6 +216,8 @@ AsrService::AsrService(QObject* parent)
     });
 
     // 日志
+    qRegisterMetaType<AsrBackendMode>("AsrBackendMode");
+
     const char* api_key = Config::MiMoASR::getApiKey();
     if (api_key[0] == '\0') {
         spdlog::warn("MIMO_ASR_API_KEY is not set; cloud ASR is disabled");
@@ -193,9 +228,13 @@ AsrService::AsrService(QObject* parent)
 
 AsrService::~AsrService() {
     cancel();
+    releaseLocalRecognizer();
 }
 
 bool AsrService::isApiKeyConfigured() const {
+    if (backend_mode_.load() == AsrBackendMode::Local) {
+        return local_ready_.load();
+    }
     return Config::MiMoASR::getApiKey()[0] != '\0';
 }
 
@@ -207,15 +246,70 @@ bool AsrService::isTranscribing() const {
     return transcribing_.load();
 }
 
+AsrBackendMode AsrService::backendMode() const {
+    return backend_mode_.load();
+}
+
+bool AsrService::isLocalReady() const {
+    return local_ready_.load();
+}
+
+bool AsrService::isLocalLoading() const {
+    return local_loading_.load();
+}
+
+void AsrService::setBackendMode(AsrBackendMode mode) {
+    if (recording_.load() || transcribing_.load()) {
+        emit asrError(QStringLiteral("请先停止当前语音识别，再切换 ASR 模式"));
+        return;
+    }
+
+    const AsrBackendMode previous = backend_mode_.load();
+    if (previous == mode) {
+        if (mode == AsrBackendMode::Local && !local_ready_.load() && !local_loading_.load()) {
+            loadLocalRecognizer();
+        }
+        return;
+    }
+
+    if (mode == AsrBackendMode::Local) {
+        backend_mode_ = AsrBackendMode::Local;
+        emit backendModeChanged(mode);
+        if (!loadLocalRecognizer()) {
+            backend_mode_ = AsrBackendMode::Cloud;
+            emit backendModeChanged(AsrBackendMode::Cloud);
+        }
+        return;
+    }
+
+    backend_mode_ = AsrBackendMode::Cloud;
+    emit backendModeChanged(mode);
+    releaseLocalRecognizer();
+}
+
+void AsrService::releaseForPageLeave() {
+    cancel();
+    releaseLocalRecognizer();
+}
+
 bool AsrService::startRecording() {
     if (recording_.load()) {
         spdlog::warn("ASR: already recording");
         return false;
     }
 
-    if (!isApiKeyConfigured()) {
+    if (backend_mode_.load() == AsrBackendMode::Cloud && !isApiKeyConfigured()) {
         emit asrError(QStringLiteral("未配置 MIMO_ASR_API_KEY，请设置环境变量后重启"));
         return false;
+    }
+
+    if (backend_mode_.load() == AsrBackendMode::Local) {
+        if (!local_ready_.load() && !loadLocalRecognizer()) {
+            return false;
+        }
+        if (!startLocalSession()) {
+            return false;
+        }
     }
 
     // 清空 PCM 缓冲区
@@ -256,6 +350,9 @@ bool AsrService::startRecording() {
         if (capture_thread_.joinable()) {
             capture_thread_.join();
         }
+        if (backend_mode_.load() == AsrBackendMode::Local) {
+            cancelLocalSession();
+        }
         QString error_msg = QString::fromStdString(init_error_);
         if (error_msg.isEmpty()) {
             error_msg = QStringLiteral("录音设备初始化失败");
@@ -289,7 +386,12 @@ void AsrService::stopRecording() {
 
     emit recordingStateChanged(false);
 
-    // 获取 PCM 数据
+    if (backend_mode_.load() == AsrBackendMode::Local) {
+        stopLocalSession();
+        return;
+    }
+
+    // 获取 PCM 数据（云端 ASR 停止后上传）
     std::vector<uint8_t> pcm_data;
     {
         std::lock_guard<std::mutex> lock(pcm_mutex_);
@@ -335,6 +437,8 @@ void AsrService::cancel() {
         transcribing_ = false;
         emit transcribingStateChanged(false);
     }
+
+    cancelLocalSession();
 
     // 清空 PCM
     {
@@ -457,11 +561,10 @@ void AsrService::captureLoop() {
                 mono[i] = static_cast<int16_t>(sum / 2);
             }
 
-            std::lock_guard<std::mutex> lock(pcm_mutex_);
-            pcm_buffer_.insert(pcm_buffer_.end(), mono_data.begin(), mono_data.end());
+            handlePcmChunk(mono_data);
         } else {
-            std::lock_guard<std::mutex> lock(pcm_mutex_);
-            pcm_buffer_.insert(pcm_buffer_.end(), buffer.data(), buffer.data() + data_bytes);
+            std::vector<uint8_t> chunk(buffer.data(), buffer.data() + data_bytes);
+            handlePcmChunk(chunk);
         }
     }
 
@@ -470,6 +573,16 @@ void AsrService::captureLoop() {
     alsa.close(handle);
     capture_running_ = false;
     spdlog::info("ASR: capture loop ended");
+}
+
+void AsrService::handlePcmChunk(const std::vector<uint8_t>& pcm_chunk) {
+    if (backend_mode_.load() == AsrBackendMode::Local) {
+        enqueueLocalPcm(pcm_chunk);
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(pcm_mutex_);
+    pcm_buffer_.insert(pcm_buffer_.end(), pcm_chunk.begin(), pcm_chunk.end());
 }
 
 // ==================== WAV 编码 ====================
@@ -656,4 +769,297 @@ void AsrService::handleAsrResponse(QNetworkReply* reply) {
 
     reply->deleteLater();
     current_reply_.clear();
+}
+
+// ==================== 本地 Sherpa ASR ====================
+
+bool AsrService::loadLocalRecognizer() {
+#if !ENABLE_LOCAL_SHERPA_ASR
+    emit asrError(QStringLiteral("当前构建未启用本地 ASR"));
+    return false;
+#else
+    if (local_ready_.load()) {
+        return true;
+    }
+    if (local_loading_.exchange(true)) {
+        return true;
+    }
+
+    emit localLoadingChanged(true);
+    QString missing;
+    if (!local_model_files_exist(&missing)) {
+        local_loading_ = false;
+        emit localLoadingChanged(false);
+        emit asrError(QStringLiteral("本地 ASR 模型文件缺失: ") + missing);
+        return false;
+    }
+
+    std::thread([this]() {
+        try {
+            spdlog::info("Local ASR: Start loading model in background thread...");
+            sherpa_onnx::cxx::OnlineRecognizerConfig config;
+            config.feat_config.sample_rate = Config::LocalASR::SAMPLE_RATE;
+            config.feat_config.feature_dim = Config::LocalASR::FEATURE_DIM;
+            config.model_config.transducer.encoder = local_model_file(Config::LocalASR::ENCODER).toStdString();
+            config.model_config.transducer.decoder = local_model_file(Config::LocalASR::DECODER).toStdString();
+            config.model_config.transducer.joiner = local_model_file(Config::LocalASR::JOINER).toStdString();
+            config.model_config.tokens = local_model_file(Config::LocalASR::TOKENS).toStdString();
+            config.model_config.provider = "cpu";
+            config.model_config.num_threads = Config::LocalASR::NUM_THREADS;
+            config.model_config.modeling_unit = "cjkchar";
+            config.decoding_method = "greedy_search";
+
+            auto recognizer = sherpa_onnx::cxx::OnlineRecognizer::Create(config);
+            if (!recognizer.Get()) {
+                local_loading_ = false;
+                QMetaObject::invokeMethod(this, [this]() {
+                    emit localLoadingChanged(false);
+                    if (backend_mode_.load() == AsrBackendMode::Local) {
+                        emit asrError(QStringLiteral("本地 ASR 模型初始化失败"));
+                        backend_mode_ = AsrBackendMode::Cloud;
+                        emit backendModeChanged(AsrBackendMode::Cloud);
+                    }
+                }, Qt::QueuedConnection);
+                return;
+            }
+
+            {
+                std::lock_guard<std::mutex> lock(local_mutex_);
+                if (backend_mode_.load() == AsrBackendMode::Local) {
+                    local_recognizer_ = std::make_unique<sherpa_onnx::cxx::OnlineRecognizer>(std::move(recognizer));
+                    local_ready_ = true;
+                    local_loading_ = false;
+                    QMetaObject::invokeMethod(this, [this]() {
+                        emit localLoadingChanged(false);
+                        if (local_ready_.load()) {
+                            emit localReadyChanged(true);
+                        }
+                    }, Qt::QueuedConnection);
+                    spdlog::info("Local ASR loaded successfully from {}", Config::LocalASR::MODEL_DIR);
+                    return;
+                }
+            }
+
+            // User switched away from Local mode while loading
+            spdlog::info("Local ASR: Loaded, but backend mode is no longer Local. Releasing loaded model.");
+            local_loading_ = false;
+            QMetaObject::invokeMethod(this, [this]() {
+                emit localLoadingChanged(false);
+            }, Qt::QueuedConnection);
+        } catch (const std::exception& e) {
+            QString errMsg = QString::fromUtf8(e.what());
+            local_loading_ = false;
+            local_ready_ = false;
+            QMetaObject::invokeMethod(this, [this, errMsg]() {
+                emit localLoadingChanged(false);
+                emit localReadyChanged(false);
+                if (backend_mode_.load() == AsrBackendMode::Local) {
+                    emit asrError(QStringLiteral("本地 ASR 初始化异常: ") + errMsg);
+                    backend_mode_ = AsrBackendMode::Cloud;
+                    emit backendModeChanged(AsrBackendMode::Cloud);
+                }
+            }, Qt::QueuedConnection);
+        }
+    }).detach();
+
+    return true;
+#endif
+}
+
+void AsrService::releaseLocalRecognizer() {
+    cancelLocalSession();
+
+    bool was_loading = local_loading_.exchange(false);
+    if (was_loading) {
+        emit localLoadingChanged(false);
+    }
+
+    bool was_ready = false;
+#if ENABLE_LOCAL_SHERPA_ASR
+    {
+        std::lock_guard<std::mutex> lock(local_mutex_);
+        was_ready = local_ready_.exchange(false);
+        local_stream_.reset();
+        local_recognizer_.reset();
+    }
+#else
+    was_ready = local_ready_.exchange(false);
+#endif
+    local_last_text_.clear();
+    if (was_ready) {
+        emit localReadyChanged(false);
+        spdlog::info("Local ASR released");
+    }
+}
+
+bool AsrService::startLocalSession() {
+#if !ENABLE_LOCAL_SHERPA_ASR
+    emit asrError(QStringLiteral("当前构建未启用本地 ASR"));
+    return false;
+#else
+    std::lock_guard<std::mutex> lock(local_mutex_);
+    if (!local_recognizer_) {
+        emit asrError(QStringLiteral("本地 ASR 尚未就绪"));
+        return false;
+    }
+
+    local_stream_ = std::make_unique<sherpa_onnx::cxx::OnlineStream>(
+        local_recognizer_->CreateStream());
+    if (!local_stream_ || !local_stream_->Get()) {
+        local_stream_.reset();
+        emit asrError(QStringLiteral("本地 ASR 创建流失败"));
+        return false;
+    }
+
+    {
+        std::lock_guard<std::mutex> qlock(local_queue_mutex_);
+        std::queue<std::vector<int16_t>> empty;
+        local_pcm_queue_.swap(empty);
+        local_decode_running_ = true;
+        local_input_finished_ = false;
+    }
+    local_last_text_.clear();
+    local_session_active_ = true;
+    local_decode_thread_ = std::thread(&AsrService::localDecodeLoop, this);
+    return true;
+#endif
+}
+
+void AsrService::stopLocalSession() {
+    if (!local_session_active_.load()) {
+        return;
+    }
+    transcribing_ = true;
+    emit transcribingStateChanged(true);
+    {
+        std::lock_guard<std::mutex> lock(local_queue_mutex_);
+        local_input_finished_ = true;
+    }
+    local_queue_cv_.notify_all();
+    if (local_decode_thread_.joinable()) {
+        local_decode_thread_.join();
+    }
+    local_session_active_ = false;
+    transcribing_ = false;
+    emit transcribingStateChanged(false);
+    emit transcriptionFinished(local_last_text_);
+
+#if ENABLE_LOCAL_SHERPA_ASR
+    std::lock_guard<std::mutex> lock(local_mutex_);
+    local_stream_.reset();
+#endif
+}
+
+void AsrService::cancelLocalSession() {
+    if (!local_session_active_.load() && !local_decode_running_) {
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lock(local_queue_mutex_);
+        local_decode_running_ = false;
+        local_input_finished_ = true;
+        std::queue<std::vector<int16_t>> empty;
+        local_pcm_queue_.swap(empty);
+    }
+    local_queue_cv_.notify_all();
+    if (local_decode_thread_.joinable()) {
+        local_decode_thread_.join();
+    }
+    local_session_active_ = false;
+    transcribing_ = false;
+    emit transcribingStateChanged(false);
+#if ENABLE_LOCAL_SHERPA_ASR
+    std::lock_guard<std::mutex> lock(local_mutex_);
+    local_stream_.reset();
+#endif
+}
+
+void AsrService::enqueueLocalPcm(const std::vector<uint8_t>& pcm_chunk) {
+    if (pcm_chunk.empty()) {
+        return;
+    }
+    const size_t sample_count = pcm_chunk.size() / sizeof(int16_t);
+    std::vector<int16_t> samples(sample_count);
+    std::memcpy(samples.data(), pcm_chunk.data(), sample_count * sizeof(int16_t));
+    {
+        std::lock_guard<std::mutex> lock(local_queue_mutex_);
+        if (!local_decode_running_) {
+            return;
+        }
+        local_pcm_queue_.push(std::move(samples));
+    }
+    local_queue_cv_.notify_one();
+}
+
+void AsrService::localDecodeLoop() {
+#if !ENABLE_LOCAL_SHERPA_ASR
+    return;
+#else
+    while (true) {
+        std::vector<int16_t> pcm;
+        bool final_input = false;
+        {
+            std::unique_lock<std::mutex> lock(local_queue_mutex_);
+            local_queue_cv_.wait(lock, [this] {
+                return !local_pcm_queue_.empty() || local_input_finished_ || !local_decode_running_;
+            });
+            if (!local_decode_running_) {
+                break;
+            }
+            if (!local_pcm_queue_.empty()) {
+                pcm = std::move(local_pcm_queue_.front());
+                local_pcm_queue_.pop();
+            } else if (local_input_finished_) {
+                final_input = true;
+                local_decode_running_ = false;
+            }
+        }
+
+        try {
+            std::lock_guard<std::mutex> lock(local_mutex_);
+            if (!local_recognizer_ || !local_stream_) {
+                break;
+            }
+
+            if (!pcm.empty()) {
+                std::vector<float> samples;
+                samples.reserve(pcm.size());
+                constexpr float kScale = 1.0f / 32768.0f;
+                for (int16_t sample : pcm) {
+                    samples.push_back(std::max(-1.0f, std::min(1.0f, sample * kScale)));
+                }
+                local_stream_->AcceptWaveform(Config::LocalASR::SAMPLE_RATE,
+                                              samples.data(),
+                                              static_cast<int32_t>(samples.size()));
+            }
+
+            if (final_input) {
+                local_stream_->InputFinished();
+            }
+
+            while (local_recognizer_->IsReady(local_stream_.get())) {
+                local_recognizer_->Decode(local_stream_.get());
+            }
+
+            auto result = local_recognizer_->GetResult(local_stream_.get());
+            QString text = QString::fromStdString(result.text).trimmed();
+            if (!text.isEmpty() && text != local_last_text_) {
+                local_last_text_ = text;
+                QMetaObject::invokeMethod(this, [this, text]() {
+                    emit transcriptionReady(text);
+                }, Qt::QueuedConnection);
+            }
+
+            if (final_input) {
+                break;
+            }
+        } catch (const std::exception& e) {
+            const QString error = QStringLiteral("本地 ASR 识别异常: ") + QString::fromUtf8(e.what());
+            QMetaObject::invokeMethod(this, [this, error]() {
+                emit asrError(error);
+            }, Qt::QueuedConnection);
+            break;
+        }
+    }
+#endif
 }

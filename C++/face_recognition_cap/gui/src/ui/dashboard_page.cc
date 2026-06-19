@@ -34,6 +34,7 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QHideEvent>
 #include <QSignalBlocker>
 #include <QShowEvent>
 #include <QSizePolicy>
@@ -327,6 +328,7 @@ DashboardPage::DashboardPage(QWidget* parent)
     , ai_chat_spacer_(nullptr)
     , ai_input_(nullptr)
     , ai_send_btn_(nullptr)
+    , asr_backend_toggle_btn_(nullptr)
     , ai_voice_btn_(nullptr)
     , asr_status_label_(nullptr)
     , backend_toggle_btn_(nullptr)
@@ -360,6 +362,9 @@ DashboardPage::DashboardPage(QWidget* parent)
     connect(asr, &AsrService::recordingStateChanged, this, &DashboardPage::on_asr_recording_state);
     connect(asr, &AsrService::transcribingStateChanged, this, &DashboardPage::on_asr_transcribing_state);
     connect(asr, &AsrService::recordingDurationChanged, this, &DashboardPage::on_asr_duration);
+    connect(asr, &AsrService::backendModeChanged, this, &DashboardPage::on_asr_backend_changed);
+    connect(asr, &AsrService::localReadyChanged, this, &DashboardPage::on_local_asr_ready_changed);
+    connect(asr, &AsrService::localLoadingChanged, this, &DashboardPage::on_local_asr_loading_changed);
 }
 
 void DashboardPage::setAttendanceService(service::AttendanceService* service) {
@@ -385,6 +390,17 @@ void DashboardPage::showEvent(QShowEvent* event) {
     if (need_refresh_) {
         refreshData();
     }
+    if (asr_backend_toggle_btn_ && asr_backend_toggle_btn_->isChecked()) {
+        auto* asr = AsrService::instance();
+        if (asr->backendMode() != AsrBackendMode::Local || !asr->isLocalReady()) {
+            asr->setBackendMode(AsrBackendMode::Local);
+        }
+    }
+}
+
+void DashboardPage::hideEvent(QHideEvent* event) {
+    AsrService::instance()->releaseForPageLeave();
+    QWidget::hideEvent(event);
 }
 
 void DashboardPage::on_refresh_clicked() {
@@ -1171,6 +1187,17 @@ void DashboardPage::setup_ui() {
     connect(ai_input_, &QLineEdit::returnPressed, this, &DashboardPage::on_ai_input_send);
     input_layout->addWidget(ai_input_, 1);
 
+    // ASR 本地/云端切换。checked=true 表示本地 ASR。
+    asr_backend_toggle_btn_ = new QPushButton(tr("云端ASR"), input_row);
+    asr_backend_toggle_btn_->setObjectName("AsrBackendToggle");
+    asr_backend_toggle_btn_->setCheckable(true);
+    asr_backend_toggle_btn_->setMinimumWidth(82);
+    asr_backend_toggle_btn_->setCursor(Qt::PointingHandCursor);
+    asr_backend_toggle_btn_->setToolTip(tr("点击切换到本地 ASR"));
+    connect(asr_backend_toggle_btn_, &QPushButton::toggled,
+            this, &DashboardPage::on_asr_backend_toggled);
+    input_layout->addWidget(asr_backend_toggle_btn_);
+
     // 语音输入按钮（点击开始/点击停止）
     ai_voice_btn_ = new QPushButton(input_row);
     ai_voice_btn_->setObjectName("AiVoiceButton");
@@ -1754,8 +1781,13 @@ void DashboardPage::on_voice_btn_clicked() {
             if (ai_voice_btn_) ai_voice_btn_->setChecked(false);
             return;
         }
-        if (!asr->isApiKeyConfigured()) {
+        if (asr->backendMode() == AsrBackendMode::Cloud && !asr->isApiKeyConfigured()) {
             ToastNotification::showMessage(this, tr("语音识别"), tr("未配置 MIMO_ASR_API_KEY"), ToastNotification::Level::Error, 3000);
+            if (ai_voice_btn_) ai_voice_btn_->setChecked(false);
+            return;
+        }
+        if (asr->backendMode() == AsrBackendMode::Local && !asr->isLocalReady()) {
+            ToastNotification::showMessage(this, tr("语音识别"), tr("本地 ASR 尚未就绪"), ToastNotification::Level::Warning, 2000);
             if (ai_voice_btn_) ai_voice_btn_->setChecked(false);
             return;
         }
@@ -1801,12 +1833,18 @@ void DashboardPage::on_asr_recording_state(bool recording) {
             asr_status_label_->setText(tr("录音中 0s"));
             asr_status_label_->show();
         }
+        if (asr_backend_toggle_btn_) {
+            asr_backend_toggle_btn_->setEnabled(false);
+        }
     } else {
         // 停止录音
         ai_voice_btn_->setChecked(false);
         ai_voice_btn_->setIcon(SvgIconManager::icon(
             ":/icons/actions/mic.svg", QSize(20, 20), QColor("#595959")));
         ai_voice_btn_->setToolTip(tr("点击开始语音输入"));
+        if (asr_backend_toggle_btn_) {
+            asr_backend_toggle_btn_->setEnabled(true);
+        }
     }
 }
 
@@ -1819,6 +1857,9 @@ void DashboardPage::on_asr_transcribing_state(bool transcribing) {
         if (ai_voice_btn_) {
             ai_voice_btn_->setEnabled(false);  // 识别中禁止操作
         }
+        if (asr_backend_toggle_btn_) {
+            asr_backend_toggle_btn_->setEnabled(false);
+        }
     } else {
         if (asr_status_label_) {
             asr_status_label_->hide();
@@ -1826,11 +1867,75 @@ void DashboardPage::on_asr_transcribing_state(bool transcribing) {
         if (ai_voice_btn_) {
             ai_voice_btn_->setEnabled(true);
         }
+        if (asr_backend_toggle_btn_) {
+            asr_backend_toggle_btn_->setEnabled(true);
+        }
     }
 }
 
 void DashboardPage::on_asr_duration(int seconds) {
     if (asr_status_label_ && asr_status_label_->isVisible()) {
         asr_status_label_->setText(tr("录音中 %1s").arg(seconds));
+    }
+}
+
+void DashboardPage::on_asr_backend_toggled(bool checked) {
+    auto* asr = AsrService::instance();
+    if (asr->isRecording() || asr->isTranscribing()) {
+        ToastNotification::showMessage(this, tr("语音识别"),
+            tr("请先停止当前语音识别"), ToastNotification::Level::Warning, 2000);
+        if (asr_backend_toggle_btn_) {
+            const QSignalBlocker blocker(asr_backend_toggle_btn_);
+            asr_backend_toggle_btn_->setChecked(asr->backendMode() == AsrBackendMode::Local);
+        }
+        return;
+    }
+
+    asr->setBackendMode(checked ? AsrBackendMode::Local : AsrBackendMode::Cloud);
+}
+
+void DashboardPage::on_asr_backend_changed(AsrBackendMode mode) {
+    const bool is_local = mode == AsrBackendMode::Local;
+    if (asr_backend_toggle_btn_) {
+        const QSignalBlocker blocker(asr_backend_toggle_btn_);
+        asr_backend_toggle_btn_->setChecked(is_local);
+        asr_backend_toggle_btn_->setText(is_local ? tr("本地ASR") : tr("云端ASR"));
+        asr_backend_toggle_btn_->setToolTip(is_local ? tr("点击切换到云端 ASR") : tr("点击切换到本地 ASR"));
+    }
+    if (asr_status_label_) {
+        asr_status_label_->setText(is_local ? tr("本地ASR") : tr(""));
+        asr_status_label_->setVisible(is_local);
+    }
+}
+
+void DashboardPage::on_local_asr_ready_changed(bool ready) {
+    auto* asr = AsrService::instance();
+    if (asr->backendMode() != AsrBackendMode::Local) {
+        return;
+    }
+    if (ai_voice_btn_) {
+        ai_voice_btn_->setEnabled(ready);
+    }
+    if (asr_status_label_) {
+        asr_status_label_->setText(ready ? tr("本地ASR就绪") : tr("本地ASR已释放"));
+        asr_status_label_->show();
+    }
+    if (ready) {
+        ToastNotification::showMessage(this, tr("语音识别"), tr("本地 ASR 加载完成"), ToastNotification::Level::Success, 2000);
+    }
+}
+
+void DashboardPage::on_local_asr_loading_changed(bool loading) {
+    if (ai_voice_btn_) {
+        ai_voice_btn_->setEnabled(!loading);
+    }
+    if (asr_backend_toggle_btn_) {
+        asr_backend_toggle_btn_->setEnabled(!loading);
+    }
+    if (asr_status_label_) {
+        if (loading) {
+            asr_status_label_->setText(tr("本地ASR加载中..."));
+            asr_status_label_->show();
+        }
     }
 }

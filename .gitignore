@@ -105,6 +105,7 @@ Session.vim
 # *.rknn
 # data/models/
 # data/face_feature_lib/
+**/data/model/sherpa-onnx-streaming-zipformer-zh-int8-*
 
 # 结果文件
 result.jpg

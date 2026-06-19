@@ -84,6 +84,29 @@ set(MPP_PATH ${CMAKE_SOURCE_DIR}/../3rdparty/mpp/)
 set(MPP_LIB ${MPP_PATH}/Linux/${LIB_ARCH}/librockchip_mpp.so)
 include_directories( ${MPP_PATH}/include/rockchip)
 
+# sherpa-onnx local ASR (AArch64 static package)
+set(SHERPA_ONNX_PATH ${CMAKE_SOURCE_DIR}/../3rdparty/sherpa-onnx)
+option(ENABLE_LOCAL_SHERPA_ASR "Enable local sherpa-onnx ASR" ON)
+if(ENABLE_LOCAL_SHERPA_ASR AND LIB_ARCH STREQUAL "aarch64")
+    set(LOCAL_SHERPA_ASR_ENABLED TRUE)
+    include_directories(${SHERPA_ONNX_PATH}/include)
+    set(SHERPA_ONNX_LIBS
+        ${SHERPA_ONNX_PATH}/lib/libsherpa-onnx-cxx-api.a
+        ${SHERPA_ONNX_PATH}/lib/libsherpa-onnx-c-api.a
+        ${SHERPA_ONNX_PATH}/lib/libsherpa-onnx-core.a
+        ${SHERPA_ONNX_PATH}/lib/libsherpa-onnx-kaldifst-core.a
+        ${SHERPA_ONNX_PATH}/lib/libsherpa-onnx-fstfar.a
+        ${SHERPA_ONNX_PATH}/lib/libsherpa-onnx-fst.a
+        ${SHERPA_ONNX_PATH}/lib/libkaldi-decoder-core.a
+        ${SHERPA_ONNX_PATH}/lib/libkaldi-native-fbank-core.a
+        ${SHERPA_ONNX_PATH}/lib/libonnxruntime.a
+        ${SHERPA_ONNX_PATH}/lib/libssentencepiece_core.a
+        ${SHERPA_ONNX_PATH}/lib/libkissfft-float.a
+    )
+else()
+    set(LOCAL_SHERPA_ASR_ENABLED FALSE)
+endif()
+
 # SQLite3
 find_package(SQLite3 REQUIRED)
 include_directories(${SQLite3_INCLUDE_DIRS})
@@ -344,6 +367,18 @@ if(Qt5_FOUND)
         Qt5::Concurrent
         dl
     )
+    if(LOCAL_SHERPA_ASR_ENABLED)
+        target_compile_definitions(${TARGET_NAME}_gui PRIVATE ENABLE_LOCAL_SHERPA_ASR=1)
+        target_link_libraries(${TARGET_NAME}_gui
+            -Wl,--start-group
+            ${SHERPA_ONNX_LIBS}
+            -Wl,--end-group
+            pthread
+            m
+        )
+    else()
+        target_compile_definitions(${TARGET_NAME}_gui PRIVATE ENABLE_LOCAL_SHERPA_ASR=0)
+    endif()
     link_logging_dependencies(${TARGET_NAME}_gui)
     enable_target_warnings(${TARGET_NAME}_gui)
 

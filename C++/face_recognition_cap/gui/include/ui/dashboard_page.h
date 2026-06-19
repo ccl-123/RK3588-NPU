@@ -14,7 +14,10 @@ class QScrollArea;
 class QScrollBar;
 class QVBoxLayout;
 class QShowEvent;
+class QHideEvent;
 class QSpacerItem;
+
+enum class AsrBackendMode;
 
 namespace service {
 class AttendanceService;
@@ -37,6 +40,7 @@ signals:
 
 protected:
     void showEvent(QShowEvent* event) override;
+    void hideEvent(QHideEvent* event) override;
 
 private slots:
     void on_refresh_clicked();
@@ -111,6 +115,7 @@ private:
     QSpacerItem* ai_chat_spacer_;
     QLineEdit* ai_input_;
     QPushButton* ai_send_btn_;
+    QPushButton* asr_backend_toggle_btn_; // ASR 本地/云端切换
     QPushButton* ai_voice_btn_;   // 语音识别按钮
     QLabel* asr_status_label_;   // ASR 状态标签
     QString ai_last_prompt_;
@@ -133,6 +138,10 @@ private slots:
     void on_asr_recording_state(bool recording);
     void on_asr_transcribing_state(bool transcribing);
     void on_asr_duration(int seconds);
+    void on_asr_backend_toggled(bool checked);
+    void on_asr_backend_changed(AsrBackendMode mode);
+    void on_local_asr_ready_changed(bool ready);
+    void on_local_asr_loading_changed(bool loading);
     
     // 后端切换相关
     void on_backend_toggled(bool checked);

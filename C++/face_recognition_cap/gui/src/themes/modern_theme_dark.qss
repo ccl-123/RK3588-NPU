@@ -1995,6 +1995,33 @@ QProgressBar#DashboardRankBar::chunk {
     border-color: #303030;
 }
 
+#AsrBackendToggle {
+    min-height: 40px;
+    padding: 0 12px;
+    border-radius: 10px;
+    border: 1px solid #303030;
+    background-color: #1f1f1f;
+    color: #d9d9d9;
+    font-weight: 600;
+}
+
+#AsrBackendToggle:hover {
+    background-color: #262626;
+    border-color: #177ddc;
+}
+
+#AsrBackendToggle:checked {
+    background-color: #111d2c;
+    border-color: #177ddc;
+    color: #69c0ff;
+}
+
+#AsrBackendToggle:disabled {
+    background-color: #262626;
+    border-color: #303030;
+    color: #595959;
+}
+
 #AsrStatusLabel {
     color: #ff4d4f;
     font-size: 12px;

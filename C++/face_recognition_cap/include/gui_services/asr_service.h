@@ -16,9 +16,28 @@
 #include <atomic>
 #include <mutex>
 #include <condition_variable>
+#include <memory>
+#include <queue>
 #include <thread>
 #include <vector>
 #include <cstdint>
+
+#ifndef ENABLE_LOCAL_SHERPA_ASR
+#define ENABLE_LOCAL_SHERPA_ASR 0
+#endif
+
+#if ENABLE_LOCAL_SHERPA_ASR
+namespace sherpa_onnx::cxx {
+class OnlineRecognizer;
+class OnlineStream;
+}  // namespace sherpa_onnx::cxx
+#endif
+
+enum class AsrBackendMode {
+    Cloud,
+    Local
+};
+Q_DECLARE_METATYPE(AsrBackendMode)
 
 class AsrService : public QObject {
     Q_OBJECT
@@ -41,6 +60,31 @@ public:
      * @brief 取消当前操作（录音或识别请求）
      */
     void cancel();
+
+    /**
+     * @brief 设置 ASR 后端。切到本地会立即加载模型，切回云端会释放本地模型。
+     */
+    void setBackendMode(AsrBackendMode mode);
+
+    /**
+     * @brief 当前 ASR 后端。
+     */
+    AsrBackendMode backendMode() const;
+
+    /**
+     * @brief 本地 ASR 模型是否已加载。
+     */
+    bool isLocalReady() const;
+
+    /**
+     * @brief 是否正在加载本地 ASR 模型。
+     */
+    bool isLocalLoading() const;
+
+    /**
+     * @brief 页面离开时释放本地 ASR 资源。
+     */
+    void releaseForPageLeave();
 
     /**
      * @brief 是否正在录音
@@ -76,6 +120,15 @@ signals:
     /// 录音时长更新（秒）
     void recordingDurationChanged(int seconds);
 
+    /// ASR 后端变化
+    void backendModeChanged(AsrBackendMode mode);
+
+    /// 本地 ASR 模型加载状态变化
+    void localReadyChanged(bool ready);
+
+    /// 本地 ASR 模型加载中状态变化
+    void localLoadingChanged(bool loading);
+
 private:
     explicit AsrService(QObject* parent = nullptr);
     ~AsrService();
@@ -83,6 +136,7 @@ private:
     // ALSA 录音线程
     void captureLoop();
     void finishInitialization(bool success, const std::string& error = {});
+    void handlePcmChunk(const std::vector<uint8_t>& pcm_chunk);
 
     // WAV 编码
     QByteArray encodePcmToWav(const std::vector<uint8_t>& pcm_data,
@@ -91,6 +145,15 @@ private:
     // 网络请求
     void sendAsrRequest(const QByteArray& wav_data);
     void handleAsrResponse(QNetworkReply* reply);
+
+    // 本地 Sherpa ASR
+    bool loadLocalRecognizer();
+    void releaseLocalRecognizer();
+    bool startLocalSession();
+    void stopLocalSession();
+    void cancelLocalSession();
+    void enqueueLocalPcm(const std::vector<uint8_t>& pcm_chunk);
+    void localDecodeLoop();
 
     // 录音数据
     std::vector<uint8_t> pcm_buffer_;
@@ -118,6 +181,24 @@ private:
     // 识别状态
     std::atomic<bool> transcribing_{false};
 
+    std::atomic<AsrBackendMode> backend_mode_{AsrBackendMode::Cloud};
+
+    // 本地 Sherpa 模型和流式解码
+#if ENABLE_LOCAL_SHERPA_ASR
+    std::unique_ptr<sherpa_onnx::cxx::OnlineRecognizer> local_recognizer_;
+    std::unique_ptr<sherpa_onnx::cxx::OnlineStream> local_stream_;
+#endif
+    mutable std::mutex local_mutex_;
+    std::atomic<bool> local_ready_{false};
+    std::atomic<bool> local_loading_{false};
+    std::atomic<bool> local_session_active_{false};
+    std::thread local_decode_thread_;
+    std::mutex local_queue_mutex_;
+    std::condition_variable local_queue_cv_;
+    std::queue<std::vector<int16_t>> local_pcm_queue_;
+    bool local_decode_running_ = false;
+    bool local_input_finished_ = false;
+    QString local_last_text_;
+
     static constexpr int TIMEOUT_MS = 30000;  // 30秒请求超时
 };
-
