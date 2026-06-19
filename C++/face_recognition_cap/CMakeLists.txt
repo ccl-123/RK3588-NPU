@@ -85,10 +85,57 @@ set(MPP_LIB ${MPP_PATH}/Linux/${LIB_ARCH}/librockchip_mpp.so)
 include_directories( ${MPP_PATH}/include/rockchip)
 
 # sherpa-onnx local ASR (AArch64 static package)
-set(SHERPA_ONNX_PATH ${CMAKE_SOURCE_DIR}/../3rdparty/sherpa-onnx)
-option(ENABLE_LOCAL_SHERPA_ASR "Enable local sherpa-onnx ASR" ON)
-if(ENABLE_LOCAL_SHERPA_ASR AND LIB_ARCH STREQUAL "aarch64")
+set(SHERPA_ONNX_PATH "${CMAKE_SOURCE_DIR}/../3rdparty/sherpa-onnx" CACHE PATH "Path to sherpa-onnx third party library")
+set(ENABLE_LOCAL_SHERPA_ASR "AUTO" CACHE STRING "Enable local sherpa-onnx ASR (ON/OFF/AUTO)")
+
+# Detect files
+set(SHERPA_ONNX_FOUND TRUE)
+if(NOT EXISTS "${SHERPA_ONNX_PATH}/include/sherpa-onnx/c-api/c-api.h" OR NOT EXISTS "${SHERPA_ONNX_PATH}/include/sherpa-onnx/c-api/cxx-api.h")
+    set(SHERPA_ONNX_FOUND FALSE)
+endif()
+
+set(REQUIRED_SHERPA_LIBS
+    libsherpa-onnx-cxx-api.a
+    libsherpa-onnx-c-api.a
+    libsherpa-onnx-core.a
+    libsherpa-onnx-kaldifst-core.a
+    libsherpa-onnx-fstfar.a
+    libsherpa-onnx-fst.a
+    libkaldi-decoder-core.a
+    libkaldi-native-fbank-core.a
+    libonnxruntime.a
+    libssentencepiece_core.a
+    libkissfft-float.a
+)
+
+foreach(LIB_NAME ${REQUIRED_SHERPA_LIBS})
+    if(NOT EXISTS "${SHERPA_ONNX_PATH}/lib/${LIB_NAME}")
+        set(SHERPA_ONNX_FOUND FALSE)
+    endif()
+endforeach()
+
+# Decide status
+set(LOCAL_SHERPA_ASR_ENABLED FALSE)
+if(ENABLE_LOCAL_SHERPA_ASR STREQUAL "ON")
+    if(NOT LIB_ARCH STREQUAL "aarch64")
+        message(FATAL_ERROR "Local sherpa-onnx ASR is only supported on aarch64 architectures.")
+    endif()
+    if(NOT SHERPA_ONNX_FOUND)
+        message(FATAL_ERROR "Local sherpa-onnx ASR enabled but dependencies are missing in path ${SHERPA_ONNX_PATH}")
+    endif()
     set(LOCAL_SHERPA_ASR_ENABLED TRUE)
+elseif(ENABLE_LOCAL_SHERPA_ASR STREQUAL "AUTO")
+    if(LIB_ARCH STREQUAL "aarch64" AND SHERPA_ONNX_FOUND)
+        set(LOCAL_SHERPA_ASR_ENABLED TRUE)
+        message(STATUS "Local sherpa-onnx ASR automatically enabled.")
+    else()
+        message(STATUS "Local sherpa-onnx ASR dependencies not found, automatically disabled.")
+    endif()
+else()
+    message(STATUS "Local sherpa-onnx ASR explicitly disabled.")
+endif()
+
+if(LOCAL_SHERPA_ASR_ENABLED)
     include_directories(${SHERPA_ONNX_PATH}/include)
     set(SHERPA_ONNX_LIBS
         ${SHERPA_ONNX_PATH}/lib/libsherpa-onnx-cxx-api.a
@@ -103,8 +150,6 @@ if(ENABLE_LOCAL_SHERPA_ASR AND LIB_ARCH STREQUAL "aarch64")
         ${SHERPA_ONNX_PATH}/lib/libssentencepiece_core.a
         ${SHERPA_ONNX_PATH}/lib/libkissfft-float.a
     )
-else()
-    set(LOCAL_SHERPA_ASR_ENABLED FALSE)
 endif()
 
 # SQLite3

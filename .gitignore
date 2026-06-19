@@ -168,3 +168,4 @@ coverage.xml
 !C++/3rdparty/**/*.so
 !C++/3rdparty/**/*.so.*
 !C++/3rdparty/**/*.a
+!C++/3rdparty/sherpa-onnx/lib/

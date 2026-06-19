@@ -193,10 +193,12 @@ private:
     std::atomic<bool> local_loading_{false};
     std::atomic<bool> local_session_active_{false};
     std::thread local_decode_thread_;
+    std::thread local_load_thread_;
+    std::atomic<int> local_load_id_{0};
     std::mutex local_queue_mutex_;
     std::condition_variable local_queue_cv_;
     std::queue<std::vector<int16_t>> local_pcm_queue_;
-    bool local_decode_running_ = false;
+    std::atomic<bool> local_decode_running_{false};
     bool local_input_finished_ = false;
     QString local_last_text_;
 

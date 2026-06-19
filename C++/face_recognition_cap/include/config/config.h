@@ -263,7 +263,7 @@ namespace MiMoASR {
 //   本地流式语音识别。模型路径按当前板端 install 目录固定。
 namespace LocalASR {
     constexpr const char* MODEL_DIR =
-        "/home/elf/open_project/RK3588-NPU/C++/face_recognition_cap/install/face_recognition_cap/data/model/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30";
+        "data/model/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30";
     constexpr const char* ENCODER = "encoder.int8.onnx";
     constexpr const char* DECODER = "decoder.onnx";
     constexpr const char* JOINER = "joiner.int8.onnx";

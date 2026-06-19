@@ -195,6 +195,9 @@ AsrService::AsrService(QObject* parent)
 AsrService::~AsrService() {
     cancel();
     releaseLocalRecognizer();
+    if (local_load_thread_.joinable()) {
+        local_load_thread_.join();
+    }
 }
 
 bool AsrService::isApiKeyConfigured() const {

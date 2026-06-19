@@ -9,6 +9,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QMetaObject>
+#include <QCoreApplication>
 #include <spdlog/spdlog.h>
 
 #if ENABLE_LOCAL_SHERPA_ASR
@@ -20,8 +21,50 @@
 
 namespace {
 
+QString get_resolved_model_dir() {
+    const QString model_rel_path = QString::fromUtf8(Config::LocalASR::MODEL_DIR);
+
+    // Candidate 1: relative to current working directory
+    QDir current_dir(QDir::currentPath());
+    if (QFileInfo::exists(current_dir.filePath(model_rel_path))) {
+        QString path = current_dir.absoluteFilePath(model_rel_path);
+        spdlog::info("ASR: Resolved model directory relative to current working directory: {}", path.toStdString());
+        return path;
+    }
+
+    // Candidate 2: relative to current working directory + install layout
+    QString root_install_path = QStringLiteral("install/face_recognition_cap/") + model_rel_path;
+    if (QFileInfo::exists(current_dir.filePath(root_install_path))) {
+        QString path = current_dir.absoluteFilePath(root_install_path);
+        spdlog::info("ASR: Resolved model directory via root install path: {}", path.toStdString());
+        return path;
+    }
+
+    // Candidate 3: relative to application binary directory
+    QDir app_dir(QCoreApplication::applicationDirPath());
+    if (QFileInfo::exists(app_dir.filePath(model_rel_path))) {
+        QString path = app_dir.absoluteFilePath(model_rel_path);
+        spdlog::info("ASR: Resolved model directory relative to application binary: {}", path.toStdString());
+        return path;
+    }
+
+    // Candidate 4: relative to application binary directory + build offsets
+    QDir build_offset_dir(QCoreApplication::applicationDirPath() + QStringLiteral("/../../install/face_recognition_cap"));
+    if (QFileInfo::exists(build_offset_dir.filePath(model_rel_path))) {
+        QString path = build_offset_dir.absoluteFilePath(model_rel_path);
+        spdlog::info("ASR: Resolved model directory via build offsets: {}", path.toStdString());
+        return path;
+    }
+
+    // Fallback: just return absolute path relative to current path
+    QString fallback = current_dir.absoluteFilePath(model_rel_path);
+    spdlog::warn("ASR: Could not find model directory in candidates. Using fallback: {}", fallback.toStdString());
+    return fallback;
+}
+
 [[maybe_unused]] QString local_model_file(const char* file_name) {
-    return QDir(QString::fromUtf8(Config::LocalASR::MODEL_DIR)).filePath(QString::fromUtf8(file_name));
+    static const QString resolved_model_dir = get_resolved_model_dir();
+    return QDir(resolved_model_dir).filePath(QString::fromUtf8(file_name));
 }
 
 #if ENABLE_LOCAL_SHERPA_ASR
@@ -67,9 +110,15 @@ bool AsrService::loadLocalRecognizer() {
         return false;
     }
 
-    std::thread([this]() {
+    // Abort any existing load task by incrementing load ID, and join the finished thread
+    int current_id = ++local_load_id_;
+    if (local_load_thread_.joinable()) {
+        local_load_thread_.join();
+    }
+
+    local_load_thread_ = std::thread([this, current_id]() {
         try {
-            spdlog::info("Local ASR: Start loading model in background thread...");
+            spdlog::info("Local ASR: Start loading model in background thread (load_id: {})...", current_id);
             sherpa_onnx::cxx::OnlineRecognizerConfig config;
             config.feat_config.sample_rate = Config::LocalASR::SAMPLE_RATE;
             config.feat_config.feature_dim = Config::LocalASR::FEATURE_DIM;
@@ -83,9 +132,17 @@ bool AsrService::loadLocalRecognizer() {
             config.decoding_method = "greedy_search";
 
             auto recognizer = sherpa_onnx::cxx::OnlineRecognizer::Create(config);
+
+            // Check if this thread has been cancelled/superseded before proceeding
+            if (current_id != local_load_id_.load()) {
+                spdlog::info("Local ASR: Model loaded but discarded because thread was superseded (load_id: {}).", current_id);
+                return;
+            }
+
             if (!recognizer.Get()) {
                 local_loading_ = false;
-                QMetaObject::invokeMethod(this, [this]() {
+                QMetaObject::invokeMethod(this, [this, current_id]() {
+                    if (current_id != local_load_id_.load()) return;
                     emit localLoadingChanged(false);
                     if (backend_mode_.load() == AsrBackendMode::Local) {
                         emit asrError(QStringLiteral("本地 ASR 模型初始化失败"));
@@ -98,32 +155,35 @@ bool AsrService::loadLocalRecognizer() {
 
             {
                 std::lock_guard<std::mutex> lock(local_mutex_);
-                if (backend_mode_.load() == AsrBackendMode::Local) {
+                if (current_id == local_load_id_.load() && backend_mode_.load() == AsrBackendMode::Local) {
                     local_recognizer_ = std::make_unique<sherpa_onnx::cxx::OnlineRecognizer>(std::move(recognizer));
                     local_ready_ = true;
                     local_loading_ = false;
-                    QMetaObject::invokeMethod(this, [this]() {
+                    QMetaObject::invokeMethod(this, [this, current_id]() {
+                        if (current_id != local_load_id_.load()) return;
                         emit localLoadingChanged(false);
                         if (local_ready_.load()) {
                             emit localReadyChanged(true);
                         }
                     }, Qt::QueuedConnection);
-                    spdlog::info("Local ASR loaded successfully from {}", Config::LocalASR::MODEL_DIR);
+                    spdlog::info("Local ASR loaded successfully (load_id: {}).", current_id);
                     return;
                 }
             }
 
-            // User switched away from Local mode while loading
-            spdlog::info("Local ASR: Loaded, but backend mode is no longer Local. Releasing loaded model.");
+            // User switched away from Local mode or loading was cancelled
+            spdlog::info("Local ASR: Loaded, but backend mode is no longer Local or load was cancelled. Releasing loaded model (load_id: {}).", current_id);
             local_loading_ = false;
-            QMetaObject::invokeMethod(this, [this]() {
+            QMetaObject::invokeMethod(this, [this, current_id]() {
+                if (current_id != local_load_id_.load()) return;
                 emit localLoadingChanged(false);
             }, Qt::QueuedConnection);
         } catch (const std::exception& e) {
             QString errMsg = QString::fromUtf8(e.what());
             local_loading_ = false;
             local_ready_ = false;
-            QMetaObject::invokeMethod(this, [this, errMsg]() {
+            QMetaObject::invokeMethod(this, [this, current_id, errMsg]() {
+                if (current_id != local_load_id_.load()) return;
                 emit localLoadingChanged(false);
                 emit localReadyChanged(false);
                 if (backend_mode_.load() == AsrBackendMode::Local) {
@@ -133,7 +193,7 @@ bool AsrService::loadLocalRecognizer() {
                 }
             }, Qt::QueuedConnection);
         }
-    }).detach();
+    });
 
     return true;
 #endif
@@ -141,6 +201,9 @@ bool AsrService::loadLocalRecognizer() {
 
 void AsrService::releaseLocalRecognizer() {
     cancelLocalSession();
+
+    // Increment load ID to invalidate any active background loading thread
+    ++local_load_id_;
 
     bool was_loading = local_loading_.exchange(false);
     if (was_loading) {
