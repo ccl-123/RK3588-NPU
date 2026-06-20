@@ -30,12 +30,10 @@ AgentService::AgentService(const AgentConfig& config, QObject* parent)
         this
     );
 
-    // 注册系统工具（始终可用）
+    // 注册系统工具（仅保留系统时间与配置查询，移除 HelpTool 和 CalculatorTool）
     if (Config::Agent::Tools::ENABLE_SYSTEM) {
         tools_->registerTool(std::make_unique<SystemTool>());
-        tools_->registerTool(std::make_unique<HelpTool>());
-        tools_->registerTool(std::make_unique<CalculatorTool>());
-        spdlog::info("Registered system tools");
+        spdlog::info("Registered SystemTool only");
     }
 
     connectSignals();
@@ -57,10 +55,6 @@ void AgentService::registerBuiltinTools(service::AttendanceService* attendance,
     if (attendance && user) {
         tools_->registerTool(std::make_unique<DepartmentAttendanceTool>(attendance, user));
         spdlog::info("Registered DepartmentAttendanceTool");
-        tools_->registerTool(std::make_unique<AttendanceRankingTool>(attendance, user));
-        spdlog::info("Registered AttendanceRankingTool");
-        tools_->registerTool(std::make_unique<MissingAttendanceTool>(attendance, user));
-        spdlog::info("Registered MissingAttendanceTool");
     }
 
     if (attendance && user) {

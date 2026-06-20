@@ -1114,29 +1114,28 @@ void DashboardPage::setup_ui() {
         });
     };
 
-    add_prompt_template(tr("今日考勤体检"),
-        tr("请先查询今日考勤统计、异常记录和缺勤情况。"));
-    add_prompt_template(tr("近7日趋势分析"),
-        tr("请查询近7日考勤数据，对比出勤率、迟到、早退和缺勤变化，指出趋势、风险点和需要重点关注的员工或部门。"));
-    add_prompt_template(tr("近30日月度复盘"),
-        tr("请查询近30日考勤数据，生成月度复盘：总体表现、异常高发类型、部门差异、员工排行和下月改进建议。"));
-    add_prompt_template(tr("部门出勤对比"),
-        tr("请查询各部门今日及近7日出勤情况，对比表现最好和最需要关注的部门，并说明依据和建议。"));
+    add_prompt_template(tr("今日考勤统计"),
+        tr("请查询今日的考勤数据统计。"));
+    add_prompt_template(tr("今日异常打卡"),
+        tr("请查询今日考勤中的异常打卡记录。"));
+    add_prompt_template(tr("本周考勤数据"),
+        tr("请查询本周的考勤统计数据。"));
 
     template_menu->addSeparator();
-    add_prompt_template(tr("异常人员清单"),
-        tr("请查询今日迟到、早退、未签到、未签退和缺勤人员，按异常类型分组列出姓名、部门、时间和处理建议。"));
-    add_prompt_template(tr("迟到排行"),
-        tr("请查询近30日迟到次数最多的前5名员工，列出姓名、部门、迟到次数，并判断是否存在反复迟到风险。"));
-    add_prompt_template(tr("缺勤风险排查"),
-        tr("请查询近7日缺勤和连续缺勤情况，列出需要优先跟进的员工、所属部门、异常日期和建议处理动作。"));
-    add_prompt_template(tr("员工考勤追踪"),
-        tr("请查询【员工姓名】近30日考勤记录，分析出勤规律、异常记录和是否需要主管跟进。"));
+    add_prompt_template(tr("查询员工信息"),
+        tr("请查询张三的员工个人基本信息。"));
+    add_prompt_template(tr("员工今日打卡"),
+        tr("请查询张三今日的打卡记录。"));
+    add_prompt_template(tr("员工本周考勤"),
+        tr("请查询张三本周的考勤摘要和异常记录。"));
+
     template_menu->addSeparator();
-    add_prompt_template(tr("生成管理简报"),
-        tr("请查询今日考勤关键数据，生成一段适合发给管理层的简报，要求包含结论、异常数字、重点人员和下一步动作。"));
-    add_prompt_template(tr("数据核查"),
-        tr("请查询今日全部打卡明细，检查是否存在重复打卡、只有签到无签退、只有签退无签到、状态异常等数据问题，并列出证据。"));
+    add_prompt_template(tr("部门今日出勤"),
+        tr("请查询技术部今日的考勤统计摘要。"));
+    add_prompt_template(tr("部门本周异常"),
+        tr("请查询技术部本周的异常打卡记录。"));
+    add_prompt_template(tr("系统当前时间"),
+        tr("请查询系统当前的日期和时间。"));
     template_btn->setMenu(template_menu);
     quick_layout->addWidget(template_btn);
 

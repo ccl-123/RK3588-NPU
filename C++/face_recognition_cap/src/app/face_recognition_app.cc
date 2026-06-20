@@ -613,15 +613,21 @@ bool FaceRecognitionApp::reload_models() {
 
     // 【关键】重新创建并启动工作线程
     // 这些线程在 release_models() 时被销毁，需要重新创建
-    if (camera_initialized_ && !preprocess_thread_) {
-        preprocess_thread_ = std::make_unique<PreprocessingThread>(
-            resize_w_, resize_h_,
-            config_.camera_width, config_.camera_height,
-            &perf_monitor_,
-            config_.camera_type);
-        preprocess_thread_->register_npu_input_mem(model_manager_.get_face_detector_input_mem());
-        preprocess_thread_->start();
-        spdlog::info("Preprocessing thread recreated");
+    if (camera_initialized_) {
+        if (!preprocess_thread_) {
+            preprocess_thread_ = std::make_unique<PreprocessingThread>(
+                resize_w_, resize_h_,
+                config_.camera_width, config_.camera_height,
+                &perf_monitor_,
+                config_.camera_type);
+            preprocess_thread_->register_npu_input_mem(model_manager_.get_face_detector_input_mem());
+            preprocess_thread_->start();
+            spdlog::info("Preprocessing thread recreated");
+        } else {
+            // 如果预处理线程在 resume_camera 时就已经创建并启动，这里只需补充注册 NPU 输入内存
+            preprocess_thread_->register_npu_input_mem(model_manager_.get_face_detector_input_mem());
+            spdlog::info("Preprocessing thread registered NPU input memory after reload");
+        }
     }
 
     if (!recognition_thread_) {

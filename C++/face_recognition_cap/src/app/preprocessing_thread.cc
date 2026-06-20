@@ -371,36 +371,20 @@ bool PreprocessingThread::process_nv12_frame(int dma_fd,
         return false;
     }
 
-    if (Config::Performance::USE_RGA && npu_input_mem_ && dma_fd >= 0) {
-        rga_buffer_t src_buf = wrapbuffer_fd(dma_fd, frame_width, frame_height,
-                                             RK_FORMAT_YCbCr_420_SP,
-                                             horizontal_stride, vertical_stride);
-        rga_buffer_t dst_buf = wrapbuffer_fd(npu_input_mem_->fd, target_w_, target_h_,
-                                             RK_FORMAT_BGR_888);
-
-        auto t_input_start = std::chrono::steady_clock::now();
-        im_rect whole_rect = {0, 0, target_w_, target_h_};
-        imfill(dst_buf, whole_rect, 0x00000000);
-
-        im_rect src_rect = {0, 0, frame_width, frame_height};
-        im_rect dst_rect = {pad_left_, pad_top_, resize_w_, resize_h_};
-        im_rect pat_rect = {0, 0, 0, 0};
-        rga_buffer_t pat_buf = {};
-
-        IM_STATUS resize_status = improcess(src_buf, dst_buf, pat_buf,
-                                            src_rect, dst_rect, pat_rect,
-                                            IM_HAL_TRANSFORM_FLIP_H);
-        auto t_input_end = std::chrono::steady_clock::now();
-        timings.rga_input_ms = std::chrono::duration_cast<std::chrono::microseconds>(
-            t_input_end - t_input_start).count() / 1000.0;
-        if (resize_status != IM_STATUS_SUCCESS) {
-            spdlog::error("PreprocessingThread: RGA fd-to-NPU zero-copy failed: STATUS={}",
-                          static_cast<int>(resize_status));
-        } else {
+    if (!inference_pipeline_active_) {
+        // ========== 优化：推理流水线未激活（纯预览模式），无需写入 NPU 零拷贝内存 ==========
+        if (Config::Performance::USE_RGA && dma_fd >= 0) {
+            rga_buffer_t src_buf = wrapbuffer_fd(dma_fd, frame_width, frame_height,
+                                                 RK_FORMAT_YCbCr_420_SP,
+                                                 horizontal_stride, vertical_stride);
             task.orig_img = cv::Mat(frame_height, frame_width, CV_8UC3);
             rga_buffer_t dst_orig = wrapbuffer_virtualaddr(task.orig_img.data,
                                                            frame_width, frame_height,
                                                            RK_FORMAT_BGR_888);
+            im_rect src_rect = {0, 0, frame_width, frame_height};
+            rga_buffer_t pat_buf = {};
+            im_rect pat_rect = {0, 0, 0, 0};
+            
             auto t_preview_start = std::chrono::steady_clock::now();
             IM_STATUS preview_status = improcess(src_buf, dst_orig, pat_buf,
                                                  src_rect, src_rect, pat_rect,
@@ -408,38 +392,100 @@ bool PreprocessingThread::process_nv12_frame(int dma_fd,
             auto t_preview_end = std::chrono::steady_clock::now();
             timings.preview_ms = std::chrono::duration_cast<std::chrono::microseconds>(
                 t_preview_end - t_preview_start).count() / 1000.0;
-            preprocess_ok = preview_status == IM_STATUS_SUCCESS;
-            if (!preprocess_ok) {
-                spdlog::error("PreprocessingThread: RGA preview conversion failed: STATUS={}",
-                              static_cast<int>(preview_status));
+            preprocess_ok = (preview_status == IM_STATUS_SUCCESS);
+        }
+
+        if (!preprocess_ok && virtual_addr) {
+            auto t_fallback_start = std::chrono::steady_clock::now();
+            cv::Mat yuv_frame(vertical_stride + vertical_stride / 2,
+                              horizontal_stride,
+                              CV_8UC1,
+                              virtual_addr);
+            cv::Mat decoded_with_stride;
+            cv::cvtColor(yuv_frame, decoded_with_stride, cv::COLOR_YUV2BGR_NV12);
+            cv::Mat decoded_frame = decoded_with_stride(
+                cv::Rect(0, 0, frame_width, frame_height));
+            task.orig_img = cv::Mat(frame_height, frame_width, CV_8UC3);
+            cv::flip(decoded_frame, task.orig_img, 1);
+            
+            auto t_fallback_end = std::chrono::steady_clock::now();
+            timings.cpu_fallback_ms = std::chrono::duration_cast<std::chrono::microseconds>(
+                t_fallback_end - t_fallback_start).count() / 1000.0;
+            timings.used_cpu_fallback = true;
+            preprocess_ok = true;
+        }
+    } else {
+        // ========== 推理流水线激活时（进行人脸识别）：必须将 resized 图像写入 NPU 零拷贝内存 ==========
+        if (Config::Performance::USE_RGA && npu_input_mem_ && dma_fd >= 0) {
+            rga_buffer_t src_buf = wrapbuffer_fd(dma_fd, frame_width, frame_height,
+                                                 RK_FORMAT_YCbCr_420_SP,
+                                                 horizontal_stride, vertical_stride);
+            rga_buffer_t dst_buf = wrapbuffer_fd(npu_input_mem_->fd, target_w_, target_h_,
+                                                 RK_FORMAT_BGR_888);
+
+            auto t_input_start = std::chrono::steady_clock::now();
+            im_rect whole_rect = {0, 0, target_w_, target_h_};
+            imfill(dst_buf, whole_rect, 0x00000000);
+
+            im_rect src_rect = {0, 0, frame_width, frame_height};
+            im_rect dst_rect = {pad_left_, pad_top_, resize_w_, resize_h_};
+            im_rect pat_rect = {0, 0, 0, 0};
+            rga_buffer_t pat_buf = {};
+
+            IM_STATUS resize_status = improcess(src_buf, dst_buf, pat_buf,
+                                                src_rect, dst_rect, pat_rect,
+                                                IM_HAL_TRANSFORM_FLIP_H);
+            auto t_input_end = std::chrono::steady_clock::now();
+            timings.rga_input_ms = std::chrono::duration_cast<std::chrono::microseconds>(
+                t_input_end - t_input_start).count() / 1000.0;
+            if (resize_status != IM_STATUS_SUCCESS) {
+                spdlog::error("PreprocessingThread: RGA fd-to-NPU zero-copy failed: STATUS={}",
+                              static_cast<int>(resize_status));
+            } else {
+                task.orig_img = cv::Mat(frame_height, frame_width, CV_8UC3);
+                rga_buffer_t dst_orig = wrapbuffer_virtualaddr(task.orig_img.data,
+                                                               frame_width, frame_height,
+                                                               RK_FORMAT_BGR_888);
+                auto t_preview_start = std::chrono::steady_clock::now();
+                IM_STATUS preview_status = improcess(src_buf, dst_orig, pat_buf,
+                                                     src_rect, src_rect, pat_rect,
+                                                     IM_HAL_TRANSFORM_FLIP_H);
+                auto t_preview_end = std::chrono::steady_clock::now();
+                timings.preview_ms = std::chrono::duration_cast<std::chrono::microseconds>(
+                    t_preview_end - t_preview_start).count() / 1000.0;
+                preprocess_ok = preview_status == IM_STATUS_SUCCESS;
+                if (!preprocess_ok) {
+                    spdlog::error("PreprocessingThread: RGA preview conversion failed: STATUS={}",
+                                  static_cast<int>(preview_status));
+                }
             }
         }
-    }
 
-    if (!preprocess_ok && npu_input_mem_ && virtual_addr) {
-        auto t_fallback_start = std::chrono::steady_clock::now();
-        cv::Mat yuv_frame(vertical_stride + vertical_stride / 2,
-                          horizontal_stride,
-                          CV_8UC1,
-                          virtual_addr);
-        cv::Mat decoded_with_stride;
-        cv::cvtColor(yuv_frame, decoded_with_stride, cv::COLOR_YUV2BGR_NV12);
-        cv::Mat decoded_frame = decoded_with_stride(
-            cv::Rect(0, 0, frame_width, frame_height));
+        if (!preprocess_ok && npu_input_mem_ && virtual_addr) {
+            auto t_fallback_start = std::chrono::steady_clock::now();
+            cv::Mat yuv_frame(vertical_stride + vertical_stride / 2,
+                              horizontal_stride,
+                              CV_8UC1,
+                              virtual_addr);
+            cv::Mat decoded_with_stride;
+            cv::cvtColor(yuv_frame, decoded_with_stride, cv::COLOR_YUV2BGR_NV12);
+            cv::Mat decoded_frame = decoded_with_stride(
+                cv::Rect(0, 0, frame_width, frame_height));
 
-        task.orig_img = cv::Mat(frame_height, frame_width, CV_8UC3);
-        cv::flip(decoded_frame, task.orig_img, 1);
+            task.orig_img = cv::Mat(frame_height, frame_width, CV_8UC3);
+            cv::flip(decoded_frame, task.orig_img, 1);
 
-        cv::Mat npu_input(target_h_, target_w_, CV_8UC3, npu_input_mem_->virt_addr);
-        npu_input.setTo(cv::Scalar(0, 0, 0));
-        cv::Mat resized_part = npu_input(cv::Rect(pad_left_, pad_top_, resize_w_, resize_h_));
-        cv::resize(task.orig_img, resized_part, cv::Size(resize_w_, resize_h_),
-                   0, 0, cv::INTER_LINEAR);
-        auto t_fallback_end = std::chrono::steady_clock::now();
-        timings.cpu_fallback_ms = std::chrono::duration_cast<std::chrono::microseconds>(
-            t_fallback_end - t_fallback_start).count() / 1000.0;
-        timings.used_cpu_fallback = true;
-        preprocess_ok = true;
+            cv::Mat npu_input(target_h_, target_w_, CV_8UC3, npu_input_mem_->virt_addr);
+            npu_input.setTo(cv::Scalar(0, 0, 0));
+            cv::Mat resized_part = npu_input(cv::Rect(pad_left_, pad_top_, resize_w_, resize_h_));
+            cv::resize(task.orig_img, resized_part, cv::Size(resize_w_, resize_h_),
+                       0, 0, cv::INTER_LINEAR);
+            auto t_fallback_end = std::chrono::steady_clock::now();
+            timings.cpu_fallback_ms = std::chrono::duration_cast<std::chrono::microseconds>(
+                t_fallback_end - t_fallback_start).count() / 1000.0;
+            timings.used_cpu_fallback = true;
+            preprocess_ok = true;
+        }
     }
 
     if (!preprocess_ok) {

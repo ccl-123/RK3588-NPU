@@ -183,7 +183,7 @@ void LocalAiAnalysisService::initializeAgent(service::AttendanceService* attenda
     config.max_iterations = Config::Agent::MAX_ITERATIONS;
     config.stream_output = Config::Agent::STREAM_OUTPUT;
     config.use_llm_session_cache = true;
-    config.include_tool_overview = true;
+    config.include_tool_overview = false;
     config.include_structured_tool_output = false;
 
     agent_service_ = std::make_unique<agent::AgentService>(config, nullptr);

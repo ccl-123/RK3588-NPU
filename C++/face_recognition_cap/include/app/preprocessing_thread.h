@@ -77,6 +77,7 @@ public:
 
     // 注册 NPU Zero-Copy 输入内存与互斥锁
     void register_npu_input_mem(rknn_tensor_mem* input_mem) {
+        std::lock_guard<std::mutex> lock(npu_mem_mutex_);
         npu_input_mem_ = input_mem;
     }
     void begin_inference_pipeline();

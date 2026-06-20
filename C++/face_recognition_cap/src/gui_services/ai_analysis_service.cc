@@ -306,7 +306,7 @@ void AiAnalysisService::initializeAgent(service::AttendanceService* attendance_s
     config.stream_output = Config::Agent::STREAM_OUTPUT;
     config.skip_system_prompt = false;
     config.use_llm_session_cache = false;
-    config.include_tool_overview = true;
+    config.include_tool_overview = false;
     config.include_structured_tool_output = false;
 
     agent_service_ = std::make_unique<agent::AgentService>(config, nullptr);
