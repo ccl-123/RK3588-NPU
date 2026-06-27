@@ -84,9 +84,9 @@ set(MPP_PATH ${CMAKE_SOURCE_DIR}/../3rdparty/mpp/)
 set(MPP_LIB ${MPP_PATH}/Linux/${LIB_ARCH}/librockchip_mpp.so)
 include_directories( ${MPP_PATH}/include/rockchip)
 
-# sherpa-onnx local ASR (AArch64 static package)
+# sherpa-onnx local speech engine (AArch64 static package: ASR & TTS)
 set(SHERPA_ONNX_PATH "${CMAKE_SOURCE_DIR}/../3rdparty/sherpa-onnx" CACHE PATH "Path to sherpa-onnx third party library")
-set(ENABLE_LOCAL_SHERPA_ASR "AUTO" CACHE STRING "Enable local sherpa-onnx ASR (ON/OFF/AUTO)")
+set(ENABLE_LOCAL_SHERPA_ASR "AUTO" CACHE STRING "Enable local sherpa-onnx speech engine (ASR & TTS) (ON/OFF/AUTO)")
 
 # Detect files
 set(SHERPA_ONNX_FOUND TRUE)
@@ -106,6 +106,9 @@ set(REQUIRED_SHERPA_LIBS
     libonnxruntime.a
     libssentencepiece_core.a
     libkissfft-float.a
+    libespeak-ng.a
+    libpiper_phonemize.a
+    libucd.a
 )
 
 foreach(LIB_NAME ${REQUIRED_SHERPA_LIBS})
@@ -152,6 +155,9 @@ if(LOCAL_SHERPA_ASR_ENABLED)
         ${SHERPA_ONNX_PATH}/lib/libonnxruntime.a
         ${SHERPA_ONNX_PATH}/lib/libssentencepiece_core.a
         ${SHERPA_ONNX_PATH}/lib/libkissfft-float.a
+        ${SHERPA_ONNX_PATH}/lib/libespeak-ng.a
+        ${SHERPA_ONNX_PATH}/lib/libpiper_phonemize.a
+        ${SHERPA_ONNX_PATH}/lib/libucd.a
     )
 endif()
 
@@ -418,7 +424,11 @@ if(Qt5_FOUND)
         dl
     )
     if(LOCAL_SHERPA_ASR_ENABLED)
-        target_compile_definitions(${TARGET_NAME}_gui PRIVATE ENABLE_LOCAL_SHERPA_ASR=1)
+        target_compile_definitions(${TARGET_NAME}_gui PRIVATE 
+            ENABLE_LOCAL_SHERPA=1
+            ENABLE_LOCAL_SHERPA_ASR=1
+            ENABLE_LOCAL_SHERPA_TTS=1
+        )
         target_link_libraries(${TARGET_NAME}_gui
             -Wl,--start-group
             ${SHERPA_ONNX_LIBS}
@@ -427,7 +437,11 @@ if(Qt5_FOUND)
             m
         )
     else()
-        target_compile_definitions(${TARGET_NAME}_gui PRIVATE ENABLE_LOCAL_SHERPA_ASR=0)
+        target_compile_definitions(${TARGET_NAME}_gui PRIVATE 
+            ENABLE_LOCAL_SHERPA=0
+            ENABLE_LOCAL_SHERPA_ASR=0
+            ENABLE_LOCAL_SHERPA_TTS=0
+        )
     endif()
     link_logging_dependencies(${TARGET_NAME}_gui)
     enable_target_warnings(${TARGET_NAME}_gui)
