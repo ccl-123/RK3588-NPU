@@ -399,7 +399,7 @@ void DashboardPage::showEvent(QShowEvent* event) {
 }
 
 void DashboardPage::hideEvent(QHideEvent* event) {
-    AsrService::instance()->releaseForPageLeave();
+    AsrService::instance()->stopRecordingForPageLeave();
     QWidget::hideEvent(event);
 }
 

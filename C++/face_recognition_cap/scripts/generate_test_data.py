@@ -77,8 +77,8 @@ def generate_test_data(db_path):
         ''', (name, emp_id, dept, pos))
     conn.commit()
     
-    # 2. 获取用户ID映射
-    cursor.execute('SELECT user_id, user_name FROM users')
+    # 2. 获取所有在库用户ID映射
+    cursor.execute('SELECT user_id, user_name FROM users WHERE status = 1')
     user_map = {row[1]: row[0] for row in cursor.fetchall()}
     
     # 3. 生成考勤记录
@@ -86,15 +86,21 @@ def generate_test_data(db_path):
     end_date = datetime.now().date()
     start_date = end_date - timedelta(days=29)
     
+    # 清除旧的同时间段测试考勤记录（可选，防止重复）
+    start_str = start_date.strftime('%Y-%m-%d 00:00:00')
+    end_str = (end_date + timedelta(days=1)).strftime('%Y-%m-%d 00:00:00')
+    cursor.execute('DELETE FROM attendance_records WHERE check_time >= ? AND check_time < ?', (start_str, end_str))
+    
     records = []
     current_date = start_date
+    
+    default_perf = {'late_prob': 0.15, 'early_prob': 0.08}
     
     while current_date <= end_date:
         if is_workday(current_date):
             # 工作日为每个员工生成考勤记录
-            for name, _, _, _ in USERS:
-                user_id = user_map[name]
-                perf = PERFORMANCE[name]
+            for name, user_id in user_map.items():
+                perf = PERFORMANCE.get(name, default_perf)
                 
                 # 判断是否迟到
                 is_late = random.random() < perf['late_prob']

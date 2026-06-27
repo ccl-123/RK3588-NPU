@@ -261,9 +261,8 @@ void AsrService::setBackendMode(AsrBackendMode mode) {
     cancelLocalSession();
 }
 
-void AsrService::releaseForPageLeave() {
+void AsrService::stopRecordingForPageLeave() {
     cancel();
-    releaseLocalRecognizer();
 }
 
 bool AsrService::startRecording() {

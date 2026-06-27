@@ -82,9 +82,11 @@ public:
     bool isLocalLoading() const;
 
     /**
-     * @brief 页面离开时释放本地 ASR 资源。
+     * @brief 页面离开时停止当前录音会话。
+     * @note 仅停止正在进行的音频录制/识别，保持常驻内存的 ASR Recognizer 模型，确保页面切换无卡顿。
      */
-    void releaseForPageLeave();
+    void stopRecordingForPageLeave();
+    inline void releaseForPageLeave() { stopRecordingForPageLeave(); }
 
     /**
      * @brief 是否正在录音
