@@ -664,6 +664,13 @@ void DashboardPage::on_ai_input_send() {
     if (!ai_input_) {
         return;
     }
+
+    // 点击发送时自动关闭麦克风 / 停止识别
+    auto* asr = AsrService::instance();
+    if (asr && (asr->isRecording() || asr->isTranscribing())) {
+        asr->cancel();
+    }
+
     if (is_analyzing_) {
         if (is_local_llm_) {
             LocalAiAnalysisService::instance()->cancelAnalysis();
