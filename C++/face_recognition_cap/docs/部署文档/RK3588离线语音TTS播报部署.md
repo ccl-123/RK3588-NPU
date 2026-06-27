@@ -25,24 +25,27 @@ TTS 引擎加载及模型初始化由后台单独的工作线程（`TtsWorkerThr
 
 ## 3. 模型配置与路径
 
-### 3.1 预装模型
-系统预装 `vits-icefall-zh-aishell3` 中文离线 TTS 语音合成模型（包含声码器及拼音/字典映射）。
+### 3.1 TTS 模型与下载地址
+系统采用 `vits-piper-zh_CN-huayan-medium` 中文高质量离线 TTS 语音合成模型。
+
+- **模型名称**：`vits-piper-zh_CN-huayan-medium`
+- **官方下载地址**：[https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-zh_CN-huayan-medium.tar.bz2](https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-zh_CN-huayan-medium.tar.bz2)
 
 ### 3.2 放置位置
-模型存放在项目及部署目录下的 `data/model/tts/` 目录：
+下载后解压，请将模型文件放置在项目及部署目录下的 `data/model/tts/` 目录中：
 ```text
 install/face_recognition_cap/
 └── data/
     └── model/
-        └── tts/
-            ├── model.onnx         # VITS 语音合成主模型
-            ├── lexicon.txt        # 词典映射文件
-            ├── tokens.txt         # 字符/音素 Token 映射
-            └── date.ft            # 语言特性支持文件
+        └── tts/ (即 vits-piper-zh_CN-huayan-medium 目录下的内容)
+            ├── zh_CN-huayan-medium.onnx  # VITS 语音合成主模型
+            ├── tokens.txt                # 字符/音素 Token 映射
+            ├── lexicon.txt               # 词典映射文件 (若有)
+            └── espeak-ng-data/           # 语言音素支持数据目录
 ```
 
 > [!NOTE]
-> 系统同样支持相对路径与绝对路径的自动解析，无论在开发测试目录还是板端安装目录，均能自动识别并载入模型。
+> 系统支持自动相对路径与绝对路径解析。无论在开发编译目录还是板端安装目录，系统启动时均会在 `data/model/tts/` 路径下自动扫描并装载模型。
 
 ---
 
