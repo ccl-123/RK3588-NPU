@@ -339,8 +339,8 @@ void FaceRegistrationDialog::on_capture_clicked() {
     
     // 播放提示音（采集成功后播放）
     if (captured_faces_.size() == 1) {
-        // 第一次采集成功，播放"正在注册人脸"提示
-        AudioManager::instance()->playSound(AudioType::RegisteringFace);
+        // 第一次采集成功，播放提示
+        AudioManager::instance()->speakText("正在录入人脸，请保持面部正对摄像头");
     }
 
     // 更新列表
@@ -450,8 +450,8 @@ void FaceRegistrationDialog::on_register_clicked() {
         spdlog::warn("Failed to reload feature library");
     }
 
-    // 播放注册成功音频
-    AudioManager::instance()->playSound(AudioType::RegistrationSuccess);
+    // 播报注册成功音频（带有用户姓名）
+    AudioManager::instance()->speakText(QString("恭喜 %1，人脸信息录入注册成功！").arg(name));
 
     QMessageBox::information(this, "成功",
         QString("注册成功！\n用户: %1\n特征数: %2")
@@ -478,7 +478,7 @@ bool FaceRegistrationDialog::check_face_quality(const cv::Mat& face_image, std::
 
     if (face_image.cols < 50 || face_image.rows < 50) {
         hint = "图像太小，请靠近摄像头";
-        AudioManager::instance()->playSound(AudioType::MoveCloser);
+        AudioManager::instance()->speakText("检测到人脸较小，请靠近摄像头");
         return false;
     }
 
@@ -495,13 +495,13 @@ bool FaceRegistrationDialog::check_face_quality(const cv::Mat& face_image, std::
 
     if (brightness < 50) {
         hint = "光线太暗，请改善照明";
-        AudioManager::instance()->playSound(AudioType::LowLight);
+        AudioManager::instance()->speakText("环境光线太暗，请改善照明后重试");
         return false;
     }
 
     if (brightness > 200) {
         hint = "光线太亮，请避免强光直射";
-        AudioManager::instance()->playSound(AudioType::LowLight);  // 可以复用 LowLight 或添加新音频
+        AudioManager::instance()->speakText("环境光线太亮，请避免强光直射");
         return false;
     }
 

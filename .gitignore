@@ -106,7 +106,7 @@ Session.vim
 # data/models/
 # data/face_feature_lib/
 **/data/model/sherpa-onnx-streaming-zipformer-zh-int8-*
-
+**/data/model/vits-piper-zh_CN-huayan-medium
 # 结果文件
 result.jpg
 result_*.jpg

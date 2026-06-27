@@ -288,6 +288,7 @@ if(Qt5_FOUND)
         src/gui_services/asr_service.cc
         src/gui_services/asr_service_cloud.cc
         src/gui_services/asr_service_local.cc
+        src/gui_services/tts_service_local.cc
     )
 
     set(GUI_UTILS_SOURCES
@@ -295,6 +296,7 @@ if(Qt5_FOUND)
         src/gui_utils/stack_router.cc
         src/gui_utils/audio_manager.cc
         src/gui_utils/config_manager.cc
+        src/gui_utils/alsa_player.cc
     )
 
     set(GUI_SOURCES

@@ -1186,13 +1186,14 @@ void DashboardPage::setup_ui() {
     connect(ai_input_, &QLineEdit::returnPressed, this, &DashboardPage::on_ai_input_send);
     input_layout->addWidget(ai_input_, 1);
 
-    // ASR 本地/云端切换。checked=true 表示本地 ASR。
-    asr_backend_toggle_btn_ = new QPushButton(tr("云端ASR"), input_row);
+    // ASR 本地/云端切换。默认设为本地 ASR (checked=true)
+    asr_backend_toggle_btn_ = new QPushButton(tr("本地ASR"), input_row);
     asr_backend_toggle_btn_->setObjectName("AsrBackendToggle");
     asr_backend_toggle_btn_->setCheckable(true);
+    asr_backend_toggle_btn_->setChecked(true);
     asr_backend_toggle_btn_->setMinimumWidth(82);
     asr_backend_toggle_btn_->setCursor(Qt::PointingHandCursor);
-    asr_backend_toggle_btn_->setToolTip(tr("点击切换到本地 ASR"));
+    asr_backend_toggle_btn_->setToolTip(tr("点击切换到云端 ASR"));
     connect(asr_backend_toggle_btn_, &QPushButton::toggled,
             this, &DashboardPage::on_asr_backend_toggled);
     input_layout->addWidget(asr_backend_toggle_btn_);

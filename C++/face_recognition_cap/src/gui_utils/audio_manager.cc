@@ -41,11 +41,30 @@ AudioManager::AudioManager(QObject* parent)
     , volume_task_running_(false)
     , last_applied_volume_(-1) {
 
-    // 延迟检测设备，避免阻塞构造函数
+    // 延迟检测设备与初始化离线 TTS，避免阻塞构造函数
     QTimer::singleShot(0, this, [this]() {
         detectAlsaDevice();
         current_device_ = alsa_device_;
         spdlog::info("AudioManager: Using ALSA device: {}", alsa_device_.toStdString());
+
+        // 自动定位并初始化离线 TTS 模型
+        const QString appDir = QCoreApplication::applicationDirPath();
+        const QString cwd = QDir::currentPath();
+        QStringList possibleModelPaths = {
+            appDir + "/data/model/vits-piper-zh_CN-huayan-medium",
+            appDir + "/../data/model/vits-piper-zh_CN-huayan-medium",
+            appDir + "/../../data/model/vits-piper-zh_CN-huayan-medium",
+            cwd + "/data/model/vits-piper-zh_CN-huayan-medium",
+            cwd + "/install/face_recognition_cap/data/model/vits-piper-zh_CN-huayan-medium",
+            cwd + "/C++/face_recognition_cap/install/face_recognition_cap/data/model/vits-piper-zh_CN-huayan-medium"
+        };
+        for (const QString& mpath : possibleModelPaths) {
+            QDir d(QDir::cleanPath(mpath));
+            if (d.exists()) {
+                tts_service_.Initialize(d.absolutePath().toStdString());
+                break;
+            }
+        }
     });
 
     connect(aplay_process_, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
@@ -154,52 +173,48 @@ void AudioManager::playSoundInternal(const QString& audioFile) {
     }
 }
 
-void AudioManager::playSound(AudioType type) {
-    QString filePath = audioPath(type);
-    playSound(filePath);
+void AudioManager::playSound(AudioType type, const QString& userName) {
+    QString prefix = userName.isEmpty() ? "" : userName + "，";
+    switch (type) {
+        case AudioType::CheckInSuccess:
+            speakText(prefix.isEmpty() ? "签到成功" : prefix + "签到成功，工作辛苦了！");
+            break;
+        case AudioType::AlreadyCheckedIn:
+            speakText(prefix.isEmpty() ? "您已完成签到，请勿重复刷脸" : prefix + "您已完成签到，请勿重复刷脸。");
+            break;
+        case AudioType::CheckOutSuccess:
+            speakText(prefix.isEmpty() ? "签退成功" : prefix + "签退成功，祝您生活愉快！");
+            break;
+        case AudioType::AlreadyCheckedOut:
+            speakText(prefix.isEmpty() ? "您已完成签退，请勿重复刷脸" : prefix + "您已完成签退，请勿重复刷脸。");
+            break;
+        case AudioType::RegistrationSuccess:
+            speakText(prefix.isEmpty() ? "人脸信息注册成功" : "恭喜 " + prefix + "人脸信息录入注册成功！");
+            break;
+        case AudioType::RegisteringFace:
+            speakText("正在录入人脸，请保持面部正对摄像头");
+            break;
+        case AudioType::LowLight:
+            speakText("环境光线太暗，请改善照明");
+            break;
+        case AudioType::MoveCloser:
+            speakText("请靠近摄像头");
+            break;
+        case AudioType::DoNotBlock:
+            speakText("请不要遮挡面部");
+            break;
+        case AudioType::StrangerDetected:
+            speakText("发现未注册人员，请先完成人脸注册");
+            break;
+        default:
+            speakText("操作成功");
+            break;
+    }
 }
 
 QString AudioManager::audioPath(AudioType type) {
-    QString basePath = getAudioBasePath();
-    
-    QString fileName;
-    switch (type) {
-        case AudioType::CheckInSuccess:
-            fileName = "check_in_success.wav";
-            break;
-        case AudioType::AlreadyCheckedIn:
-            fileName = "already_checked_in.wav";
-            break;
-        case AudioType::CheckOutSuccess:
-            fileName = "check_out_success.wav";
-            break;
-        case AudioType::AlreadyCheckedOut:
-            fileName = "already_checked_out.wav";
-            break;
-        case AudioType::RegistrationSuccess:
-            fileName = "registration_success.wav";
-            break;
-        case AudioType::RegisteringFace:
-            fileName = "registering_face.wav";
-            break;
-        case AudioType::LowLight:
-            fileName = "low_light.wav";
-            break;
-        case AudioType::MoveCloser:
-            fileName = "move_closer.wav";
-            break;
-        case AudioType::DoNotBlock:
-            fileName = "do_not_block.wav";
-            break;
-        case AudioType::StrangerDetected:
-            fileName = "stranger_detected.wav";
-            break;
-        default:
-            fileName = "check_in_success.wav";
-            break;
-    }
-    
-    return basePath + "/" + fileName;
+    Q_UNUSED(type);
+    return QString();
 }
 
 QStringList AudioManager::availableDevices() const {
@@ -647,3 +662,10 @@ void AudioManager::onVolumeTaskFinished(int appliedVolume) {
         applyAlsaVolume(nextVolume);
     }
 }
+
+void AudioManager::speakText(const QString& text) {
+    if (text.isEmpty()) return;
+    spdlog::info("AudioManager: 触发动态 TTS 实时播报: {}", text.toStdString());
+    tts_service_.SpeakAsync(text.toStdString());
+}
+

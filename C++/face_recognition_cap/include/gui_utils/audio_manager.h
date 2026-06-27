@@ -24,6 +24,7 @@
 #include <QThread>
 #include <chrono>
 #include <map>
+#include "gui_services/tts_service_local.h"
 
 /**
  * @brief 音频类型枚举
@@ -61,16 +62,23 @@ public:
     static AudioManager* instance();
 
     /**
-     * @brief 播放音频（加入队列）
+     * @brief 播放音频（加入队列，支持跨线程 invokeMethod 调用）
      * @param audioFile 音频文件路径（相对或绝对路径）
      */
-    void playSound(const QString& audioFile);
+    Q_INVOKABLE void playSound(const QString& audioFile);
 
     /**
-     * @brief 播放指定类型的音频
+     * @brief 播放指定类型的音频（支持传入用户姓名进行智能称呼）
      * @param type 音频类型
+     * @param userName 用户姓名（可选）
      */
-    void playSound(AudioType type);
+    Q_INVOKABLE void playSound(AudioType type, const QString& userName = "");
+
+    /**
+     * @brief 动态实时合成并播放文本 (流式离线 TTS)
+     * @param text 文本内容
+     */
+    Q_INVOKABLE void speakText(const QString& text);
 
     /**
      * @brief 获取音频类型对应的文件路径
@@ -245,4 +253,5 @@ private:
     bool volume_task_running_;        ///< 音量设置任务进行中
     int last_applied_volume_;         ///< 最近一次应用的音量
     std::map<AudioType, std::chrono::steady_clock::time_point> last_audio_play_times_; // 各音频类型冷却时间
+    gui_services::TtsServiceLocal tts_service_; ///< 离线 TTS 实时流式合成服务
 };

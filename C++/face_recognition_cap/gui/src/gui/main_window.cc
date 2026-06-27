@@ -328,11 +328,9 @@ bool MainWindow::finish_initialization_after_core() {
                                   duration, STRANGER_CONFIRM_DURATION_MS);
             
                     if (duration >= STRANGER_CONFIRM_DURATION_MS) {
-                        // 持续检测到陌生人超过 2 秒，播放提示音
-                        if (AudioManager::instance()->playSoundWithCooldown(
-                                AudioType::StrangerDetected, STRANGER_AUDIO_COOLDOWN_MS)) {
-                            spdlog::info("Stranger confirmed after {}ms, played audio", duration);
-                        }
+                        // 持续检测到陌生人超过 2 秒，触发语音提醒
+                        AudioManager::instance()->speakText("发现未注册人员，请先进行人脸录入注册！");
+                        spdlog::info("Stranger confirmed after {}ms, played audio", duration);
                 
                         // 重置陌生人检测状态
                         stranger_detection_.is_detecting = false;
@@ -435,13 +433,13 @@ bool MainWindow::finish_initialization_after_core() {
             spdlog::info("User confirmed after {}ms: {} (similarity: {:.2f}, type: {}, is_new: {})",
                         duration, result.user_name, user_detection.max_similarity, type_str, is_new_attendance);
 
-            // 如果是新考勤记录（签到或签退），显示提示
+            // 如果是新考勤记录（签到或签退），显示提示并称呼姓名进行播报
             if (is_new_attendance) {
-                // 根据类型播放不同音频
+                QString name_str = QString::fromStdString(result.user_name);
                 if (check_type == 2) {  // CHECK_OUT
-                    AudioManager::instance()->playSound(AudioType::CheckOutSuccess);
+                    AudioManager::instance()->speakText(QString("%1，签退成功，祝您生活愉快！").arg(name_str));
                 } else {  // CHECK_IN
-                    AudioManager::instance()->playSound(AudioType::CheckInSuccess);
+                    AudioManager::instance()->speakText(QString("%1，签到成功，工作辛苦了！").arg(name_str));
                 }
                 
                 // 在主线程更新 UI
@@ -453,15 +451,12 @@ bool MainWindow::finish_initialization_after_core() {
                                           Q_ARG(int, check_type),
                                           Q_ARG(int, attendance_status));
             } else {
-                // 重复打卡 - 使用独立的冷却机制避免频繁播放
-                // 根据打卡类型选择对应的音频类型（签到和签退分别冷却）
-                AudioType audio_type = (check_type == 2) ? 
-                    AudioType::AlreadyCheckedOut : AudioType::AlreadyCheckedIn;
-                
-                // 检查该类型音频的独立冷却时间
-                if (AudioManager::instance()->playSoundWithCooldown(
-                        audio_type, DUPLICATE_CHECK_COOLDOWN_MS)) {
-                    spdlog::debug("Played duplicate {} audio", type_str);
+                // 重复打卡 - 带人名智能称呼提示
+                QString name_str = QString::fromStdString(result.user_name);
+                if (check_type == 2) {
+                    AudioManager::instance()->speakText(QString("%1，您已完成签退，请勿重复刷脸。").arg(name_str));
+                } else {
+                    AudioManager::instance()->speakText(QString("%1，您已完成签到，请勿重复刷脸。").arg(name_str));
                 }
             }
         }

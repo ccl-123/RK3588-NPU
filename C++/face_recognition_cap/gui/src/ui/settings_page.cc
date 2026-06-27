@@ -560,7 +560,7 @@ void SettingsPage::setup_ui() {
     });
     
     connect(test_audio_btn_, &QPushButton::clicked, this, [this]() {
-        AudioManager::instance()->playSound(AudioType::CheckInSuccess);
+        AudioManager::instance()->speakText("声音系统测试正常，离线语音合成功能工作正常。");
     });
     
     connect(audio_enabled_check_, &QCheckBox::toggled, this, [this](bool checked) {

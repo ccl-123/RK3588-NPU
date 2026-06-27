@@ -181,7 +181,7 @@ private:
     // 识别状态
     std::atomic<bool> transcribing_{false};
 
-    std::atomic<AsrBackendMode> backend_mode_{AsrBackendMode::Cloud};
+    std::atomic<AsrBackendMode> backend_mode_{AsrBackendMode::Local};
 
     // 本地 Sherpa 模型和流式解码
 #if ENABLE_LOCAL_SHERPA_ASR

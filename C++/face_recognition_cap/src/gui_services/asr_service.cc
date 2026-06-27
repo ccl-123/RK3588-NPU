@@ -190,6 +190,11 @@ AsrService::AsrService(QObject* parent)
     } else {
         spdlog::info("MiMo ASR API Key loaded (length: {})", std::strlen(api_key));
     }
+
+    // 默认开启本地离线 ASR，在系统初始化时自动触发出后台异步加载
+#if ENABLE_LOCAL_SHERPA_ASR
+    loadLocalRecognizer();
+#endif
 }
 
 AsrService::~AsrService() {
@@ -253,7 +258,7 @@ void AsrService::setBackendMode(AsrBackendMode mode) {
 
     backend_mode_ = AsrBackendMode::Cloud;
     emit backendModeChanged(mode);
-    releaseLocalRecognizer();
+    cancelLocalSession();
 }
 
 void AsrService::releaseForPageLeave() {
