@@ -95,13 +95,17 @@ bool AsrService::loadLocalRecognizer() {
     emit asrError(QStringLiteral("当前构建未启用本地 ASR"));
     return false;
 #else
-    if (local_ready_.load()) {
-        return true;
-    }
-    if (local_loading_.exchange(true)) {
+    if (local_ready_) {
+        spdlog::info("Local ASR: Recognizer already loaded and ready.");
         return true;
     }
 
+    if (local_loading_) {
+        spdlog::info("Local ASR: Recognizer is currently loading in background thread, skipping duplicate load request.");
+        return true;
+    }
+
+    local_loading_ = true;
     emit localLoadingChanged(true);
     QString missing;
     if (!local_model_files_exist(&missing)) {

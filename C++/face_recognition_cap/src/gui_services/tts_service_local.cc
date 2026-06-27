@@ -28,28 +28,34 @@ TtsServiceLocal::~TtsServiceLocal() {
 bool TtsServiceLocal::Initialize(const std::string &model_dir) {
   if (initialized_) return true;
 
-  sherpa_onnx::cxx::OfflineTtsConfig config;
-  config.model.vits.model = model_dir + "/zh_CN-huayan-medium.onnx";
-  config.model.vits.tokens = model_dir + "/tokens.txt";
-  config.model.vits.data_dir = model_dir + "/espeak-ng-data";
-  config.model.num_threads = 2;
-  config.max_num_sentences = 1;
+  model_dir_ = model_dir;
+  running_ = true;
+  initialized_ = true; // 开启服务状态，模型在 Worker 线程后台异步加载，0 阻塞主界面
 
-  try {
-    tts_ = std::make_unique<sherpa_onnx::cxx::OfflineTts>(sherpa_onnx::cxx::OfflineTts::Create(config));
-    
-    running_ = true;
-    worker_thread_ = std::thread(&TtsServiceLocal::WorkerLoop, this);
-    initialized_ = true;
-    spdlog::info("[TtsServiceLocal] 独占 Worker 线程启动，离线 TTS 引擎初始化成功！采样率: {} Hz", tts_->SampleRate());
-    return true;
-  } catch (const std::exception &e) {
-    spdlog::error("[TtsServiceLocal] 初始化失败: {}", e.what());
-    return false;
-  }
+  worker_thread_ = std::thread(&TtsServiceLocal::WorkerLoop, this);
+  spdlog::info("[TtsServiceLocal] 异步 Worker 线程已启动，后台加载 TTS 模型: {}", model_dir_);
+  return true;
 }
 
 void TtsServiceLocal::WorkerLoop() {
+  // 在专职后台 Worker 线程中异步加载离线 TTS 模型，避免阻塞主线程及视频拉起
+  if (!model_dir_.empty() && !tts_) {
+    try {
+      sherpa_onnx::cxx::OfflineTtsConfig config;
+      config.model.vits.model = model_dir_ + "/zh_CN-huayan-medium.onnx";
+      config.model.vits.tokens = model_dir_ + "/tokens.txt";
+      config.model.vits.data_dir = model_dir_ + "/espeak-ng-data";
+      config.model.num_threads = 2;
+      config.max_num_sentences = 1;
+
+      tts_ = std::make_unique<sherpa_onnx::cxx::OfflineTts>(sherpa_onnx::cxx::OfflineTts::Create(config));
+      model_ready_ = true;
+      spdlog::info("[TtsServiceLocal] 后台离线 TTS 引擎加载成功！采样率: {} Hz", tts_->SampleRate());
+    } catch (const std::exception &e) {
+      spdlog::error("[TtsServiceLocal] 后台加载 TTS 模型失败: {}", e.what());
+    }
+  }
+
   while (running_) {
     TtsTask task;
     {
@@ -65,7 +71,7 @@ void TtsServiceLocal::WorkerLoop() {
       stop_requested_ = false;
     }
 
-    if (task.text.empty() || !tts_) continue;
+    if (task.text.empty() || !tts_ || !model_ready_) continue;
 
     try {
       sherpa_onnx::cxx::GenerationConfig gen_config;
@@ -100,8 +106,8 @@ void TtsServiceLocal::Stop() {
 }
 
 void TtsServiceLocal::SpeakAsync(const std::string &text, int32_t speaker_id, float speed) {
-  if (!initialized_ || !tts_) {
-    spdlog::warn("[TtsServiceLocal] 服务未初始化，无法合成");
+  if (!initialized_) {
+    spdlog::warn("[TtsServiceLocal] 服务未启动");
     return;
   }
 

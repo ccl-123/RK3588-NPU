@@ -521,7 +521,7 @@ void MainWindow::initialize_async(const std::string& retinaface_model,
     camera_id_ = camera_id;
 
     if (recognition_page_) {
-        recognition_page_->setSystemStatus(tr("初始化中..."));
+        recognition_page_->setSystemStatus(tr("系统及语音/NPU模型初始化中..."));
     }
 
     const float recognition_threshold = ConfigManager::instance()->getRecognitionThreshold();
@@ -619,7 +619,7 @@ void MainWindow::initialize_async(const std::string& retinaface_model,
                 }
 
                 if (recognition_page_) {
-                    recognition_page_->setSystemStatus(tr("就绪"));
+                    recognition_page_->setSystemStatus(tr("系统及语音服务已就绪"));
                 }
 
                 // 自动启动识别（初始化完成后，且摄像头可用）
