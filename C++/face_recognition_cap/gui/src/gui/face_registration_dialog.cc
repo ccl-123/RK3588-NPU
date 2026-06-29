@@ -270,12 +270,14 @@ void FaceRegistrationDialog::update_preview() {
 
 void FaceRegistrationDialog::on_capture_clicked() {
     if (captured_faces_.size() >= MAX_FACES) {
+        AudioManager::instance()->playSound(AudioType::RegistrationMaxFaces);
         QMessageBox::information(this, "提示",
             QString("已达到最大采集数量 %1").arg(MAX_FACES));
         return;
     }
 
     if (!recognition_app_) {
+        AudioManager::instance()->playSound(AudioType::RegistrationServiceUnavailable);
         QMessageBox::critical(this, "错误", "识别引擎未初始化");
         return;
     }
@@ -289,6 +291,7 @@ void FaceRegistrationDialog::on_capture_clicked() {
     }
 
     if (frame.empty()) {
+        AudioManager::instance()->playSound(AudioType::RegistrationNoFrame);
         QMessageBox::warning(this, "警告", "无法获取摄像头画面");
         return;
     }
@@ -296,11 +299,13 @@ void FaceRegistrationDialog::on_capture_clicked() {
     current_frame_ = frame;
 
     if (samples.empty()) {
+        AudioManager::instance()->playSound(AudioType::RegistrationNoFace);
         QMessageBox::warning(this, "警告", "未检测到人脸，请调整位置和光线");
         return;
     }
 
     if (samples.size() > 1) {
+        AudioManager::instance()->playSound(AudioType::RegistrationMultiFace);
         QMessageBox::warning(this, "警告",
             QString("检测到 %1 张人脸，请确保画面中只有一个人").arg(samples.size()));
         return;
@@ -329,6 +334,7 @@ void FaceRegistrationDialog::on_capture_clicked() {
     }
 
     if (samples[0].feature.empty()) {
+        AudioManager::instance()->playSound(AudioType::RegistrationFeatureFailed);
         QMessageBox::warning(this, "警告", "特征提取失败，请重试");
         return;
     }
@@ -337,10 +343,17 @@ void FaceRegistrationDialog::on_capture_clicked() {
     captured_faces_.push_back(face_img);
     captured_features_.push_back(samples[0].feature);
     
-    // 播放提示音（采集成功后播放）
-    if (captured_faces_.size() == 1) {
-        // 第一次采集成功，播放提示
-        AudioManager::instance()->speakText("正在录入人脸，请保持面部正对摄像头");
+    const int captured_count = static_cast<int>(captured_faces_.size());
+    if (captured_count < MIN_FACES) {
+        AudioManager::instance()->speakText(
+            QString("已采集第 %1 张，还需要 %2 张").arg(captured_count).arg(MIN_FACES - captured_count));
+    } else if (captured_count == MIN_FACES) {
+        AudioManager::instance()->playSound(AudioType::RegistrationReadyToSubmit);
+    } else if (captured_count >= MAX_FACES) {
+        AudioManager::instance()->playSound(AudioType::RegistrationMaxFaces);
+    } else {
+        AudioManager::instance()->speakText(
+            QString("已采集第 %1 张，可以继续采集或点击注册").arg(captured_count));
     }
 
     // 更新列表
@@ -372,17 +385,20 @@ void FaceRegistrationDialog::on_delete_clicked() {
 void FaceRegistrationDialog::on_register_clicked() {
     QString name = name_edit_->text().trimmed();
     if (name.isEmpty()) {
+        AudioManager::instance()->playSound(AudioType::RegistrationNeedName);
         QMessageBox::warning(this, "警告", "请输入姓名");
         return;
     }
 
     if (captured_faces_.size() < MIN_FACES) {
+        AudioManager::instance()->playSound(AudioType::RegistrationNeedMoreFaces);
         QMessageBox::warning(this, "警告",
             QString("至少需要采集 %1 张人脸照片").arg(MIN_FACES));
         return;
     }
 
     if (!user_service_) {
+        AudioManager::instance()->playSound(AudioType::RegistrationServiceUnavailable);
         QMessageBox::critical(this, "错误", "用户服务未初始化");
         return;
     }
@@ -395,6 +411,7 @@ void FaceRegistrationDialog::on_register_clicked() {
     );
 
     if (!result.success) {
+        AudioManager::instance()->playSound(AudioType::RegistrationCreateFailed);
         QMessageBox::critical(this, "错误",
             QString("创建用户失败: %1").arg(QString::fromStdString(result.message)));
         return;
@@ -413,6 +430,7 @@ void FaceRegistrationDialog::on_register_clicked() {
     }
 
     if (success_count == 0) {
+        AudioManager::instance()->playSound(AudioType::RegistrationFeatureSaveFailed);
         QMessageBox::critical(this, "错误", "保存人脸特征失败");
         user_service_->delete_user(user_id);  // 回滚
         return;
@@ -451,7 +469,7 @@ void FaceRegistrationDialog::on_register_clicked() {
     }
 
     // 播报注册成功音频（带有用户姓名）
-    AudioManager::instance()->speakText(QString("恭喜 %1，人脸信息录入注册成功！").arg(name));
+    AudioManager::instance()->playSound(AudioType::RegistrationSuccess, name);
 
     QMessageBox::information(this, "成功",
         QString("注册成功！\n用户: %1\n特征数: %2")

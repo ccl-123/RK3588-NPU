@@ -209,6 +209,60 @@ void AudioManager::playSound(AudioType type, const QString& userName) {
         case AudioType::StrangerDetected:
             speakText("发现未注册人员，请先完成人脸注册");
             break;
+        case AudioType::RegistrationStarted:
+            speakText("进入人脸录入，请输入用户信息，并保持面部正对摄像头");
+            break;
+        case AudioType::RegistrationNoFrame:
+            speakText("无法获取摄像头画面，请检查摄像头连接");
+            break;
+        case AudioType::RegistrationNoFace:
+            speakText("未检测到人脸，请正对摄像头并调整光线");
+            break;
+        case AudioType::RegistrationMultiFace:
+            speakText("检测到多张人脸，请确保画面中只有一个人");
+            break;
+        case AudioType::RegistrationFeatureFailed:
+            speakText("特征提取失败，请保持面部清晰后重试");
+            break;
+        case AudioType::RegistrationNeedName:
+            speakText("请输入姓名后再注册");
+            break;
+        case AudioType::RegistrationNeedMoreFaces:
+            speakText("至少需要采集三张人脸照片");
+            break;
+        case AudioType::RegistrationServiceUnavailable:
+            speakText("注册服务未就绪，暂时无法注册");
+            break;
+        case AudioType::RegistrationCreateFailed:
+            speakText("创建用户失败，请检查用户信息");
+            break;
+        case AudioType::RegistrationFeatureSaveFailed:
+            speakText("保存人脸特征失败，请重新采集");
+            break;
+        case AudioType::RegistrationReadyToSubmit:
+            speakText("采集数量已满足，可以点击注册");
+            break;
+        case AudioType::RegistrationMaxFaces:
+            speakText("已达到最大采集数量，可以点击注册");
+            break;
+        case AudioType::SystemReady:
+            speakText("系统已就绪，开始识别");
+            break;
+        case AudioType::SystemInitFailed:
+            speakText("系统初始化失败，请检查模型和数据库配置");
+            break;
+        case AudioType::CameraDisconnected:
+            speakText("摄像头已断开，请检查连接或在设置中重新选择摄像头");
+            break;
+        case AudioType::CameraSwitchSuccess:
+            speakText("摄像头切换成功");
+            break;
+        case AudioType::CameraSwitchFailed:
+            speakText("摄像头初始化失败，请检查设备连接");
+            break;
+        case AudioType::MultipleFacesDetected:
+            speakText("检测到多人，请一次只站一人");
+            break;
         default:
             speakText("操作成功");
             break;

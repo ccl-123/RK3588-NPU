@@ -39,7 +39,25 @@ enum class AudioType {
     LowLight,              // 光线太暗
     MoveCloser,            // 请靠近
     DoNotBlock,            // 不要遮挡
-    StrangerDetected       // 陌生人/人脸未注册
+    StrangerDetected,      // 陌生人/人脸未注册
+    RegistrationStarted,   // 开始注册
+    RegistrationNoFrame,   // 注册时无摄像头画面
+    RegistrationNoFace,    // 注册时未检测到人脸
+    RegistrationMultiFace, // 注册时检测到多人
+    RegistrationFeatureFailed, // 注册特征提取失败
+    RegistrationNeedName,  // 注册缺少姓名
+    RegistrationNeedMoreFaces, // 注册采集数量不足
+    RegistrationServiceUnavailable, // 注册服务不可用
+    RegistrationCreateFailed, // 创建用户失败
+    RegistrationFeatureSaveFailed, // 保存人脸特征失败
+    RegistrationReadyToSubmit, // 采集数量满足注册
+    RegistrationMaxFaces,  // 达到最大采集数量
+    SystemReady,           // 系统就绪
+    SystemInitFailed,      // 系统初始化失败
+    CameraDisconnected,    // 摄像头断开/不可用
+    CameraSwitchSuccess,   // 摄像头切换成功
+    CameraSwitchFailed,    // 摄像头切换失败
+    MultipleFacesDetected  // 识别时检测到多人
 };
 
 /**

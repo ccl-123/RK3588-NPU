@@ -582,6 +582,7 @@ void MainWindow::initialize_async(const std::string& retinaface_model,
                     if (recognition_page_) {
                         recognition_page_->setSystemStatus(tr("初始化失败"));
                     }
+                    AudioManager::instance()->playSound(AudioType::SystemInitFailed);
                     QMessageBox::critical(this, tr("错误"), error_message);
                     spdlog::error("System initialization failed: {}", error_message.toStdString());
                     QCoreApplication::exit(-1);
@@ -593,6 +594,7 @@ void MainWindow::initialize_async(const std::string& retinaface_model,
                 recognition_app_ = std::move(payload->recognition_app);
 
                 if (!finish_initialization_after_core()) {
+                    AudioManager::instance()->playSound(AudioType::SystemInitFailed);
                     QMessageBox::critical(this, tr("错误"), tr("系统初始化失败"));
                     spdlog::error("finish_initialization_after_core failed");
                     QCoreApplication::exit(-1);
@@ -608,6 +610,7 @@ void MainWindow::initialize_async(const std::string& retinaface_model,
                         recognition_page_->setSystemStatus(tr("就绪 (摄像头未连接)"));
                     }
 
+                    AudioManager::instance()->playSound(AudioType::CameraDisconnected);
                     // 显示友好提示，但不阻止应用启动
                     QMessageBox::warning(this, tr("摄像头未连接"),
                         tr("摄像头初始化失败：\n%1\n\n"
@@ -621,6 +624,7 @@ void MainWindow::initialize_async(const std::string& retinaface_model,
                 if (recognition_page_) {
                     recognition_page_->setSystemStatus(tr("系统及语音服务已就绪"));
                 }
+                AudioManager::instance()->playSound(AudioType::SystemReady);
 
                 // 自动启动识别（初始化完成后，且摄像头可用）
                 start_recognition();
@@ -1239,6 +1243,8 @@ void MainWindow::handle_camera_runtime_failure(const QString& error_message, boo
         recognition_page_->updateDetectionStatus(tr("摄像头已断开"), -1);
     }
 
+    AudioManager::instance()->playSound(AudioType::CameraDisconnected);
+
     if (side_menu_) {
         side_menu_->setActiveKey("settings");
     } else if (router_) {
@@ -1332,6 +1338,7 @@ void MainWindow::on_frame_ready(const cv::Mat& frame, const std::vector<Recognit
             recognition_page_->setRecognitionSummary(
                 tr("识别到 %1 位用户: %2").arg(recognized_count).arg(recognized_names.join("、")));
             recognition_page_->updateDetectionStatus(tr("多人识别中: %1 位").arg(recognized_count), -1);
+            AudioManager::instance()->playSoundWithCooldown(AudioType::MultipleFacesDetected, 5000);
 
             if (last_displayed_user_id_ != -2) {
                 last_displayed_user_id_ = -2;
@@ -1582,6 +1589,7 @@ void MainWindow::on_action_exit() {
 
 void MainWindow::apply_camera_settings(int deviceId) {
     if (!recognition_app_) {
+        AudioManager::instance()->playSound(AudioType::SystemInitFailed);
         QMessageBox::warning(this, tr("错误"), tr("识别系统未初始化"));
         return;
     }
@@ -1605,6 +1613,7 @@ void MainWindow::apply_camera_settings(int deviceId) {
     if (success) {
         spdlog::info("Camera reinitialized successfully: /dev/video{}", deviceId);
         restart_recognition_after_camera_recovery_ = false;
+        AudioManager::instance()->playSound(AudioType::CameraSwitchSuccess);
         QMessageBox::information(this, tr("成功"),
             tr("摄像头已切换到 /dev/video%1").arg(deviceId));
 
@@ -1616,6 +1625,7 @@ void MainWindow::apply_camera_settings(int deviceId) {
     } else {
         std::string error = recognition_app_->get_camera_error();
         spdlog::error("Failed to reinitialize camera: {}", error);
+        AudioManager::instance()->playSound(AudioType::CameraSwitchFailed);
         QMessageBox::critical(this, tr("错误"),
             tr("摄像头初始化失败：\n%1\n\n请检查设备连接或选择其他摄像头。")
             .arg(QString::fromStdString(error)));
@@ -1638,6 +1648,7 @@ void MainWindow::on_action_register_face() {
 
     // 清空音频队列，避免注册时还在播放陌生人提示音
     AudioManager::instance()->clearQueue();
+    AudioManager::instance()->playSound(AudioType::RegistrationStarted);
     spdlog::debug("Cleared audio queue before face registration");
 
     // 创建并显示注册对话框
