@@ -256,8 +256,6 @@ set(AGENT_SOURCES
 set(TOOLS_SOURCES
     src/tools/attendance_tool.cc
     src/tools/department_attendance_tool.cc
-    src/tools/attendance_ranking_tool.cc
-    src/tools/missing_attendance_tool.cc
     src/tools/user_attendance_tool.cc
     src/tools/user_tool.cc
     src/tools/system_tool.cc
@@ -296,7 +294,6 @@ if(Qt5_FOUND)
         src/gui_utils/stack_router.cc
         src/gui_utils/audio_manager.cc
         src/gui_utils/config_manager.cc
-        src/gui_utils/alsa_player.cc
     )
 
     set(GUI_SOURCES

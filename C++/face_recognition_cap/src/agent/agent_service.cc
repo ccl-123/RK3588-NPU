@@ -6,8 +6,6 @@
 #include "agent/agent_service.h"
 #include "tools/attendance_tool.h"
 #include "tools/department_attendance_tool.h"
-#include "tools/attendance_ranking_tool.h"
-#include "tools/missing_attendance_tool.h"
 #include "tools/user_attendance_tool.h"
 #include "tools/user_tool.h"
 #include "tools/system_tool.h"
