@@ -5,6 +5,7 @@
 #define GUI_SERVICES_TTS_SERVICE_LOCAL_H_
 
 #include <string>
+#include <cstdint>
 #include <memory>
 #include <thread>
 #include <mutex>
@@ -56,6 +57,7 @@ class TtsServiceLocal {
   
   std::atomic<bool> running_{false};
   std::atomic<bool> stop_requested_{false};
+  std::atomic<uint64_t> wav_sequence_{0};
 };
 
 }  // namespace gui_services

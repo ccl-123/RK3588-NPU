@@ -224,6 +224,8 @@ private:
      */
     void playNext();
 
+    bool isTtsTempFile(const QString& audioFile) const;
+    void removeTtsTempFile(const QString& audioFile);
     void detectAlsaDevice();
     void applyAlsaVolume(int volume);
     QStringList detectDevicesSync() const;

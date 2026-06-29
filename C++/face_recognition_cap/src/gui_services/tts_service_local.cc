@@ -6,6 +6,8 @@
 
 #include <iostream>
 #include <chrono>
+#include <cstdio>
+#include <cstdint>
 #include <QMetaObject>
 #include <QString>
 #include <spdlog/spdlog.h>
@@ -84,13 +86,17 @@ void TtsServiceLocal::WorkerLoop() {
         continue;
       }
 
-      // 写入 RAM 共享内存 tmpfs，极速无磨损
-      std::string ram_wav_path = "/dev/shm/tts_prompt.wav";
+      // 写入独立临时文件，避免 aplay 仍在读旧文件时被下一次 TTS 覆盖。
+      std::string ram_wav_path = "/dev/shm/tts_prompt_" +
+          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+          "_" + std::to_string(++wav_sequence_) + ".wav";
       int32_t ok = SherpaOnnxWriteWave(audio.samples.data(), audio.samples.size(), audio.sample_rate, ram_wav_path.c_str());
       if (ok && !stop_requested_) {
         QMetaObject::invokeMethod(AudioManager::instance(), "playSound",
                                   Qt::QueuedConnection,
                                   Q_ARG(QString, QString::fromStdString(ram_wav_path)));
+      } else if (ok) {
+        std::remove(ram_wav_path.c_str());
       }
     } catch (const std::exception &e) {
       spdlog::error("[TtsServiceLocal] Worker 线程合成异常: {}", e.what());

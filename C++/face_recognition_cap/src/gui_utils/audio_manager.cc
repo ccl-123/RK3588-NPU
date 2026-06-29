@@ -14,6 +14,7 @@
 #include "gui_utils/audio_manager.h"
 
 #include <QFileInfo>
+#include <QFile>
 #include <QDir>
 #include <QCoreApplication>
 #include <QProcess>
@@ -84,6 +85,8 @@ AudioManager::AudioManager(QObject* parent)
 }
 
 AudioManager::~AudioManager() {
+    tts_service_.Stop();
+
     // 先断开所有信号连接，防止回调触发死锁
     if (aplay_process_) {
         disconnect(aplay_process_, nullptr, this, nullptr);
@@ -396,20 +399,40 @@ void AudioManager::setEnabled(bool enabled) {
         return;
     }
 
-    QMutexLocker locker(&mutex_);
+    QString interrupted;
+    QStringList discarded;
+    bool stopTts = false;
+    {
+        QMutexLocker locker(&mutex_);
 
-    enabled_ = enabled;
+        enabled_ = enabled;
 
-    if (!enabled_) {
-        if (aplay_process_ && aplay_process_->state() != QProcess::NotRunning) {
-            aplay_process_->kill();
+        if (!enabled_) {
+            if (aplay_process_ && aplay_process_->state() != QProcess::NotRunning) {
+                aplay_process_->kill();
+            }
+            while (!audio_queue_.isEmpty()) {
+                QString queued = audio_queue_.dequeue();
+                if (isTtsTempFile(queued)) {
+                    discarded.append(queued);
+                }
+            }
+            is_playing_ = false;
+            interrupted = current_playing_;
+            current_playing_.clear();
+            stopTts = true;
         }
-        audio_queue_.clear();
-        is_playing_ = false;
-        current_playing_.clear();
     }
 
-    spdlog::info("AudioManager: Audio {} ", enabled_ ? "enabled" : "disabled");
+    if (stopTts) {
+        tts_service_.Stop();
+        removeTtsTempFile(interrupted);
+        for (const QString& audioFile : discarded) {
+            removeTtsTempFile(audioFile);
+        }
+    }
+
+    spdlog::info("AudioManager: Audio {} ", enabled ? "enabled" : "disabled");
 }
 
 bool AudioManager::isEnabled() const {
@@ -424,9 +447,20 @@ void AudioManager::clearQueue() {
         return;
     }
 
-    QMutexLocker locker(&mutex_);
-
-    audio_queue_.clear();
+    QStringList discarded;
+    {
+        QMutexLocker locker(&mutex_);
+        while (!audio_queue_.isEmpty()) {
+            QString queued = audio_queue_.dequeue();
+            if (isTtsTempFile(queued)) {
+                discarded.append(queued);
+            }
+        }
+    }
+    tts_service_.Stop();
+    for (const QString& audioFile : discarded) {
+        removeTtsTempFile(audioFile);
+    }
     spdlog::debug("AudioManager: Queue cleared");
 }
 
@@ -442,19 +476,23 @@ void AudioManager::stopPlayback() {
         return;
     }
 
-    QMutexLocker locker(&mutex_);
-
+    QString interrupted;
     try {
+        QMutexLocker locker(&mutex_);
         if (aplay_process_ && aplay_process_->state() != QProcess::NotRunning) {
             aplay_process_->kill();
         }
+
+        // 清理状态
+        is_playing_ = false;
+        interrupted = current_playing_;
+        current_playing_.clear();
     } catch (const std::exception& e) {
         spdlog::error("AudioManager: Error stopping playback: {}", e.what());
     }
 
-    // 清理状态
-    is_playing_ = false;
-    current_playing_.clear();
+    tts_service_.Stop();
+    removeTtsTempFile(interrupted);
     spdlog::debug("AudioManager: Playback stopped");
 }
 
@@ -474,6 +512,7 @@ void AudioManager::onProcessFinished(int exitCode, QProcess::ExitStatus status) 
                           exitCode, static_cast<int>(status), finished.toStdString());
             emit playbackError(finished, "aplay 播放失败");
         }
+        removeTtsTempFile(finished);
     }
 
     playNext();
@@ -490,8 +529,26 @@ void AudioManager::onProcessError(QProcess::ProcessError error) {
                   static_cast<int>(error), failed.toStdString());
     if (!failed.isEmpty()) {
         emit playbackError(failed, "aplay 进程错误");
+        removeTtsTempFile(failed);
     }
     playNext();
+}
+
+bool AudioManager::isTtsTempFile(const QString& audioFile) const {
+    QFileInfo fileInfo(audioFile);
+    return fileInfo.absolutePath() == "/dev/shm" &&
+           fileInfo.fileName().startsWith("tts_prompt_") &&
+           fileInfo.fileName().endsWith(".wav");
+}
+
+void AudioManager::removeTtsTempFile(const QString& audioFile) {
+    if (!isTtsTempFile(audioFile)) {
+        return;
+    }
+
+    if (!QFile::remove(audioFile)) {
+        spdlog::debug("AudioManager: Failed to remove TTS temp file: {}", audioFile.toStdString());
+    }
 }
 
 void AudioManager::playNext() {
@@ -665,7 +722,20 @@ void AudioManager::onVolumeTaskFinished(int appliedVolume) {
 
 void AudioManager::speakText(const QString& text) {
     if (text.isEmpty()) return;
+    if (QThread::currentThread() != this->thread()) {
+        QMetaObject::invokeMethod(this, "speakText",
+            Qt::QueuedConnection, Q_ARG(QString, text));
+        return;
+    }
+
+    {
+        QMutexLocker locker(&mutex_);
+        if (!enabled_) {
+            spdlog::debug("AudioManager: speakText called but audio is disabled");
+            return;
+        }
+    }
+
     spdlog::info("AudioManager: 触发动态 TTS 实时播报: {}", text.toStdString());
     tts_service_.SpeakAsync(text.toStdString());
 }
-
